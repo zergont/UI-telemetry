@@ -75,7 +75,7 @@ def _build_equipment_out(
     )
 
 
-@router.get("/", response_model=list[EquipmentOut])
+@router.get("", response_model=list[EquipmentOut])
 async def list_equipment(
     router_sn: str,
     pool: asyncpg.Pool = Depends(get_pool),

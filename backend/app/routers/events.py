@@ -11,7 +11,7 @@ from app.schemas.events import EventOut
 router = APIRouter(prefix="/api/events", tags=["events"])
 
 
-@router.get("/", response_model=list[EventOut])
+@router.get("", response_model=list[EventOut])
 async def get_events(
     router_sn: str | None = Query(None),
     equip_type: str | None = Query(None),

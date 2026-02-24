@@ -13,7 +13,7 @@ from app.schemas.history import HistoryPoint
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 
-@router.get("/", response_model=list[HistoryPoint])
+@router.get("", response_model=list[HistoryPoint])
 async def get_history(
     router_sn: str = Query(...),
     equip_type: str = Query(...),

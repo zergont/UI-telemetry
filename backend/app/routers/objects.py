@@ -26,7 +26,7 @@ def _object_status(equip_states: list[str]) -> str:
     return "STOP"
 
 
-@router.get("/", response_model=list[ObjectOut])
+@router.get("", response_model=list[ObjectOut])
 async def list_objects(
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
