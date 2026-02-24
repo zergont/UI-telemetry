@@ -14,7 +14,7 @@ auth:
 database:
   host: "localhost"
   port: 5432
-  name: "cg"
+  name: "cg_telemetry"
   admin_user: "cg_writer"
   admin_password: "YOUR_ADMIN_PASSWORD"
   ui_user: "cg_ui"
