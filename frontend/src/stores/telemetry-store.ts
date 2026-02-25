@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WsMessage } from "@/lib/ws";
+import type { WsMessage, TelemetryItem } from "@/lib/ws";
 
 interface RegisterValue {
   addr: number;
@@ -26,6 +26,7 @@ interface TelemetryState {
   connected: boolean;
 
   handleMessage: (msg: WsMessage) => void;
+  _applyTelemetryItem: (msg: TelemetryItem) => void;
   setConnected: (c: boolean) => void;
 }
 
@@ -36,6 +37,18 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   connected: false,
 
   handleMessage(msg: WsMessage) {
+    // Snapshot — массив закэшированных сообщений при подключении
+    if (msg.type === "snapshot" && "items" in msg) {
+      for (const item of msg.items) {
+        get()._applyTelemetryItem(item);
+      }
+      return;
+    }
+
+    get()._applyTelemetryItem(msg as TelemetryItem);
+  },
+
+  _applyTelemetryItem(msg: TelemetryItem) {
     if (msg.type === "telemetry" && msg.registers) {
       const key = makeEquipKey(
         msg.router_sn,

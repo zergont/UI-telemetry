@@ -34,6 +34,19 @@ class TelemetryHub:
         else:
             self._subscribers[router_sn].discard(queue)
 
+    def get_snapshot(self, router_sn: str | None = None) -> list[dict]:
+        """Возвращает последние закэшированные сообщения.
+
+        Если router_sn задан — только для этого объекта,
+        если None — все данные (для стартовой страницы).
+        """
+        if router_sn is None:
+            return list(self.cache.values())
+        return [
+            msg for (sn, _, _), msg in self.cache.items()
+            if sn == router_sn
+        ]
+
     async def publish(self, router_sn: str, message: dict) -> None:
         equip_type = message.get("equip_type", "")
         panel_id = message.get("panel_id", 0)

@@ -1,4 +1,4 @@
-export type WsMessage = {
+export type TelemetryItem = {
   type: "telemetry" | "status_change";
   router_sn: string;
   equip_type?: string;
@@ -15,6 +15,13 @@ export type WsMessage = {
   }>;
   status?: string;
 };
+
+export type SnapshotMessage = {
+  type: "snapshot";
+  items: TelemetryItem[];
+};
+
+export type WsMessage = TelemetryItem | SnapshotMessage;
 
 type WsOptions = {
   url: string;

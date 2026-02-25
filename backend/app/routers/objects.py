@@ -68,12 +68,39 @@ async def list_objects(
 async def get_object(
     router_sn: str,
     pool: asyncpg.Pool = Depends(get_pool),
+    settings: Settings = Depends(get_settings),
     _: str = Depends(verify_token),
 ):
     row = await fetch_object_by_sn(pool, router_sn)
     if not row:
         raise HTTPException(status_code=404, detail="Object not found")
-    return ObjectOut(**row)
+
+    # Рассчитать агрегированный статус (как в list_objects)
+    equips = await fetch_equipment_by_object(pool, row["router_sn"])
+    equip_states = []
+    for eq in equips:
+        metrics = await fetch_key_metrics(
+            pool, row["router_sn"], eq["equip_type"], eq["panel_id"],
+            settings.telemetry.key_registers,
+        )
+        state_reg = metrics.get(settings.telemetry.key_registers.engine_state)
+        state_text = state_reg["text"] if state_reg else None
+        last_upd = state_reg["updated_at"] if state_reg else None
+        equip_states.append(
+            derive_engine_state(state_text, last_upd, settings.telemetry.offline_timeout_sec)
+        )
+
+    return ObjectOut(
+        router_sn=row["router_sn"],
+        name=row.get("name"),
+        notes=row.get("notes"),
+        lat=row.get("lat"),
+        lon=row.get("lon"),
+        equipment_count=row.get("equipment_count", 0),
+        status=_object_status(equip_states),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+    )
 
 
 @router.patch("/{router_sn}")

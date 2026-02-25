@@ -354,9 +354,17 @@ function HistoryTab({
     "30d": 30 * 86400_000,
   };
 
-  const now = new Date();
-  const end = now.toISOString();
-  const start = new Date(now.getTime() - (rangeMs[range] || rangeMs["24h"])).toISOString();
+  // Стабилизируем start/end — пересчитываются только при смене range
+  const { start, end } = useMemo(() => {
+    const now = new Date();
+    // Округляем до минуты чтобы query key не менялся каждый ререндер
+    now.setSeconds(0, 0);
+    return {
+      start: new Date(now.getTime() - (rangeMs[range] || rangeMs["24h"])).toISOString(),
+      end: now.toISOString(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range]);
 
   const { data: history, isLoading } = useHistory(
     routerSn,

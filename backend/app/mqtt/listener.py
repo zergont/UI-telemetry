@@ -34,9 +34,10 @@ async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub) -> None:
                         router_sn = payload["router_sn"]
                         bserver_id = payload.get("bserver_id", 0)
 
-                        # Parse topic to extract equip_type
+                        # Parse topic: cg/v1/decoded/SN/<router_sn>/<equip_type>/<panel>
+                        # Индексы:     0  1  2       3   4            5             6
                         topic_parts = str(message.topic).split("/")
-                        equip_type = topic_parts[4] if len(topic_parts) > 4 else "pcc"
+                        equip_type = topic_parts[5] if len(topic_parts) > 5 else "pcc"
 
                         ws_message = {
                             "type": "telemetry",

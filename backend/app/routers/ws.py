@@ -30,6 +30,18 @@ async def websocket_endpoint(
     logger.info("WS client connected, subscribe=%s", subscribe)
 
     try:
+        # Сразу отправляем snapshot из кэша — клиент не ждёт новый MQTT пакет
+        snapshot = hub.get_snapshot(router_sn=subscribe)
+        if snapshot:
+            await websocket.send_json({
+                "type": "snapshot",
+                "items": snapshot,
+            })
+            logger.info(
+                "WS snapshot sent: %d items (subscribe=%s)",
+                len(snapshot), subscribe,
+            )
+
         send_task = asyncio.create_task(_ws_sender(websocket, queue))
         recv_task = asyncio.create_task(_ws_receiver(websocket))
         done, pending = await asyncio.wait(

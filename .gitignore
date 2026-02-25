@@ -20,3 +20,17 @@ frontend/.vite/
 .vscode/
 *.swp
 *.swo
+
+# Системный мусор Windows
+nul
+**/nul
+
+# Зависимости (не нужно хранить в Git)
+node_modules/
+__pycache__/
+*.pyc
+
+# Окружение и секреты
+.env
+venv/
+.venv
