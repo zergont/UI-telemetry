@@ -5,25 +5,36 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import verify_token
 from app.config import Settings, get_settings
-from app.db.queries.equipment import fetch_equipment_by_object, fetch_key_metrics
+from app.db.queries.equipment import fetch_equipment_by_object
 from app.db.queries.objects import fetch_all_objects, fetch_object_by_sn, update_object_name
 from app.deps import get_pool
 from app.schemas.objects import ObjectNameUpdate, ObjectOut
-from app.services.telemetry import derive_engine_state
+from app.services.telemetry import derive_connection_status
 
 router = APIRouter(prefix="/api/objects", tags=["objects"])
 
 
-def _object_status(equip_states: list[str]) -> str:
-    if not equip_states:
+def _aggregate_connection_status(statuses: list[str]) -> str:
+    """Агрегированный статус связи объекта по его оборудованию."""
+    if not statuses:
         return "OFFLINE"
-    if any(s == "ALARM" for s in equip_states):
-        return "ALARM"
-    if any(s == "RUN" for s in equip_states):
-        return "RUN"
-    if all(s == "OFFLINE" for s in equip_states):
-        return "OFFLINE"
-    return "STOP"
+    if any(s == "ONLINE" for s in statuses):
+        return "ONLINE"
+    if any(s == "DELAY" for s in statuses):
+        return "DELAY"
+    return "OFFLINE"
+
+
+async def _calc_object_status(
+    pool: asyncpg.Pool, router_sn: str, timeout: int,
+) -> str:
+    """Статус объекта = наличие связи по last_seen_at любого оборудования."""
+    equips = await fetch_equipment_by_object(pool, router_sn)
+    statuses = [
+        derive_connection_status(eq.get("last_seen_at"), timeout)
+        for eq in equips
+    ]
+    return _aggregate_connection_status(statuses)
 
 
 @router.get("", response_model=list[ObjectOut])
@@ -35,21 +46,9 @@ async def list_objects(
     rows = await fetch_all_objects(pool)
     results = []
     for row in rows:
-        # Fetch equipment statuses for this object
-        equips = await fetch_equipment_by_object(pool, row["router_sn"])
-        equip_states = []
-        for eq in equips:
-            metrics = await fetch_key_metrics(
-                pool, row["router_sn"], eq["equip_type"], eq["panel_id"],
-                settings.telemetry.key_registers,
-            )
-            state_reg = metrics.get(settings.telemetry.key_registers.engine_state)
-            state_text = state_reg["text"] if state_reg else None
-            last_upd = state_reg["updated_at"] if state_reg else None
-            equip_states.append(
-                derive_engine_state(state_text, last_upd, settings.telemetry.offline_timeout_sec)
-            )
-
+        status = await _calc_object_status(
+            pool, row["router_sn"], settings.telemetry.offline_timeout_sec,
+        )
         results.append(ObjectOut(
             router_sn=row["router_sn"],
             name=row.get("name"),
@@ -57,7 +56,7 @@ async def list_objects(
             lat=row.get("lat"),
             lon=row.get("lon"),
             equipment_count=row.get("equipment_count", 0),
-            status=_object_status(equip_states),
+            status=status,
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
         ))
@@ -75,21 +74,9 @@ async def get_object(
     if not row:
         raise HTTPException(status_code=404, detail="Object not found")
 
-    # Рассчитать агрегированный статус (как в list_objects)
-    equips = await fetch_equipment_by_object(pool, row["router_sn"])
-    equip_states = []
-    for eq in equips:
-        metrics = await fetch_key_metrics(
-            pool, row["router_sn"], eq["equip_type"], eq["panel_id"],
-            settings.telemetry.key_registers,
-        )
-        state_reg = metrics.get(settings.telemetry.key_registers.engine_state)
-        state_text = state_reg["text"] if state_reg else None
-        last_upd = state_reg["updated_at"] if state_reg else None
-        equip_states.append(
-            derive_engine_state(state_text, last_upd, settings.telemetry.offline_timeout_sec)
-        )
-
+    status = await _calc_object_status(
+        pool, row["router_sn"], settings.telemetry.offline_timeout_sec,
+    )
     return ObjectOut(
         router_sn=row["router_sn"],
         name=row.get("name"),
@@ -97,7 +84,7 @@ async def get_object(
         lat=row.get("lat"),
         lon=row.get("lon"),
         equipment_count=row.get("equipment_count", 0),
-        status=_object_status(equip_states),
+        status=status,
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
     )

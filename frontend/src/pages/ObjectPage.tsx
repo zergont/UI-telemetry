@@ -1,9 +1,10 @@
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, MapPin } from "lucide-react";
+import { ArrowLeft, MapPin, Clock } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useEquipment } from "@/hooks/use-equipment";
 import type { ObjectOut } from "@/hooks/use-objects";
+import { useTelemetryStore } from "@/stores/telemetry-store";
 import DguCard from "@/components/equipment/DguCard";
 import DguCardSkeleton from "@/components/equipment/DguCardSkeleton";
 import StatusBadge from "@/components/equipment/StatusBadge";
@@ -11,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ObjectPage() {
   const { routerSn } = useParams<{ routerSn: string }>();
+  const drift = useTelemetryStore((s) => s.drifts.get(routerSn!));
 
   const { data: object, isLoading: objLoading } = useQuery({
     queryKey: ["object", routerSn],
@@ -48,6 +50,19 @@ export default function ObjectPage() {
               <span className="flex items-center gap-1">
                 <MapPin className="h-3 w-3" />
                 {object.lat.toFixed(4)}, {object.lon.toFixed(4)}
+              </span>
+            )}
+            {drift != null && (
+              <span
+                className={`flex items-center gap-1 ${
+                  Math.abs(drift) > 10
+                    ? "text-amber-500"
+                    : "text-muted-foreground"
+                }`}
+                title={`Разница часов сервера и браузера: ${drift > 0 ? "+" : ""}${drift} сек. ${Math.abs(drift) > 10 ? "Рекомендуется синхронизировать NTP" : ""}`}
+              >
+                <Clock className="h-3 w-3" />
+                drift {drift > 0 ? "+" : ""}{drift}с
               </span>
             )}
           </div>

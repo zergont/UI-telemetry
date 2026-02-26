@@ -27,11 +27,37 @@ def is_na(raw: int | None, reason: str | None) -> bool:
     return False
 
 
+def derive_connection_status(
+    last_seen: datetime | None,
+    offline_timeout_sec: int,
+) -> str:
+    """Определяет статус связи по last_seen_at (любые данные).
+
+    ONLINE  — данные свежие (< offline_timeout)
+    DELAY   — данные устаревают (< 2 * offline_timeout)
+    OFFLINE — данных нет или сильно устарели (> 2 * offline_timeout)
+    """
+    if last_seen is None:
+        return "OFFLINE"
+
+    now = datetime.now(timezone.utc)
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+    age = (now - last_seen).total_seconds()
+    if age <= offline_timeout_sec:
+        return "ONLINE"
+    if age <= offline_timeout_sec * 2:
+        return "DELAY"
+    return "OFFLINE"
+
+
 def derive_engine_state(
     state_text: str | None,
     last_update: datetime | None,
     offline_timeout_sec: int,
 ) -> str:
+    """Определяет состояние двигателя по регистру 46109."""
     if last_update is None:
         return "OFFLINE"
 

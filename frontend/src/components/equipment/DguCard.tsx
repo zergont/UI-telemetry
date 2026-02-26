@@ -1,5 +1,7 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { Wifi, WifiOff } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
 import StatusBadge from "./StatusBadge";
@@ -10,6 +12,9 @@ import {
   fahrenheitToCelsius,
   secondsToMotohours,
 } from "@/lib/conversions";
+
+/** Порог «нет данных» для отдельной панели, мс */
+const PANEL_STALE_MS = 30_000;
 
 interface Props {
   equipment: EquipmentOut;
@@ -23,7 +28,27 @@ export default function DguCard({ equipment: eq }: Props) {
   const liveStatus = useTelemetryStore((s) => s.statuses.get(key));
   const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
 
-  const status = liveStatus ?? eq.engine_state;
+  // Тик каждые 10 сек для проверки свежести данных панели
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Свежесть данных конкретной панели
+  const panelFresh = lastUpdate != null && now - lastUpdate < PANEL_STALE_MS;
+
+  // Статус связи: WS (live) или REST
+  const connectionStatus = liveStatus ?? eq.connection_status;
+  // Если связь есть — показываем состояние двигателя (RUN/STOP/ALARM),
+  // иначе — статус связи (DELAY/OFFLINE)
+  let engineStatus: string;
+  if (connectionStatus === "ONLINE") {
+    engineStatus =
+      eq.engine_state !== "OFFLINE" ? eq.engine_state : "ONLINE";
+  } else {
+    engineStatus = connectionStatus;
+  }
 
   // Live values override REST values if available
   function liveVal(addr: number): number | null {
@@ -79,13 +104,27 @@ export default function DguCard({ equipment: eq }: Props) {
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <div>
             <h3 className="font-semibold text-base">{displayName}</h3>
-            {lastUpdate && (
-              <p className="text-xs text-muted-foreground">
-                {formatRelativeTime(new Date(lastUpdate))}
-              </p>
-            )}
+            <div className="flex items-center gap-2 mt-0.5">
+              {/* Индикатор связи с панелью */}
+              {panelFresh ? (
+                <span className="flex items-center gap-1 text-xs text-green-500">
+                  <Wifi className="h-3 w-3" />
+                  на связи
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-xs text-red-400">
+                  <WifiOff className="h-3 w-3" />
+                  нет данных
+                </span>
+              )}
+              {lastUpdate && (
+                <span className="text-xs text-muted-foreground">
+                  · {formatRelativeTime(new Date(lastUpdate))}
+                </span>
+              )}
+            </div>
           </div>
-          <StatusBadge status={status} />
+          <StatusBadge status={engineStatus} />
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">

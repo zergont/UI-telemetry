@@ -13,6 +13,7 @@ from app.db.queries.equipment import (
 from app.deps import get_pool
 from app.schemas.equipment import EquipmentNameUpdate, EquipmentOut
 from app.services.telemetry import (
+    derive_connection_status,
     derive_engine_state,
     fahrenheit_to_celsius,
     is_na,
@@ -57,6 +58,7 @@ def _build_equipment_out(
     last_upd = state_m["updated_at"] if state_m else None
 
     state = derive_engine_state(state_text, last_upd, offline_timeout)
+    conn_status = derive_connection_status(eq.get("last_seen_at"), offline_timeout)
 
     return EquipmentOut(
         router_sn=eq["router_sn"],
@@ -71,6 +73,7 @@ def _build_equipment_out(
         oil_temp_c=temp_c,
         oil_pressure_kpa=pressure,
         engine_state=state,
+        connection_status=conn_status,
         last_update=last_upd,
     )
 

@@ -14,6 +14,7 @@ export interface EquipmentOut {
   oil_temp_c: number | null;
   oil_pressure_kpa: number | null;
   engine_state: string;
+  connection_status: string;
   last_update: string | null;
 }
 

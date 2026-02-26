@@ -4,7 +4,9 @@ const STATUS_COLORS: Record<string, string> = {
   RUN: "#22c55e",
   STOP: "#6b7280",
   ALARM: "#ef4444",
-  OFFLINE: "#f59e0b",
+  ONLINE: "#3b82f6",
+  DELAY: "#f59e0b",
+  OFFLINE: "#ef4444",
 };
 
 interface Props {
@@ -23,7 +25,7 @@ export default function DguMarker({ status, onClick }: Props) {
       style={{ width: 32, height: 32 }}
     >
       <svg width="32" height="32" viewBox="0 0 32 32">
-        {(status === "RUN" || status === "ALARM") && (
+        {(status === "RUN" || status === "ALARM" || status === "ONLINE") && (
           <circle cx="16" cy="16" r="14" fill={color} opacity="0.2">
             <animate
               attributeName="r"

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { WsMessage, TelemetryItem } from "@/lib/ws";
 
-interface RegisterValue {
+export interface RegisterValue {
   addr: number;
   name: string;
   value: number | null;
@@ -9,6 +9,9 @@ interface RegisterValue {
   unit: string | null;
   raw: number | null;
   reason: string | null;
+  ts: string | null;
+  /** Время получения данных браузером (ISO) */
+  receivedAt: string;
 }
 
 export function makeEquipKey(
@@ -23,6 +26,8 @@ interface TelemetryState {
   registers: Map<string, Map<number, RegisterValue>>;
   statuses: Map<string, string>;
   lastUpdate: Map<string, number>;
+  /** Drift (сек) между часами сервера и браузера, per router_sn */
+  drifts: Map<string, number>;
   connected: boolean;
 
   handleMessage: (msg: WsMessage) => void;
@@ -34,6 +39,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   registers: new Map(),
   statuses: new Map(),
   lastUpdate: new Map(),
+  drifts: new Map(),
   connected: false,
 
   handleMessage(msg: WsMessage) {
@@ -55,10 +61,12 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         msg.equip_type || "pcc",
         msg.panel_id ?? 0,
       );
+      const ts = msg.timestamp || new Date().toISOString();
+      const receivedAt = new Date().toISOString();
       const current = get().registers;
       const regMap = new Map(current.get(key) || []);
       for (const r of msg.registers) {
-        regMap.set(r.addr, r);
+        regMap.set(r.addr, { ...r, ts: r.ts ?? ts, receivedAt });
       }
       const newRegs = new Map(current);
       newRegs.set(key, regMap);
@@ -66,7 +74,26 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       const newUpdate = new Map(get().lastUpdate);
       newUpdate.set(key, Date.now());
 
-      set({ registers: newRegs, lastUpdate: newUpdate });
+      // Данные пришли — оборудование на связи
+      const newStatuses = new Map(get().statuses);
+      newStatuses.set(key, "ONLINE");
+
+      // Drift: разница часов сервера и браузера (по router_sn)
+      const serverTime = msg.timestamp ? new Date(msg.timestamp).getTime() : null;
+      const browserTime = Date.now();
+      const driftSec = serverTime ? Math.round((browserTime - serverTime) / 1000) : null;
+      const newDrifts = new Map(get().drifts);
+      if (driftSec !== null) {
+        newDrifts.set(msg.router_sn, driftSec);
+      }
+
+      if (import.meta.env.DEV) {
+        console.debug(
+          `[telemetry] ${key}: ${msg.registers.length} regs | server: ${msg.timestamp} | drift: ${driftSec !== null ? driftSec + "s" : "n/a"}`,
+        );
+      }
+
+      set({ registers: newRegs, lastUpdate: newUpdate, statuses: newStatuses, drifts: newDrifts });
     } else if (msg.type === "status_change" && msg.status) {
       const key = makeEquipKey(
         msg.router_sn,

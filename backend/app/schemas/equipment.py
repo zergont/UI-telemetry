@@ -19,6 +19,7 @@ class EquipmentOut(BaseModel):
     oil_temp_c: Optional[float] = None
     oil_pressure_kpa: Optional[float] = None
     engine_state: str = "OFFLINE"
+    connection_status: str = "OFFLINE"
     last_update: Optional[datetime] = None
 
 

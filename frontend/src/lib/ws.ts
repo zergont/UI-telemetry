@@ -12,6 +12,7 @@ export type TelemetryItem = {
     unit: string | null;
     raw: number | null;
     reason: string | null;
+    ts?: string | null;
   }>;
   status?: string;
 };
