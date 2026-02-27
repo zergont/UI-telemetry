@@ -131,24 +131,27 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
     DB_PASS=""
     DB_NAME=""
 
-    # Ищем в типичных местах (включая home-каталоги разработчиков)
+    # Ищем в типичных местах (включая сервисные и home-каталоги)
     SEARCH_PATHS=(
-        "/etc/cg-telemetry"
-        "/opt/cg-telemetry"
-        "/home/*/cg-telemetry"
-        "/home/*/telemetry*"
+        "/home/db-writer"
+        "/home/telemetry*"
         "/home/*/db-writer*"
+        "/home/*/telemetry*"
+        "/home/*/cg-telemetry"
+        "/opt/db-writer*"
+        "/opt/cg-telemetry"
         "/opt/cg-*"
         "/opt/telemetry*"
+        "/etc/cg-telemetry"
         "/etc/cg-*"
     )
 
     for pattern in "${SEARCH_PATHS[@]}"; do
         for cfg_file in $pattern/*.yaml $pattern/*.yml $pattern/*.conf $pattern/config* $pattern/.env; do
             if [[ -f "$cfg_file" ]]; then
-                # Ищем пароль cg_writer
-                found_pass=$(grep -oP '(?:admin_password|cg_writer.*password|password)[\s:="]+\K[^\s"]+' "$cfg_file" 2>/dev/null | head -1 || true)
-                if [[ -n "$found_pass" && "$found_pass" != "YOUR_ADMIN_PASSWORD" ]]; then
+                # Ищем пароль cg_writer (пропускаем пустые, плейсхолдеры, комментарии)
+                found_pass=$(grep -oP '(?:admin_password|cg_writer.*password|password)[\s:="]+\K[^\s"#]+' "$cfg_file" 2>/dev/null | grep -v -E '^(YOUR_|CHANGE_ME|заполнить|$)' | head -1 || true)
+                if [[ -n "$found_pass" && ${#found_pass} -ge 3 ]]; then
                     DB_PASS="$found_pass"
                     info "Найден пароль БД в: $cfg_file"
                 fi
