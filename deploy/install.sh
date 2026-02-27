@@ -82,6 +82,18 @@ if ! id -u "$CG_USER" &>/dev/null; then
     info "Пользователь $CG_USER создан"
 else
     info "Пользователь $CG_USER уже существует"
+    # Починить shell и home если пользователь был создан без них
+    CG_SHELL=$(getent passwd $CG_USER | cut -d: -f7)
+    CG_HOME=$(getent passwd $CG_USER | cut -d: -f6)
+    if [[ "$CG_SHELL" == */nologin || "$CG_SHELL" == */false ]]; then
+        info "Меняем shell $CG_USER на /bin/bash..."
+        usermod -s /bin/bash $CG_USER
+    fi
+    if [[ ! -d "$CG_HOME" ]]; then
+        info "Создаём home для $CG_USER: $CG_HOME..."
+        mkdir -p "$CG_HOME"
+        chown $CG_USER:$CG_USER "$CG_HOME"
+    fi
 fi
 
 # =============================================================
@@ -90,16 +102,16 @@ step "3. Клонирование репозитория (от имени $CG_US
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     info "Репозиторий уже есть, обновляем..."
     # safe.directory для git
-    su - $CG_USER -c "git config --global --add safe.directory $INSTALL_DIR" 2>/dev/null || true
-    su - $CG_USER -c "cd $INSTALL_DIR && git pull origin master" || warn "git pull не удался"
+    su -s /bin/bash $CG_USER -c "git config --global --add safe.directory $INSTALL_DIR" 2>/dev/null || true
+    su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR && git pull origin master" || warn "git pull не удался"
 else
     info "Клонируем в $INSTALL_DIR..."
     # Создаём директорию и клонируем от имени cg
     mkdir -p "$(dirname $INSTALL_DIR)"
     rm -rf "$INSTALL_DIR"
 
-    su - $CG_USER -c "git clone $REPO_URL $INSTALL_DIR"
-    su - $CG_USER -c "git config --global --add safe.directory $INSTALL_DIR"
+    su -s /bin/bash $CG_USER -c "git clone $REPO_URL $INSTALL_DIR"
+    su -s /bin/bash $CG_USER -c "git config --global --add safe.directory $INSTALL_DIR"
     info "Репозиторий склонирован"
 fi
 
@@ -200,16 +212,16 @@ fi
 step "5. Python venv + зависимости бэкенда"
 # =============================================================
 cd "$INSTALL_DIR/backend"
-su - $CG_USER -c "cd $INSTALL_DIR/backend && python3 -m venv .venv"
-su - $CG_USER -c "cd $INSTALL_DIR/backend && .venv/bin/pip install --upgrade pip -q 2>/dev/null"
-su - $CG_USER -c "cd $INSTALL_DIR/backend && .venv/bin/pip install -r requirements.txt -q 2>/dev/null"
+su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR/backend && python3 -m venv .venv"
+su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR/backend && .venv/bin/pip install --upgrade pip -q 2>/dev/null"
+su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR/backend && .venv/bin/pip install -r requirements.txt -q 2>/dev/null"
 info "Python-зависимости установлены"
 
 # =============================================================
 step "6. Фронтенд: npm install + build"
 # =============================================================
-su - $CG_USER -c "cd $INSTALL_DIR/frontend && npm install --silent 2>/dev/null"
-su - $CG_USER -c "cd $INSTALL_DIR/frontend && npm run build 2>/dev/null"
+su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR/frontend && npm install --silent 2>/dev/null"
+su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR/frontend && npm run build 2>/dev/null"
 
 if [[ -d "$INSTALL_DIR/frontend/dist" ]]; then
     info "Фронтенд собран → frontend/dist/"
