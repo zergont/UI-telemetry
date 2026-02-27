@@ -188,7 +188,10 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
     # DB password (если нашли)
     if [[ -n "$DB_PASS" ]]; then
         sed -i "s|YOUR_ADMIN_PASSWORD|${DB_PASS}|" config.yaml
-        info "Пароль БД (admin) подставлен автоматически"
+        info "Пароль БД (admin_password) подставлен: найден в конфигах"
+        # ui_password = admin_password (cg_ui создаётся автоматически при старте)
+        sed -i "s|YOUR_UI_PASSWORD|${DB_PASS}|" config.yaml
+        info "Пароль БД (ui_password) подставлен автоматически"
     fi
 
     # DB name
@@ -196,18 +199,37 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
         sed -i "s|name: \"cg_telemetry\"|name: \"${DB_NAME}\"|" config.yaml
     fi
 
+    # public_base_url — подставляем IP сервера
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    if [[ -n "$SERVER_IP" ]]; then
+        sed -i "s|https://your-domain.com:9443|https://${SERVER_IP}:9443|" config.yaml
+        info "public_base_url: https://${SERVER_IP}:9443"
+    fi
+
     chown $CG_USER:$CG_USER "$INSTALL_DIR/config.yaml"
     chmod 600 "$INSTALL_DIR/config.yaml"
 
-    echo ""
-    warn "═══ ПРОВЕРЬТЕ config.yaml ═══"
-    warn "  nano $INSTALL_DIR/config.yaml"
+    # ── Итоговые предупреждения (только если что-то не найдено) ──
+    WARN_COUNT=0
     if [[ -z "$DB_PASS" ]]; then
-        warn "  ! database.admin_password — НЕ НАЙДЕН, укажите вручную"
+        ((WARN_COUNT++))
     fi
-    warn "  ! database.ui_password — укажите пароль для cg_ui"
-    warn "  ! access.public_base_url — ваш внешний URL"
-    echo ""
+
+    if [[ $WARN_COUNT -gt 0 ]]; then
+        echo ""
+        warn "═══ ПРОВЕРЬТЕ config.yaml ═══"
+        warn "  sudo nano $INSTALL_DIR/config.yaml"
+        if [[ -z "$DB_PASS" ]]; then
+            warn "  ! database.admin_password — НЕ НАЙДЕН, укажите вручную"
+            warn "  ! database.ui_password — НЕ НАЙДЕН, укажите вручную"
+        fi
+        echo ""
+    else
+        echo ""
+        info "config.yaml полностью настроен автоматически ✓"
+        info "  Если нужно поправить: sudo nano $INSTALL_DIR/config.yaml"
+        echo ""
+    fi
 else
     info "config.yaml уже существует — не трогаем"
 fi
