@@ -7,10 +7,13 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+# Версия из кода — обновляется через git pull (config.yaml НЕ в git!)
+APP_VERSION = "1.0.2"
+
 
 class AppConfig(BaseModel):
     name: str = "Честная Генерация"
-    version: str = "1.0.2"
+    version: str = APP_VERSION
     debug: bool = False
 
 

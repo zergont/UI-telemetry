@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.auth import AuthContext, require_admin, require_auth
-from app.config import get_settings
+from app.config import APP_VERSION, get_settings
 from app.services.updater import (
     check_for_updates,
     get_current_version,
@@ -17,9 +17,8 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 
 @router.get("/version")
 async def version(ctx: AuthContext = Depends(require_auth)):
-    """Текущая версия приложения."""
-    settings = get_settings()
-    return get_current_version(settings.app.version)
+    """Текущая версия приложения (из кода, не из config.yaml)."""
+    return get_current_version(APP_VERSION)
 
 
 @router.get("/check-update")

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import get_settings
+from app.config import APP_VERSION, get_settings
 from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Честная Генерация",
-    version="1.0.2",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
