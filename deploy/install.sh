@@ -131,12 +131,15 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
     DB_PASS=""
     DB_NAME=""
 
-    # Ищем в типичных местах
+    # Ищем в типичных местах (включая home-каталоги разработчиков)
     SEARCH_PATHS=(
         "/etc/cg-telemetry"
         "/opt/cg-telemetry"
         "/home/*/cg-telemetry"
+        "/home/*/telemetry*"
+        "/home/*/db-writer*"
         "/opt/cg-*"
+        "/opt/telemetry*"
         "/etc/cg-*"
     )
 
@@ -150,7 +153,7 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
                     info "Найден пароль БД в: $cfg_file"
                 fi
                 # Ищем имя базы
-                found_db=$(grep -oP '(?:database|db_name|name)[\s:="]+\K(cg_\w+)' "$cfg_file" 2>/dev/null | head -1 || true)
+                found_db=$(grep -oP '(?:database|dbname|db_name|name)[\s:="]+\K(cg_\w+)' "$cfg_file" 2>/dev/null | head -1 || true)
                 if [[ -n "$found_db" ]]; then
                     DB_NAME="$found_db"
                 fi
