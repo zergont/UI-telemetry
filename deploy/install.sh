@@ -148,7 +148,7 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
 
     for pattern in "${SEARCH_PATHS[@]}"; do
         for cfg_file in $pattern/*.yaml $pattern/*.yml $pattern/*.conf $pattern/config* $pattern/.env; do
-            if [[ -f "$cfg_file" ]]; then
+            if [[ -f "$cfg_file" && ! "$cfg_file" =~ example ]]; then
                 # Ищем пароль cg_writer (пропускаем пустые, плейсхолдеры, комментарии)
                 found_pass=$(grep -oP '(?:admin_password|cg_writer.*password|password)[\s:="]+\K[^\s"#]+' "$cfg_file" 2>/dev/null | grep -v -E '^(YOUR_|CHANGE_ME|заполнить|$)' | head -1 || true)
                 if [[ -n "$found_pass" && ${#found_pass} -ge 3 ]]; then
