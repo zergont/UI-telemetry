@@ -12,8 +12,9 @@ from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
-from app.routers import equipment, events, history, objects, registers, share, ws
+from app.routers import equipment, events, history, objects, registers, share, system, ws
 from app.services.nginx_check import log_nginx_status
+from app.services.updater import get_current_version
 from app.services.offline_tracker import offline_tracker
 
 logging.basicConfig(
@@ -91,6 +92,7 @@ app.include_router(registers.router)
 app.include_router(history.router)
 app.include_router(events.router)
 app.include_router(share.router)
+app.include_router(system.router)
 app.include_router(ws.router)
 
 
@@ -103,8 +105,9 @@ async def health():
 async def frontend_config():
     """Return frontend-safe config subset (no secrets)."""
     settings = get_settings()
+    ver = get_current_version(settings.app.version)
     return {
-        "app": {"name": settings.app.name, "version": settings.app.version},
+        "app": {"name": settings.app.name, "version": ver["version"], "commit": ver["commit"]},
         "ws_url": settings.frontend.ws_url,
         "map": settings.frontend.map.model_dump(),
         "key_registers": settings.telemetry.key_registers.model_dump(),

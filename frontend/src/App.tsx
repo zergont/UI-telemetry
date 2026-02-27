@@ -9,6 +9,7 @@ import StartPage from "@/pages/StartPage";
 import ObjectPage from "@/pages/ObjectPage";
 import EquipmentPage from "@/pages/EquipmentPage";
 import ShareLinksPage from "@/pages/ShareLinksPage";
+import SystemPage from "@/pages/SystemPage";
 
 function AppContent() {
   const location = useLocation();
@@ -49,6 +50,14 @@ function AppContent() {
               element={
                 <PageTransition>
                   <ShareLinksPage />
+                </PageTransition>
+              }
+            />
+            <Route
+              path="/admin/system"
+              element={
+                <PageTransition>
+                  <SystemPage />
                 </PageTransition>
               }
             />
