@@ -1,13 +1,16 @@
+import { useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, MapPin, Clock } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useEquipment } from "@/hooks/use-equipment";
+import { useRenameObject } from "@/hooks/use-rename";
 import type { ObjectOut } from "@/hooks/use-objects";
 import { useTelemetryStore } from "@/stores/telemetry-store";
 import DguCard from "@/components/equipment/DguCard";
 import DguCardSkeleton from "@/components/equipment/DguCardSkeleton";
 import StatusBadge from "@/components/equipment/StatusBadge";
+import InlineEdit from "@/components/ui/inline-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ObjectPage() {
@@ -21,6 +24,14 @@ export default function ObjectPage() {
   });
 
   const { data: equipment, isLoading: eqLoading } = useEquipment(routerSn!);
+
+  const renameMutation = useRenameObject(routerSn!);
+  const handleRename = useCallback(
+    async (name: string) => {
+      await renameMutation.mutateAsync(name);
+    },
+    [renameMutation],
+  );
 
   return (
     <div className="space-y-6">
@@ -39,7 +50,12 @@ export default function ObjectPage() {
           ) : (
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">
-                {object?.name || routerSn}
+                <InlineEdit
+                  value={object?.name || routerSn || ""}
+                  placeholder="Название объекта"
+                  onSave={handleRename}
+                  inputClassName="text-2xl font-bold w-64"
+                />
               </h1>
               <StatusBadge status={object?.status || "OFFLINE"} />
             </div>

@@ -15,7 +15,7 @@ export function formatRelativeTime(ts: string | Date): string {
   const now = new Date();
   const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diff < 10) return "только что";
+  if (diff < 5) return "только что";
   if (diff < 60) return `${diff} сек назад`;
   if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Wifi, WifiOff } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,8 +13,11 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import InlineEdit from "@/components/ui/inline-edit";
 import { useRegisters } from "@/hooks/use-registers";
 import { useHistory } from "@/hooks/use-history";
+import { useEquipment } from "@/hooks/use-equipment";
+import { useRenameEquipment } from "@/hooks/use-rename";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
 import StatusBadge from "@/components/equipment/StatusBadge";
 import MetricDisplay from "@/components/equipment/MetricDisplay";
@@ -47,6 +50,28 @@ export default function EquipmentPage() {
   const liveStatus = useTelemetryStore((s) => s.statuses.get(key));
   const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
   const wsConnected = useTelemetryStore((s) => s.connected);
+
+  // Тик каждые 5 сек для обновления относительного времени
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 5_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Имя оборудования
+  const { data: eqList } = useEquipment(routerSn!);
+  const eqInfo = eqList?.find(
+    (e) => e.equip_type === equipType && String(e.panel_id) === panelId,
+  );
+  const displayName = eqInfo?.name || `${equipType} #${panelId}`;
+
+  const renameMutation = useRenameEquipment(routerSn!, equipType!, panelId!);
+  const handleRename = useCallback(
+    async (name: string) => {
+      await renameMutation.mutateAsync(name);
+    },
+    [renameMutation],
+  );
 
   const { data: registers, isLoading: regsLoading } = useRegisters(
     routerSn!,
@@ -132,7 +157,12 @@ export default function EquipmentPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-xl">
-              {equipType} #{panelId}
+              <InlineEdit
+                value={displayName}
+                placeholder={`${equipType} #${panelId}`}
+                onSave={handleRename}
+                inputClassName="text-xl font-semibold w-56"
+              />
             </CardTitle>
             <p className="text-sm text-muted-foreground font-mono">
               {routerSn}
