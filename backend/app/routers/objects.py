@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth import verify_token
+from app.auth import AuthContext, require_admin, require_auth
 from app.config import Settings, get_settings
 from app.db.queries.equipment import fetch_equipment_by_object
 from app.db.queries.objects import fetch_all_objects, fetch_object_by_sn, update_object_name
@@ -41,9 +41,14 @@ async def _calc_object_status(
 async def list_objects(
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
-    _: str = Depends(verify_token),
+    ctx: AuthContext = Depends(require_auth),
 ):
     rows = await fetch_all_objects(pool)
+
+    # Scope filtering: viewer с scope=site видит только свой объект
+    if ctx.allowed_router_sns is not None:
+        rows = [r for r in rows if r["router_sn"] in ctx.allowed_router_sns]
+
     results = []
     for row in rows:
         status = await _calc_object_status(
@@ -68,8 +73,12 @@ async def get_object(
     router_sn: str,
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
-    _: str = Depends(verify_token),
+    ctx: AuthContext = Depends(require_auth),
 ):
+    # Scope check
+    if ctx.allowed_router_sns is not None and router_sn not in ctx.allowed_router_sns:
+        raise HTTPException(status_code=403, detail="Access denied to this object")
+
     row = await fetch_object_by_sn(pool, router_sn)
     if not row:
         raise HTTPException(status_code=404, detail="Object not found")
@@ -95,7 +104,7 @@ async def rename_object(
     router_sn: str,
     body: ObjectNameUpdate,
     pool: asyncpg.Pool = Depends(get_pool),
-    _: str = Depends(verify_token),
+    _: AuthContext = Depends(require_admin),
 ):
     ok = await update_object_name(pool, router_sn, body.name)
     if not ok:

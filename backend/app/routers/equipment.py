@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth import verify_token
+from app.auth import AuthContext, require_admin, require_auth
 from app.config import Settings, get_settings
 from app.db.queries.equipment import (
     fetch_equipment_by_object,
@@ -83,7 +83,7 @@ async def list_equipment(
     router_sn: str,
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
-    _: str = Depends(verify_token),
+    ctx: AuthContext = Depends(require_auth),
 ):
     equips = await fetch_equipment_by_object(pool, router_sn)
     results = []
@@ -106,7 +106,7 @@ async def rename_equipment(
     panel_id: int,
     body: EquipmentNameUpdate,
     pool: asyncpg.Pool = Depends(get_pool),
-    _: str = Depends(verify_token),
+    _: AuthContext = Depends(require_admin),
 ):
     ok = await update_equipment_name(pool, router_sn, equip_type, panel_id, body.name)
     if not ok:

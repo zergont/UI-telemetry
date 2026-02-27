@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import InlineEdit from "@/components/ui/inline-edit";
+import { useIsAdmin } from "@/hooks/use-auth";
 import { useRegisters } from "@/hooks/use-registers";
 import { useHistory } from "@/hooks/use-history";
 import { useEquipment } from "@/hooks/use-equipment";
@@ -43,6 +44,7 @@ export default function EquipmentPage() {
     panelId: string;
   }>();
 
+  const isAdmin = useIsAdmin();
   const [activeTab, setActiveTab] = useState("registers");
 
   const key = makeEquipKey(routerSn!, equipType!, panelId!);
@@ -157,12 +159,16 @@ export default function EquipmentPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-xl">
-              <InlineEdit
-                value={displayName}
-                placeholder={`${equipType} #${panelId}`}
-                onSave={handleRename}
-                inputClassName="text-xl font-semibold w-56"
-              />
+              {isAdmin ? (
+                <InlineEdit
+                  value={displayName}
+                  placeholder={`${equipType} #${panelId}`}
+                  onSave={handleRename}
+                  inputClassName="text-xl font-semibold w-56"
+                />
+              ) : (
+                displayName
+              )}
             </CardTitle>
             <p className="text-sm text-muted-foreground font-mono">
               {routerSn}

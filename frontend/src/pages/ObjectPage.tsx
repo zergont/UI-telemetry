@@ -4,6 +4,7 @@ import { ArrowLeft, MapPin, Clock } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useEquipment } from "@/hooks/use-equipment";
+import { useIsAdmin } from "@/hooks/use-auth";
 import { useRenameObject } from "@/hooks/use-rename";
 import type { ObjectOut } from "@/hooks/use-objects";
 import { useTelemetryStore } from "@/stores/telemetry-store";
@@ -15,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ObjectPage() {
   const { routerSn } = useParams<{ routerSn: string }>();
+  const isAdmin = useIsAdmin();
   const drift = useTelemetryStore((s) => s.drifts.get(routerSn!));
 
   const { data: object, isLoading: objLoading } = useQuery({
@@ -50,12 +52,16 @@ export default function ObjectPage() {
           ) : (
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">
-                <InlineEdit
-                  value={object?.name || routerSn || ""}
-                  placeholder="Название объекта"
-                  onSave={handleRename}
-                  inputClassName="text-2xl font-bold w-64"
-                />
+                {isAdmin ? (
+                  <InlineEdit
+                    value={object?.name || routerSn || ""}
+                    placeholder="Название объекта"
+                    onSave={handleRename}
+                    inputClassName="text-2xl font-bold w-64"
+                  />
+                ) : (
+                  object?.name || routerSn
+                )}
               </h1>
               <StatusBadge status={object?.status || "OFFLINE"} />
             </div>

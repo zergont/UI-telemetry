@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import verify_token
+from app.auth import AuthContext, require_auth
 from app.db.queries.events import fetch_events
 from app.deps import get_pool
 from app.schemas.events import EventOut
@@ -18,7 +18,7 @@ async def get_events(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, le=500),
     pool: asyncpg.Pool = Depends(get_pool),
-    _: str = Depends(verify_token),
+    _: AuthContext = Depends(require_auth),
 ):
     rows = await fetch_events(pool, router_sn, equip_type, offset, limit)
     return [EventOut(**r) for r in rows]

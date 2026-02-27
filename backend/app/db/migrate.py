@@ -85,7 +85,46 @@ async def run_migrations(cfg: DatabaseConfig) -> None:
 
             logger.info("Права выданы для %s", cfg.ui_user)
 
-        # 3. Add equipment.name column if not exists
+        # 3. Create share_links table if not exists
+        sl_exists = await conn.fetchval(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'share_links'"
+        )
+        if not sl_exists:
+            try:
+                await conn.execute("""
+                    CREATE TABLE share_links (
+                        id           SERIAL PRIMARY KEY,
+                        token_hash   TEXT NOT NULL UNIQUE,
+                        label        TEXT NOT NULL DEFAULT '',
+                        scope_type   TEXT NOT NULL DEFAULT 'all'
+                                     CHECK (scope_type IN ('all', 'site', 'device')),
+                        scope_id     TEXT,
+                        role         TEXT NOT NULL DEFAULT 'viewer'
+                                     CHECK (role IN ('viewer', 'admin')),
+                        max_uses     INT,
+                        use_count    INT NOT NULL DEFAULT 0,
+                        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        expires_at   TIMESTAMPTZ,
+                        revoked_at   TIMESTAMPTZ,
+                        created_by   TEXT NOT NULL DEFAULT 'admin'
+                    )
+                """)
+                logger.info("Создана таблица share_links")
+                # Grant SELECT to ui_user
+                if ui_exists:
+                    await conn.execute(
+                        f"GRANT SELECT ON share_links TO {cfg.ui_user}"
+                    )
+            except asyncpg.InsufficientPrivilegeError:
+                logger.warning(
+                    "Нет прав для создания таблицы share_links. "
+                    "Создайте вручную (см. документацию)."
+                )
+        else:
+            logger.info("Таблица share_links уже существует")
+
+        # 4. Add equipment.name column if not exists
         eq_exists = await conn.fetchval(
             "SELECT 1 FROM information_schema.tables "
             "WHERE table_schema = 'public' AND table_name = 'equipment'"

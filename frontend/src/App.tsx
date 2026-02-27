@@ -3,10 +3,12 @@ import { AnimatePresence } from "framer-motion";
 import Header from "@/components/layout/Header";
 import PageTransition from "@/components/layout/PageTransition";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { AuthContext, useAuthQuery } from "@/hooks/use-auth";
 import { useWebSocket } from "@/hooks/use-websocket";
 import StartPage from "@/pages/StartPage";
 import ObjectPage from "@/pages/ObjectPage";
 import EquipmentPage from "@/pages/EquipmentPage";
+import ShareLinksPage from "@/pages/ShareLinksPage";
 
 function AppContent() {
   const location = useLocation();
@@ -42,6 +44,14 @@ function AppContent() {
                 </PageTransition>
               }
             />
+            <Route
+              path="/admin/share-links"
+              element={
+                <PageTransition>
+                  <ShareLinksPage />
+                </PageTransition>
+              }
+            />
           </Routes>
         </AnimatePresence>
       </main>
@@ -50,9 +60,21 @@ function AppContent() {
 }
 
 export default function App() {
+  const { data: auth } = useAuthQuery();
+
+  // Пока /api/me не ответил — используем дефолт (admin для LAN)
+  const authInfo = auth ?? {
+    role: "admin" as const,
+    method: "lan",
+    scope_type: "all",
+    scope_id: null,
+  };
+
   return (
     <ThemeProvider>
-      <AppContent />
+      <AuthContext.Provider value={authInfo}>
+        <AppContent />
+      </AuthContext.Provider>
     </ThemeProvider>
   );
 }

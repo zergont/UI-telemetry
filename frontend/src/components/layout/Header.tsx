@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Moon, Sun, Zap, ChevronRight } from "lucide-react";
+import { Moon, Sun, Zap, ChevronRight, Share2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
+import { useIsAdmin } from "@/hooks/use-auth";
 import { useTelemetryStore } from "@/stores/telemetry-store";
 import type { ObjectOut } from "@/hooks/use-objects";
 import type { EquipmentOut } from "@/hooks/use-equipment";
@@ -21,6 +22,7 @@ function parseRoute(pathname: string) {
 
 export default function Header() {
   const { theme, toggleTheme } = useTheme();
+  const isAdmin = useIsAdmin();
   const connected = useTelemetryStore((s) => s.connected);
   const location = useLocation();
 
@@ -107,6 +109,14 @@ export default function Header() {
               {connected ? "Online" : "Connecting..."}
             </span>
           </div>
+
+          {isAdmin && (
+            <Link to="/admin/share-links" title="Управление доступом">
+              <Button variant="ghost" size="icon">
+                <Share2 className="h-4 w-4" />
+              </Button>
+            </Link>
+          )}
 
           <Button variant="ghost" size="icon" onClick={toggleTheme}>
             {theme === "dark" ? (

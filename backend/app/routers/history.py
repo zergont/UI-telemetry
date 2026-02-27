@@ -5,7 +5,7 @@ from datetime import datetime
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import verify_token
+from app.auth import AuthContext, require_auth
 from app.db.queries.history import fetch_history
 from app.deps import get_pool
 from app.schemas.history import HistoryPoint
@@ -23,7 +23,7 @@ async def get_history(
     end: datetime = Query(...),
     limit: int = Query(10000, le=50000),
     pool: asyncpg.Pool = Depends(get_pool),
-    _: str = Depends(verify_token),
+    _: AuthContext = Depends(require_auth),
 ):
     rows = await fetch_history(
         pool, router_sn, equip_type, panel_id, addr, start, end, limit

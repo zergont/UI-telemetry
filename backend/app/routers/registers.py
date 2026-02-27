@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends
 
-from app.auth import verify_token
+from app.auth import AuthContext, require_auth
 from app.db.queries.registers import fetch_registers
 from app.deps import get_pool
 from app.schemas.registers import RegisterOut
@@ -20,7 +20,7 @@ async def get_registers(
     equip_type: str,
     panel_id: int,
     pool: asyncpg.Pool = Depends(get_pool),
-    _: str = Depends(verify_token),
+    _: AuthContext = Depends(require_auth),
 ):
     rows = await fetch_registers(pool, router_sn, equip_type, panel_id)
     return [RegisterOut(**r) for r in rows]

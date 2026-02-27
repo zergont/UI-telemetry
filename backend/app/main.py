@@ -12,7 +12,8 @@ from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
-from app.routers import equipment, events, history, objects, registers, ws
+from app.routers import equipment, events, history, objects, registers, share, ws
+from app.services.nginx_check import log_nginx_status
 from app.services.offline_tracker import offline_tracker
 
 logging.basicConfig(
@@ -54,6 +55,9 @@ async def lifespan(app: FastAPI):
         offline_tracker(hub, settings.telemetry.offline_timeout_sec)
     )
 
+    # 6. Check nginx availability
+    log_nginx_status(settings.access.public_base_url)
+
     logger.info("Backend ready on %s:%s", settings.backend.host, settings.backend.port)
     yield
 
@@ -86,6 +90,7 @@ app.include_router(equipment.router)
 app.include_router(registers.router)
 app.include_router(history.router)
 app.include_router(events.router)
+app.include_router(share.router)
 app.include_router(ws.router)
 
 

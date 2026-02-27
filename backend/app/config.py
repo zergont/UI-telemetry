@@ -71,6 +71,15 @@ class TelemetryConfig(BaseModel):
     key_registers: KeyRegisters = KeyRegisters()
 
 
+class AccessConfig(BaseModel):
+    lan_subnets: list[str] = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.0/8"]
+    public_base_url: str = "https://localhost:9443"
+    session_secret: str = "CHANGE-ME"
+    session_max_age_sec: int = 86400
+    share_default_expire_days: int = 7
+    trusted_proxy_ips: list[str] = ["127.0.0.1"]
+
+
 class Settings(BaseModel):
     app: AppConfig = AppConfig()
     auth: AuthConfig
@@ -79,6 +88,7 @@ class Settings(BaseModel):
     backend: BackendConfig = BackendConfig()
     frontend: FrontendConfig = FrontendConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    access: AccessConfig = AccessConfig()
 
 
 def _find_config_path() -> Path:

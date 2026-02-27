@@ -27,6 +27,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${_token}`,
