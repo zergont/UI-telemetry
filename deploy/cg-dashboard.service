@@ -1,0 +1,27 @@
+[Unit]
+Description=Честная Генерация — Dashboard Backend
+After=network.target postgresql.service mosquitto.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=cg
+Group=cg
+WorkingDirectory=/opt/cg-dashboard/backend
+Environment=PATH=/opt/cg-dashboard/backend/.venv/bin:/usr/bin:/bin
+Environment=CG_CONFIG_PATH=/opt/cg-dashboard/config.yaml
+ExecStart=/opt/cg-dashboard/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5555 --workers 1
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cg-dashboard
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/cg-dashboard
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

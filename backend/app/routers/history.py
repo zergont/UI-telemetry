@@ -13,6 +13,9 @@ from app.schemas.history import HistoryPoint
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 
+MAX_CHART_POINTS = 3000
+
+
 @router.get("", response_model=list[HistoryPoint])
 async def get_history(
     router_sn: str = Query(...),
@@ -25,7 +28,15 @@ async def get_history(
     pool: asyncpg.Pool = Depends(get_pool),
     _: AuthContext = Depends(require_auth),
 ):
+    span = (end - start).total_seconds()
+    # Auto-downsample for ranges > 24h (assume ~1 record per 30s)
+    if span > 86400 and span / 30 > MAX_CHART_POINTS:
+        bucket_seconds = max(1, int(span / MAX_CHART_POINTS))
+    else:
+        bucket_seconds = 0
+
     rows = await fetch_history(
-        pool, router_sn, equip_type, panel_id, addr, start, end, limit
+        pool, router_sn, equip_type, panel_id, addr, start, end,
+        limit=limit, bucket_seconds=bucket_seconds,
     )
     return [HistoryPoint(**r) for r in rows]

@@ -9,420 +9,245 @@
 ## Архитектура
 
 ```
-Роутеры (MQTT) → Брокер MQTT → Backend (Python/FastAPI) → WebSocket → Frontend (React)
-                                       ↕
+Роутеры (MQTT) -> Брокер MQTT -> Backend (Python/FastAPI) -> WebSocket -> Frontend (React)
+                                       |
                                PostgreSQL (справочники, история, latest_state)
 ```
 
-- **MQTT** — реальное время (регистры ДГУ приходят по топику `cg/v1/decoded/SN/<router_sn>/pcc/<panel_id>`)
-- **PostgreSQL** — справочники объектов/оборудования, история, GPS
-- **WebSocket** — передача данных из MQTT в браузер
-- **REST API** — объекты, оборудование, регистры, история, события
+- **MQTT** -- реальное время (регистры ДГУ по топику `cg/v1/decoded/SN/<router_sn>/pcc/<panel_id>`)
+- **PostgreSQL** -- справочники объектов/оборудования, история, GPS
+- **WebSocket** -- передача данных из MQTT в браузер
+- **REST API** -- объекты, оборудование, регистры, история, события
+- **nginx** -- TLS termination, статика фронтенда, reverse proxy на бэкенд
 
 ---
 
 ## Требования
 
-### На сервере (где стоит PostgreSQL и MQTT брокер)
-
-- PostgreSQL 14+
-- MQTT брокер (Mosquitto или аналог) на порту 1883
-- Данные телеметрии уже пишутся в БД другим сервисом
-
-### На машине с дашбордом
-
+- **Ubuntu 24.04** (основная платформа)
 - **Python 3.11+**
 - **Node.js 18+** и **npm**
-- Сетевой доступ к серверу БД и MQTT (локалка или VPN)
+- **PostgreSQL 14+** (уже установлен, данные пишутся другим сервисом)
+- **MQTT брокер** (Mosquitto) на порту 1883
+- **nginx**
+- **git**
 
 ---
 
-## Установка
+## Быстрая установка (Ubuntu 24)
+
+```bash
+# 1. Клонировать репозиторий
+git clone https://github.com/zergont/UI-telemetry.git /opt/cg-dashboard
+cd /opt/cg-dashboard
+
+# 2. Запустить скрипт установки
+sudo bash deploy/install.sh
+
+# 3. Отредактировать конфиг
+sudo nano /opt/cg-dashboard/config.yaml
+
+# 4. Запустить
+sudo systemctl start cg-dashboard
+```
+
+Скрипт `deploy/install.sh` автоматически:
+- Установит Python 3, Node.js 20, nginx, git
+- Создаст пользователя `cg` и директорию `/opt/cg-dashboard`
+- Настроит Python venv и установит pip-зависимости
+- Соберёт фронтенд (`npm run build`)
+- Сгенерирует self-signed TLS сертификат
+- Установит systemd сервис и nginx конфиг
+- Настроит sudoers для auto-update из админки
+
+---
+
+## Ручная установка (пошагово)
 
 ### 1. Клонировать репозиторий
 
 ```bash
-git clone <url-репозитория> cg-dashboard
-cd cg-dashboard
+git clone https://github.com/zergont/UI-telemetry.git /opt/cg-dashboard
+cd /opt/cg-dashboard
 ```
 
 ### 2. Создать конфигурацию
 
 ```bash
 cp config.yaml.example config.yaml
+nano config.yaml
 ```
 
-Отредактировать `config.yaml`:
+Ключевые параметры:
 
 ```yaml
 database:
-  host: "192.168.0.130"       # адрес сервера PostgreSQL
-  port: 5432
-  name: "cg_telemetry"        # имя базы данных
-  admin_user: "cg_writer"     # пользователь для миграций
+  host: "localhost"             # PostgreSQL на этом же сервере
+  name: "cg_telemetry"
+  admin_user: "cg_writer"
   admin_password: "ВАШ_ПАРОЛЬ"
-  ui_user: "cg_ui"            # пользователь для чтения (создаётся при первом запуске)
+  ui_user: "cg_ui"
   ui_password: "ВАШ_ПАРОЛЬ_UI"
 
 mqtt:
-  host: "192.168.0.130"       # адрес MQTT брокера
-  port: 1883
+  host: "localhost"             # MQTT на этом же сервере
 
 auth:
-  token: "СМЕНИТЬ_НА_СЛУЧАЙНУЮ_СТРОКУ"  # токен авторизации для API
+  token: "СЛУЧАЙНАЯ_СТРОКА"    # токен для API
 
-backend:
-  host: "0.0.0.0"
-  port: 5555                  # порт бэкенда
+access:
+  public_base_url: "https://your-domain.com:9443"
+  session_secret: "СЛУЧАЙНАЯ_СТРОКА_32_СИМВОЛА"
 ```
 
 ### 3. Настроить PostgreSQL
 
-На сервере с PostgreSQL нужно:
-
-**a) Разрешить подключения извне** — в `postgresql.conf`:
-```
-listen_addresses = '*'
-```
-
-**b) Добавить правила доступа** — в `pg_hba.conf`:
-```
-# Локальная сеть
-host    cg_telemetry    cg_writer    192.168.0.0/24    md5
-host    cg_telemetry    cg_ui        192.168.0.0/24    md5
-
-# VPN подсеть (если используется)
-host    cg_telemetry    cg_writer    10.10.10.0/24     md5
-host    cg_telemetry    cg_ui        10.10.10.0/24     md5
-```
-
-**c) Создать пользователя cg_ui:**
 ```bash
 sudo -u postgres psql -d cg_telemetry
 ```
 
 ```sql
+-- Создать пользователя для UI (только чтение)
 CREATE ROLE cg_ui WITH LOGIN PASSWORD 'ВАШ_ПАРОЛЬ_UI';
 GRANT CONNECT ON DATABASE cg_telemetry TO cg_ui;
 GRANT USAGE ON SCHEMA public TO cg_ui;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO cg_ui;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO cg_ui;
+
+-- Разрешить переименование объектов
 GRANT UPDATE (name, notes) ON objects TO cg_ui;
 ALTER TABLE equipment ADD COLUMN IF NOT EXISTS name TEXT;
 GRANT UPDATE (name) ON equipment TO cg_ui;
 ```
 
-**d) Перезагрузить PostgreSQL:**
+В `pg_hba.conf` добавить (если ещё нет):
+```
+host    cg_telemetry    cg_writer    127.0.0.1/32    md5
+host    cg_telemetry    cg_ui        127.0.0.1/32    md5
+```
+
 ```bash
 sudo systemctl reload postgresql
 ```
 
-### 4. Установить зависимости бэкенда
+### 4. Бэкенд
 
 ```bash
-cd backend
-python -m venv .venv
-
-# Linux/macOS:
+cd /opt/cg-dashboard/backend
+python3 -m venv .venv
 source .venv/bin/activate
-
-# Windows:
-.venv\Scripts\activate
-
 pip install -r requirements.txt
-cd ..
 ```
 
-### 5. Установить зависимости фронтенда
+### 5. Фронтенд
 
 ```bash
-cd frontend
+cd /opt/cg-dashboard/frontend
 npm install
-cd ..
-```
-
----
-
-## Запуск
-
-### Режим разработки (dev)
-
-В двух терминалах:
-
-**Терминал 1 — бэкенд:**
-```bash
-cd backend
-
-# Linux/macOS:
-source .venv/bin/activate
-
-# Windows:
-.venv\Scripts\activate
-
-uvicorn app.main:app --host 0.0.0.0 --port 5555 --reload
-```
-
-**Терминал 2 — фронтенд:**
-```bash
-cd frontend
-npm run dev -- --host
-```
-
-Открыть в браузере: `http://localhost:5173`
-
-### Режим продакшн (Linux-сервер)
-
-#### a) Собрать фронтенд
-
-```bash
-cd frontend
 npm run build
-cd ..
 ```
 
 Собранные файлы появятся в `frontend/dist/`.
 
-#### b) Создать systemd-сервис для бэкенда
-
-Создать файл `/etc/systemd/system/cg-dashboard.service`:
-
-```ini
-[Unit]
-Description=CG Dashboard Backend
-After=network.target postgresql.service mosquitto.service
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/cg-dashboard/backend
-Environment=PATH=/opt/cg-dashboard/backend/.venv/bin
-ExecStart=/opt/cg-dashboard/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5555
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+### 6. Systemd сервис
 
 ```bash
+sudo cp deploy/cg-dashboard.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable cg-dashboard
 sudo systemctl start cg-dashboard
 ```
 
-#### c) Настроить nginx как реверс-прокси
-
-Создать файл `/etc/nginx/sites-available/cg-dashboard`:
-
-```nginx
-server {
-    listen 80;
-    server_name _;  # или ваш домен
-
-    # Фронтенд (статика)
-    root /opt/cg-dashboard/frontend/dist;
-    index index.html;
-
-    # SPA — все пути отдают index.html
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API запросы → бэкенд
-    location /api/ {
-        proxy_pass http://127.0.0.1:5555;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    # WebSocket → бэкенд
-    location /ws {
-        proxy_pass http://127.0.0.1:5555;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 86400;
-    }
-}
-```
+### 7. Nginx
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/cg-dashboard /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+# Генерация self-signed сертификата
+sudo mkdir -p /etc/ssl/cg-dashboard
+sudo openssl req -x509 -nodes -days 3650 \
+    -newkey rsa:2048 \
+    -keyout /etc/ssl/cg-dashboard/cg-selfsigned.key \
+    -out /etc/ssl/cg-dashboard/cg-selfsigned.crt \
+    -subj "/CN=cg-dashboard/O=CG/C=RU"
+
+# Установка конфига
+sudo cp deploy/cg-dashboard-nginx.conf /etc/nginx/sites-available/cg-dashboard
+sudo ln -sf /etc/nginx/sites-available/cg-dashboard /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 8. Sudoers для auto-update
+
+Чтобы обновление из админки могло перезапустить сервис:
+
+```bash
+echo "cg ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart cg-dashboard" | \
+    sudo tee /etc/sudoers.d/cg-dashboard
+sudo chmod 440 /etc/sudoers.d/cg-dashboard
 ```
 
 ---
 
 ## Проверка работы
 
-### 1. Проверить здоровье бэкенда
-
 ```bash
+# Статус сервиса
+sudo systemctl status cg-dashboard
+
+# Здоровье бэкенда
 curl http://localhost:5555/api/health
-# Ожидаемый ответ: {"status":"ok"}
-```
+# -> {"status":"ok"}
 
-### 2. Проверить конфигурацию
-
-```bash
+# Конфигурация
 curl http://localhost:5555/api/config
-# Покажет имя приложения, настройки карты, ключевые регистры
-```
 
-### 3. Проверить подключение к БД
-
-```bash
+# Объекты из БД
 curl -H "Authorization: Bearer ВАШ_ТОКЕН" http://localhost:5555/api/objects
-# Должен вернуть JSON-массив объектов
-```
 
-### 4. Проверить MQTT
-
-В логах бэкенда должна быть строка:
-```
-MQTT connected to 192.168.0.130:1883, subscribing to cg/v1/decoded/SN/+/pcc/+
-```
-
-### 5. Проверить WebSocket
-
-Открыть дашборд в браузере. В шапке справа — индикатор:
-- Зелёная точка + **Online** — WebSocket подключён
-- Жёлтая точка + **Connecting...** — переподключение
-
-### 6. Проверить логи (продакшн)
-
-```bash
-# Логи бэкенда
+# Логи
 sudo journalctl -u cg-dashboard -f
 
 # Логи nginx
-sudo tail -f /var/log/nginx/error.log
+sudo tail -f /var/log/nginx/cg-dashboard-error.log
 ```
 
----
-
-## Доступ из интернета (проброс порта)
-
-### Вариант 1: Nginx + проброс порта на роутере
-
-1. Настроить nginx как описано выше (порт 80)
-2. На роутере пробросить **внешний порт** → **внутренний IP:80**
-   - Например: `внешний:8080` → `192.168.0.130:80`
-3. Открыть в браузере: `http://ваш-внешний-ip:8080`
-
-### Вариант 2: Nginx + SSL (рекомендуется)
-
-1. Получить домен (например, через DuckDNS — бесплатно)
-2. Пробросить порты 80 и 443 на сервер
-3. Установить certbot и получить SSL-сертификат:
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d ваш-домен.duckdns.org
+В логах бэкенда должно быть:
+```
+MQTT connected to localhost:1883, subscribing to cg/v1/decoded/SN/+/pcc/+
+nginx доступен на порту 9443 -- внешний доступ настроен
+Backend ready on 0.0.0.0:5555
 ```
 
-4. Обновить `frontend/vite.config.ts` — прокси для dev:
-```ts
-ws_url: "wss://ваш-домен.duckdns.org/ws"
-```
-
-### Вариант 3: Только через VPN (текущая настройка)
-
-Самый безопасный вариант — без проброса портов:
-
-1. Подключиться к WireGuard VPN
-2. Открыть `http://10.10.10.1:5173` (dev) или `http://10.10.10.1` (prod с nginx)
-
-**Важно:** при доступе через VPN, `config.yaml` должен содержать адрес сервера, доступный и из локалки, и через VPN (`192.168.0.130` если VPN-сервер на том же хосте).
+Браузер: `https://IP-СЕРВЕРА:9443`
 
 ---
 
 ## Обновление
 
-### На dev-машине
+### Из админки (рекомендуется)
 
-```bash
-cd cg-dashboard
-git pull
+1. Откройте дашборд в браузере
+2. Нажмите иконку шестерёнки в шапке
+3. Нажмите "Проверить обновления"
+4. Если есть обновления -- "Обновить"
 
-# Обновить зависимости бэкенда (если изменились)
-cd backend
-source .venv/bin/activate   # или .venv\Scripts\activate на Windows
-pip install -r requirements.txt
-cd ..
+Система сама выполнит: `git pull` -> `pip install` (если нужно) -> `npm build` (если нужно) -> `systemctl restart`.
 
-# Обновить зависимости фронтенда (если изменились)
-cd frontend
-npm install
-cd ..
-```
-
-Перезапустить бэкенд и фронтенд.
-
-### На продакшн-сервере
+### Вручную
 
 ```bash
 cd /opt/cg-dashboard
-git pull
+sudo -u cg git pull origin master
 
-# Бэкенд
-cd backend
-source .venv/bin/activate
-pip install -r requirements.txt
-cd ..
+# Если изменились зависимости бэкенда
+cd backend && sudo -u cg .venv/bin/pip install -r requirements.txt && cd ..
+
+# Если изменился фронтенд
+cd frontend && sudo -u cg npm install && sudo -u cg npm run build && cd ..
+
+# Перезапустить
 sudo systemctl restart cg-dashboard
-
-# Фронтенд (пересобрать статику)
-cd frontend
-npm install
-npm run build
-cd ..
-
-# nginx не нужно перезапускать — статика обновилась на диске
-```
-
----
-
-## Удаление
-
-### Остановить и удалить сервисы (продакшн)
-
-```bash
-# Остановить сервис
-sudo systemctl stop cg-dashboard
-sudo systemctl disable cg-dashboard
-sudo rm /etc/systemd/system/cg-dashboard.service
-sudo systemctl daemon-reload
-
-# Удалить конфигурацию nginx
-sudo rm /etc/nginx/sites-enabled/cg-dashboard
-sudo rm /etc/nginx/sites-available/cg-dashboard
-sudo systemctl reload nginx
-
-# Удалить файлы проекта
-sudo rm -rf /opt/cg-dashboard
-```
-
-### Удалить пользователя БД (опционально)
-
-```bash
-sudo -u postgres psql -d cg_telemetry
-```
-
-```sql
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM cg_ui;
-REVOKE CONNECT ON DATABASE cg_telemetry FROM cg_ui;
-DROP ROLE cg_ui;
-```
-
-### Удалить на dev-машине
-
-Просто удалить папку проекта:
-```bash
-rm -rf cg-dashboard
+# nginx перезапускать не нужно -- статика обновилась на диске
 ```
 
 ---
@@ -431,38 +256,43 @@ rm -rf cg-dashboard
 
 ```
 cg-dashboard/
-├── config.yaml              # Конфигурация (НЕ в git)
-├── config.yaml.example      # Шаблон конфигурации
-├── backend/
-│   ├── app/
-│   │   ├── main.py          # FastAPI приложение
-│   │   ├── config.py        # Загрузка config.yaml
-│   │   ├── auth.py          # Bearer-токен авторизация
-│   │   ├── db/
-│   │   │   ├── pool.py      # asyncpg пул соединений
-│   │   │   ├── migrate.py   # Автомиграции при старте
-│   │   │   └── queries/     # SQL-запросы к таблицам
-│   │   ├── mqtt/
-│   │   │   ├── hub.py       # In-memory pub/sub + кэш
-│   │   │   └── listener.py  # MQTT подписка + реконнект
-│   │   ├── routers/         # REST-эндпоинты
-│   │   ├── schemas/         # Pydantic модели
-│   │   └── services/        # Бизнес-логика (конверсии, статусы)
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── pages/           # Стартовая, Объект, Оборудование
-│   │   ├── components/      # UI-компоненты
-│   │   ├── hooks/           # React Query хуки
-│   │   ├── stores/          # Zustand (live-телеметрия)
-│   │   └── lib/             # API, WS, конверсии, форматирование
-│   └── package.json
-└── scripts/                 # Скрипты запуска (Windows dev)
+|-- config.yaml              # Конфигурация (НЕ в git)
+|-- config.yaml.example      # Шаблон конфигурации
+|-- deploy/
+|   |-- install.sh           # Скрипт установки (Ubuntu 24)
+|   |-- cg-dashboard.service # Systemd сервис
+|   |-- cg-dashboard-nginx.conf  # Nginx конфиг (production)
+|-- backend/
+|   |-- app/
+|   |   |-- main.py          # FastAPI приложение
+|   |   |-- config.py        # Загрузка config.yaml
+|   |   |-- auth.py          # Аутентификация (LAN/cookie/bearer)
+|   |   |-- db/
+|   |   |   |-- pool.py      # asyncpg пул соединений
+|   |   |   |-- migrate.py   # Автомиграции при старте
+|   |   |   |-- queries/     # SQL-запросы
+|   |   |-- mqtt/
+|   |   |   |-- hub.py       # In-memory pub/sub + кэш
+|   |   |   |-- listener.py  # MQTT подписка + реконнект
+|   |   |-- routers/         # REST-эндпоинты
+|   |   |-- schemas/         # Pydantic модели
+|   |   |-- services/        # updater, share_links, offline_tracker
+|   |-- requirements.txt
+|-- frontend/
+|   |-- src/
+|   |   |-- pages/           # StartPage, ObjectPage, EquipmentPage, SystemPage
+|   |   |-- components/      # UI-компоненты
+|   |   |-- hooks/           # React Query хуки
+|   |   |-- stores/          # Zustand (live-телеметрия)
+|   |   |-- lib/             # API, WS, конверсии
+|   |-- package.json
+|-- nginx/                   # Nginx конфиг (Windows dev)
+|-- scripts/                 # Скрипты (Windows dev)
 ```
 
 ---
 
-## Таблицы БД (ожидаемая схема)
+## Таблицы БД
 
 Дашборд читает из следующих таблиц (создаются внешним сервисом):
 
@@ -471,9 +301,32 @@ cg-dashboard/
 | `objects` | Объекты (router_sn, name, notes) |
 | `equipment` | Оборудование (router_sn, equip_type, panel_id, name) |
 | `latest_state` | Последнее значение каждого регистра |
-| `history` | Историческые значения регистров |
+| `history` | Исторические значения регистров |
 | `gps_latest_filtered` | GPS-координаты объектов |
 | `events` | События (опционально) |
+| `share_links` | Ссылки доступа (создаётся автоматически) |
+
+---
+
+## Доступ из интернета
+
+### Вариант 1: Проброс порта 9443
+
+1. На роутере: `внешний:9443` -> `192.168.0.130:9443`
+2. Доступ: `https://ваш-внешний-ip:9443`
+
+### Вариант 2: DDNS + проброс
+
+1. Настроить DDNS (например, ngs.myds.me)
+2. Пробросить порт 9443
+3. В `config.yaml`: `public_base_url: "https://ngs.myds.me:9443"`
+
+### Вариант 3: Certbot (Let's Encrypt)
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d ваш-домен.example.com
+```
 
 ---
 
@@ -481,10 +334,11 @@ cg-dashboard/
 
 | Проблема | Решение |
 |----------|---------|
-| `database "X" does not exist` | Проверьте имя БД в `config.yaml` |
-| `no pg_hba.conf entry` | Добавьте правила в `pg_hba.conf` и выполните `sudo systemctl reload postgresql` |
-| `password authentication failed for user "cg_ui"` | Создайте пользователя вручную (см. раздел установки) |
-| `MQTT connection lost: timed out` | Проверьте доступность MQTT брокера: `telnet 192.168.0.130 1883` |
-| Фронтенд не подключается к API | Проверьте что бэкенд запущен на порту 5555 |
-| «НЕТ СВЯЗИ» у всех объектов | Данные в `latest_state` старше 5 минут. Проверьте работу сервиса записи телеметрии |
-| История не загружается | Проверьте наличие данных в таблице `history` |
+| `database does not exist` | Проверьте имя БД в `config.yaml` |
+| `no pg_hba.conf entry` | Добавьте правила в `pg_hba.conf`, `sudo systemctl reload postgresql` |
+| `password authentication failed` | Проверьте пароль cg_writer/cg_ui в `config.yaml` |
+| `MQTT connection lost: timed out` | `telnet localhost 1883` -- проверьте MQTT |
+| Фронтенд 502 Bad Gateway | `sudo systemctl status cg-dashboard` -- бэкенд не запущен |
+| "НЕТ СВЯЗИ" у всех объектов | Данные в `latest_state` старше 5 мин -- проверьте телеметрию |
+| Auto-update не перезапускает | Проверьте `/etc/sudoers.d/cg-dashboard` |
+| Git fetch ошибка | `sudo -u cg git -C /opt/cg-dashboard remote -v` |

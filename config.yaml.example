@@ -5,14 +5,14 @@
 
 app:
   name: "Честная Генерация"
-  version: "1.0.0"
+  version: "1.0.1"
   debug: false
 
 auth:
   token: "CHANGE_ME_TO_SECURE_RANDOM_STRING"
 
 database:
-  host: "localhost"
+  host: "localhost"           # на сервере — localhost, на dev — IP сервера
   port: 5432
   name: "cg_telemetry"
   admin_user: "cg_writer"
@@ -23,7 +23,7 @@ database:
   pool_max: 10
 
 mqtt:
-  host: "localhost"
+  host: "localhost"           # на сервере — localhost, на dev — IP сервера
   port: 1883
   topic_prefix: "cg/v1/decoded/SN"
   client_id: "cg-dashboard"
@@ -42,6 +42,14 @@ frontend:
     style_url: "https://demotiles.maplibre.org/style.json"
     center: [100.0, 62.0]
     zoom: 3
+
+access:
+  lan_subnets: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.0/8"]
+  public_base_url: "https://your-domain.com:9443"
+  session_secret: "CHANGE_ME_TO_RANDOM_SECRET_32_CHARS"
+  session_max_age_sec: 86400
+  share_default_expire_days: 7
+  trusted_proxy_ips: ["127.0.0.1"]
 
 telemetry:
   offline_timeout_sec: 300

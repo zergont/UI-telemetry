@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 
 IS_WINDOWS = sys.platform == "win32"
+SERVICE_NAME = "cg-dashboard"
 
 
 @dataclass
@@ -246,13 +248,19 @@ async def perform_update() -> dict:
         # 5. Перезапуск
         _status.state = "restarting"
         _log("Restarting backend...")
-        _log("uvicorn --reload will detect file changes automatically")
 
-        # Если uvicorn --reload не подхватит (production) — graceful restart
-        # asyncio.get_event_loop().call_later(2, _force_restart)
+        if _is_systemd_service():
+            _log("Detected systemd, scheduling restart...")
+            _status.state = "done"
+            _log("Update complete! Restarting via systemctl...")
+            # Рестарт через 2 сек — чтобы HTTP-ответ успел уйти клиенту
+            loop = asyncio.get_event_loop()
+            loop.call_later(2, _systemd_restart)
+        else:
+            _log("Dev mode: uvicorn --reload picks up changes automatically")
+            _status.state = "done"
+            _log("Update complete!")
 
-        _status.state = "done"
-        _log("Update complete!")
         return {"ok": True}
 
     except Exception as exc:
@@ -260,3 +268,28 @@ async def perform_update() -> dict:
         _status.error = str(exc)
         _log(f"EXCEPTION: {exc}")
         return {"ok": False, "error": str(exc)}
+
+
+# ──────────────────────────────────────────────
+# Systemd helpers
+# ──────────────────────────────────────────────
+
+def _is_systemd_service() -> bool:
+    """Проверяет, запущен ли процесс как systemd unit."""
+    if IS_WINDOWS:
+        return False
+    # Systemd задаёт переменные INVOCATION_ID / JOURNAL_STREAM
+    return bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))
+
+
+def _systemd_restart() -> None:
+    """Перезапустить сервис через systemctl (вызывается из call_later)."""
+    try:
+        logger.info("Executing: systemctl restart %s", SERVICE_NAME)
+        subprocess.Popen(
+            ["sudo", "systemctl", "restart", SERVICE_NAME],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        logger.error("Failed to restart service: %s", exc)

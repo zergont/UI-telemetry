@@ -51,6 +51,6 @@ def log_nginx_status(public_base_url: str) -> None:
             public_base_url,
         )
         logger.warning(
-            "Для настройки выполните: "
-            "powershell -ExecutionPolicy Bypass -File scripts/setup-nginx.ps1"
+            "Для настройки nginx см. deploy/cg-dashboard-nginx.conf "
+            "или README.md раздел 'Продакшн'"
         )

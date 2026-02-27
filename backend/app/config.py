@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class AppConfig(BaseModel):
     name: str = "Честная Генерация"
-    version: str = "1.0.0"
+    version: str = "1.0.1"
     debug: bool = False
 
 
