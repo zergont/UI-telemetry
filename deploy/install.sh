@@ -106,9 +106,10 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     su -s /bin/bash $CG_USER -c "cd $INSTALL_DIR && git pull origin master" || warn "git pull не удался"
 else
     info "Клонируем в $INSTALL_DIR..."
-    # Создаём директорию и клонируем от имени cg
-    mkdir -p "$(dirname $INSTALL_DIR)"
+    # Создаём пустую директорию от root, отдаём cg, git clone в неё
     rm -rf "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    chown $CG_USER:$CG_USER "$INSTALL_DIR"
 
     su -s /bin/bash $CG_USER -c "git clone $REPO_URL $INSTALL_DIR"
     su -s /bin/bash $CG_USER -c "git config --global --add safe.directory $INSTALL_DIR"
