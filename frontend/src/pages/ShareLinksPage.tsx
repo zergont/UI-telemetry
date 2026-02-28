@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Copy, Check, Trash2, Plus, Link2 } from "lucide-react";
+import { ArrowLeft, Copy, Check, Trash2, Plus, Link2, RefreshCw } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useIsAdmin } from "@/hooks/use-auth";
@@ -83,7 +83,7 @@ export default function ShareLinksPage() {
   // Только что созданная ссылка (с токеном)
   const [justCreated, setJustCreated] = useState<ShareLink | null>(null);
 
-  const { data: links, isLoading } = useQuery<ShareLink[]>({
+  const { data: links, isLoading, isFetching } = useQuery<ShareLink[]>({
     queryKey: ["share-links"],
     queryFn: () => apiFetch<ShareLink[]>("/api/share-links"),
     enabled: isAdmin,
@@ -222,10 +222,20 @@ export default function ShareLinksPage() {
 
       {/* Активные ссылки */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">
             Активные ссылки ({activeLinks.length})
           </CardTitle>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => qc.invalidateQueries({ queryKey: ["share-links"] })}
+            disabled={isFetching}
+            title="Обновить данные"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
         </CardHeader>
         <CardContent>
           {isLoading ? (
