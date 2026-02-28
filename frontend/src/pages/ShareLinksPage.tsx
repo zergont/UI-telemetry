@@ -127,7 +127,9 @@ export default function ShareLinksPage() {
   }
 
   const activeLinks = links?.filter((l) => !isExpired(l)) ?? [];
-  const expiredLinks = links?.filter((l) => isExpired(l)) ?? [];
+  const allExpiredLinks = links?.filter((l) => isExpired(l)) ?? [];
+  // Показываем только 10 последних неактивных ссылок
+  const expiredLinks = allExpiredLinks.slice(-10);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -227,7 +229,7 @@ export default function ShareLinksPage() {
             Активные ссылки ({activeLinks.length})
           </CardTitle>
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon"
             className="h-7 w-7"
             onClick={() => qc.invalidateQueries({ queryKey: ["share-links"] })}
@@ -298,7 +300,7 @@ export default function ShareLinksPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base text-muted-foreground">
-              Неактивные ({expiredLinks.length})
+              Неактивные ({allExpiredLinks.length > 10 ? `последние 10 из ${allExpiredLinks.length}` : expiredLinks.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
