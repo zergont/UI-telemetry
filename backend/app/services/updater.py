@@ -283,18 +283,6 @@ def _is_systemd_service() -> bool:
 
 
 def _systemd_restart() -> None:
-    """Перезапустить сервис через systemctl (вызывается из call_later)."""
-    try:
-        logger.info("Executing: sudo systemctl restart %s", SERVICE_NAME)
-        result = subprocess.run(
-            ["sudo", "-n", "/usr/bin/systemctl", "restart", SERVICE_NAME],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            logger.error("systemctl restart failed (code %d): %s", result.returncode, result.stderr.strip())
-        else:
-            logger.info("systemctl restart OK")
-    except Exception as exc:
-        logger.error("Failed to restart service: %s", exc)
+    """Перезапустить сервис — просто убиваем процесс, systemd Restart=always поднимет заново."""
+    logger.info("Sending SIGTERM to self (PID %d), systemd will restart us...", os.getpid())
+    os.kill(os.getpid(), signal.SIGTERM)
