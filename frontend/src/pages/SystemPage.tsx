@@ -52,6 +52,8 @@ const STATE_LABELS: Record<string, string> = {
 export default function SystemPage() {
   const isAdmin = useIsAdmin();
   const [polling, setPolling] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [updateLog, setUpdateLog] = useState<string[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   // Current version
@@ -77,27 +79,60 @@ export default function SystemPage() {
     queryKey: ["update-status"],
     queryFn: () => apiFetch("/api/system/update-status"),
     refetchInterval: polling ? 1000 : false,
-    enabled: isAdmin,
+    enabled: isAdmin && polling,
   });
 
-  // Stop polling when done/error
+  // Save log lines as they come in (before backend dies)
   useEffect(() => {
-    if (status && (status.state === "done" || status.state === "error" || status.state === "idle")) {
-      if (polling && status.state !== "idle") {
-        // Keep polling flag for a moment to show final state
-        const t = setTimeout(() => setPolling(false), 2000);
-        return () => clearTimeout(t);
-      }
-      if (polling && status.state === "idle") {
-        setPolling(false);
-      }
+    if (status?.log?.length) {
+      setUpdateLog(status.log);
     }
-  }, [status, polling]);
+  }, [status?.log?.length]);
+
+  // Detect "done" state → backend is about to restart via SIGTERM
+  useEffect(() => {
+    if (status?.state === "done" && polling) {
+      setPolling(false);
+      setRestarting(true);
+      setUpdateLog((prev) => [...prev, "Перезапуск сервера..."]);
+
+      // Wait for backend to come back, then reload page
+      let attempt = 0;
+      const maxAttempts = 30; // 30 seconds max
+      const timer = setInterval(async () => {
+        attempt++;
+        try {
+          const res = await fetch("/api/system/version");
+          if (res.ok) {
+            clearInterval(timer);
+            setUpdateLog((prev) => [...prev, "Сервер перезапущен! Обновляю страницу..."]);
+            setTimeout(() => window.location.reload(), 500);
+          }
+        } catch {
+          // Backend still down, keep trying
+        }
+        if (attempt >= maxAttempts) {
+          clearInterval(timer);
+          setRestarting(false);
+          setUpdateLog((prev) => [...prev, "Таймаут ожидания рестарта. Обновите страницу вручную."]);
+        }
+      }, 1000);
+
+      return () => clearInterval(timer);
+    }
+  }, [status?.state, polling]);
+
+  // Handle error state
+  useEffect(() => {
+    if (status?.state === "error" && polling) {
+      setPolling(false);
+    }
+  }, [status?.state, polling]);
 
   // Auto-scroll log
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [status?.log?.length]);
+  }, [updateLog.length]);
 
   if (!isAdmin) {
     return (
@@ -108,9 +143,13 @@ export default function SystemPage() {
   }
 
   const isUpdating =
-    status?.state && !["idle", "done", "error"].includes(status.state);
+    restarting || (status?.state && !["idle", "done", "error"].includes(status.state));
 
   const checkData = checkMutation.data;
+
+  // Combined display state
+  const displayState = restarting ? "restarting" : status?.state || "idle";
+  const showProgress = restarting || (status && status.state !== "idle");
 
   return (
     <div className="container mx-auto p-6 max-w-3xl space-y-6">
@@ -224,30 +263,28 @@ export default function SystemPage() {
       </Card>
 
       {/* Update progress */}
-      {status && status.state !== "idle" && (
+      {showProgress && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              {status.state === "done" ? (
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-              ) : status.state === "error" ? (
+              {displayState === "error" ? (
                 <AlertCircle className="h-4 w-4 text-red-500" />
               ) : (
                 <Loader2 className="h-4 w-4 animate-spin" />
               )}
-              {STATE_LABELS[status.state] || status.state}
+              {STATE_LABELS[displayState] || displayState}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {/* Progress log */}
             <div className="border rounded-md p-3 bg-black/90 text-green-400 font-mono text-xs max-h-64 overflow-y-auto">
-              {status.log.map((line, i) => (
+              {updateLog.map((line, i) => (
                 <div key={i}>{line}</div>
               ))}
               <div ref={logEndRef} />
             </div>
 
-            {status.error && (
+            {status?.error && (
               <div className="mt-3 text-sm text-red-500">{status.error}</div>
             )}
           </CardContent>
