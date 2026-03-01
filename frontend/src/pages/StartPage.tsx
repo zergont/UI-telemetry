@@ -6,6 +6,7 @@ import ObjectsTable from "@/components/objects/ObjectsTable";
 export default function StartPage() {
   const { data: objects, isLoading } = useObjects();
   const [focusedSn, setFocusedSn] = useState<string | null>(null);
+  const [divingSn, setDivingSn] = useState<string | null>(null);
 
   return (
     <div className="space-y-6">
@@ -15,6 +16,7 @@ export default function StartPage() {
           isLoading={isLoading}
           focusedSn={focusedSn}
           onFocusChange={setFocusedSn}
+          divingSn={divingSn}
         />
       </div>
       <ObjectsTable
@@ -22,6 +24,7 @@ export default function StartPage() {
         isLoading={isLoading}
         focusedSn={focusedSn}
         onObjectClick={setFocusedSn}
+        onObjectDive={setDivingSn}
       />
     </div>
   );

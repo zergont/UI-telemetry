@@ -17,6 +17,7 @@ interface Props {
   isLoading: boolean;
   focusedSn?: string | null;
   onObjectClick?: (sn: string) => void;
+  onObjectDive?: (sn: string) => void;
 }
 
 export default function ObjectsTable({
@@ -24,13 +25,18 @@ export default function ObjectsTable({
   isLoading,
   focusedSn,
   onObjectClick,
+  onObjectDive,
 }: Props) {
   const navigate = useNavigate();
 
   const handleRowClick = (obj: ObjectOut) => {
-    // Если уже в фокусе — переходим на страницу объекта
+    // Если уже в фокусе — "ныряем" в объект с анимацией
     if (focusedSn === obj.router_sn) {
-      navigate(`/objects/${obj.router_sn}`);
+      if (obj.lat != null && obj.lon != null && onObjectDive) {
+        onObjectDive(obj.router_sn);
+      } else {
+        navigate(`/objects/${obj.router_sn}`);
+      }
       return;
     }
 

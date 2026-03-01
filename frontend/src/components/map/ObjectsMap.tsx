@@ -61,6 +61,7 @@ interface Props {
   isLoading: boolean;
   focusedSn?: string | null;
   onFocusChange?: (sn: string | null) => void;
+  divingSn?: string | null;
 }
 
 export default function ObjectsMap({
@@ -68,6 +69,7 @@ export default function ObjectsMap({
   isLoading,
   focusedSn,
   onFocusChange,
+  divingSn,
 }: Props) {
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -185,6 +187,42 @@ export default function ObjectsMap({
     setPopup(obj);
   }, [focusedSn, geoObjects]);
 
+  // "Ныряние" в объект — zoom до максимума, потом навигация
+  const [isDiving, setIsDiving] = useState(false);
+
+  useEffect(() => {
+    if (!divingSn || !mapLoadedRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const obj = geoObjects.find((o) => o.router_sn === divingSn);
+    if (!obj || obj.lat == null || obj.lon == null) {
+      navigate(`/objects/${divingSn}`);
+      return;
+    }
+
+    setIsDiving(true);
+    setPopup(null);
+
+    // Закрываем popup и летим с нарастающим зумом
+    map.flyTo({
+      center: [obj.lon, obj.lat],
+      zoom: 18,
+      duration: 1200,
+      essential: true,
+    });
+
+    // После анимации — переходим на страницу
+    const onEnd = () => {
+      navigate(`/objects/${divingSn}`);
+    };
+    map.once("moveend", onEnd);
+
+    return () => {
+      map.off("moveend", onEnd);
+    };
+  }, [divingSn, geoObjects, navigate]);
+
   if (isLoading) {
     return <Skeleton className="h-full w-full rounded-xl" />;
   }
@@ -229,6 +267,24 @@ export default function ObjectsMap({
           </Popup>
         )}
       </Map>
+
+      {/* Эффект "ныряния" — плавное затемнение */}
+      {isDiving && (
+        <div
+          className="absolute inset-0 z-10 pointer-events-none"
+          style={{
+            background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.8) 100%)",
+            animation: "dive-fade 1.2s ease-in forwards",
+          }}
+        />
+      )}
+      <style>{`
+        @keyframes dive-fade {
+          0% { opacity: 0; }
+          60% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+      `}</style>
 
       {/* Переключатель провайдера карт */}
       <div className="absolute bottom-2 left-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded-md border p-1 text-[10px]">
