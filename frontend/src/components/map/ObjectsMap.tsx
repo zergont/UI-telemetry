@@ -62,6 +62,7 @@ interface Props {
   focusedSn?: string | null;
   onFocusChange?: (sn: string | null) => void;
   divingSn?: string | null;
+  onDive?: (sn: string) => void;
 }
 
 export default function ObjectsMap({
@@ -70,6 +71,7 @@ export default function ObjectsMap({
   focusedSn,
   onFocusChange,
   divingSn,
+  onDive,
 }: Props) {
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -81,10 +83,15 @@ export default function ObjectsMap({
 
   const handleMarkerClick = useCallback(
     (obj: ObjectOut) => {
+      // Повторный клик по уже выбранному маркеру — ныряем
+      if (focusedSn === obj.router_sn && onDive) {
+        onDive(obj.router_sn);
+        return;
+      }
       setPopup(obj);
       onFocusChange?.(obj.router_sn);
     },
-    [onFocusChange],
+    [focusedSn, onFocusChange, onDive],
   );
 
   const handleProviderChange = useCallback((p: MapProvider) => {
@@ -257,7 +264,7 @@ export default function ObjectsMap({
           >
             <div
               className="cursor-pointer px-1 py-0.5"
-              onClick={() => navigate(`/objects/${popup.router_sn}`)}
+              onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
             >
               <p className="font-semibold text-sm text-gray-900">
                 {popup.name || popup.router_sn}
@@ -283,9 +290,9 @@ export default function ObjectsMap({
       <style>{`
         @keyframes dive-fade {
           0%   { opacity: 0; }
-          10%  { opacity: 0.5; }
-          30%  { opacity: 0.8; }
-          60%  { opacity: 1; }
+          5%   { opacity: 0.5; }
+          20%  { opacity: 0.85; }
+          45%  { opacity: 1; }
           100% { opacity: 1; }
         }
       `}</style>

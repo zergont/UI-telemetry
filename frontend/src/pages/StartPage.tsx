@@ -17,6 +17,7 @@ export default function StartPage() {
           focusedSn={focusedSn}
           onFocusChange={setFocusedSn}
           divingSn={divingSn}
+          onDive={setDivingSn}
         />
       </div>
       <ObjectsTable
