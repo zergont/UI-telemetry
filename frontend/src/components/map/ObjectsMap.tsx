@@ -133,7 +133,7 @@ export default function ObjectsMap({
     if (geoObjects.length === 1) {
       map.flyTo({
         center: [geoObjects[0].lon!, geoObjects[0].lat!],
-        zoom: 5,
+        zoom: 7,
         duration: 800,
       });
       return;
@@ -155,7 +155,7 @@ export default function ObjectsMap({
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      { padding: 80, maxZoom: 5, duration: 800 },
+      { padding: 80, maxZoom: 7, duration: 800 },
     );
   }, [geoObjects]);
 
@@ -181,7 +181,7 @@ export default function ObjectsMap({
 
     map.flyTo({
       center: [obj.lon, obj.lat],
-      zoom: 14,
+      zoom: 10,
       duration: 800,
     });
     setPopup(obj);
@@ -208,7 +208,7 @@ export default function ObjectsMap({
     map.flyTo({
       center: [obj.lon, obj.lat],
       zoom: 22,
-      duration: 3000,
+      duration: 2000,
       essential: true,
     });
 
@@ -276,7 +276,7 @@ export default function ObjectsMap({
           className="absolute inset-0 z-10 pointer-events-none"
           style={{
             background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.95) 70%)",
-            animation: "dive-fade 3s ease-in forwards",
+            animation: "dive-fade 2s ease-in forwards",
           }}
         />
       )}
