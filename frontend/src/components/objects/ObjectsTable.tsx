@@ -15,10 +15,34 @@ import { formatRelativeTime } from "@/lib/format";
 interface Props {
   objects: ObjectOut[];
   isLoading: boolean;
+  focusedSn?: string | null;
+  onObjectClick?: (sn: string) => void;
 }
 
-export default function ObjectsTable({ objects, isLoading }: Props) {
+export default function ObjectsTable({
+  objects,
+  isLoading,
+  focusedSn,
+  onObjectClick,
+}: Props) {
   const navigate = useNavigate();
+
+  const handleRowClick = (obj: ObjectOut) => {
+    // Если уже в фокусе — переходим на страницу объекта
+    if (focusedSn === obj.router_sn) {
+      navigate(`/objects/${obj.router_sn}`);
+      return;
+    }
+
+    // Если объект без координат — сразу переходим
+    if (obj.lat == null || obj.lon == null) {
+      navigate(`/objects/${obj.router_sn}`);
+      return;
+    }
+
+    // Первый клик — фокусируем карту
+    onObjectClick?.(obj.router_sn);
+  };
 
   if (isLoading) {
     return (
@@ -52,31 +76,38 @@ export default function ObjectsTable({ objects, isLoading }: Props) {
               </TableCell>
             </TableRow>
           )}
-          {objects.map((obj) => (
-            <TableRow
-              key={obj.router_sn}
-              className="cursor-pointer hover:bg-muted/50 transition-colors"
-              onClick={() => navigate(`/objects/${obj.router_sn}`)}
-            >
-              <TableCell className="font-medium">
-                {obj.name || obj.router_sn}
-              </TableCell>
-              <TableCell className="hidden sm:table-cell font-mono text-xs text-muted-foreground">
-                {obj.router_sn}
-              </TableCell>
-              <TableCell className="text-center">
-                {obj.equipment_count}
-              </TableCell>
-              <TableCell>
-                <StatusBadge status={obj.status} />
-              </TableCell>
-              <TableCell className="hidden md:table-cell text-xs text-muted-foreground">
-                {obj.updated_at
-                  ? formatRelativeTime(obj.updated_at)
-                  : "\u2014"}
-              </TableCell>
-            </TableRow>
-          ))}
+          {objects.map((obj) => {
+            const isFocused = focusedSn === obj.router_sn;
+            return (
+              <TableRow
+                key={obj.router_sn}
+                className={`cursor-pointer transition-colors ${
+                  isFocused
+                    ? "bg-primary/10 ring-1 ring-inset ring-primary/30"
+                    : "hover:bg-muted/50"
+                }`}
+                onClick={() => handleRowClick(obj)}
+              >
+                <TableCell className="font-medium">
+                  {obj.name || obj.router_sn}
+                </TableCell>
+                <TableCell className="hidden sm:table-cell font-mono text-xs text-muted-foreground">
+                  {obj.router_sn}
+                </TableCell>
+                <TableCell className="text-center">
+                  {obj.equipment_count}
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={obj.status} />
+                </TableCell>
+                <TableCell className="hidden md:table-cell text-xs text-muted-foreground">
+                  {obj.updated_at
+                    ? formatRelativeTime(obj.updated_at)
+                    : "\u2014"}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

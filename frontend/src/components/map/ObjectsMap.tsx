@@ -59,9 +59,16 @@ export function setMapProvider(p: MapProvider) {
 interface Props {
   objects: ObjectOut[];
   isLoading: boolean;
+  focusedSn?: string | null;
+  onFocusChange?: (sn: string | null) => void;
 }
 
-export default function ObjectsMap({ objects, isLoading }: Props) {
+export default function ObjectsMap({
+  objects,
+  isLoading,
+  focusedSn,
+  onFocusChange,
+}: Props) {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const mapRef = useRef<MapRef>(null);
@@ -71,8 +78,11 @@ export default function ObjectsMap({ objects, isLoading }: Props) {
   const [provider, setProvider] = useState<MapProvider>(getMapProvider);
 
   const handleMarkerClick = useCallback(
-    (obj: ObjectOut) => setPopup(obj),
-    [],
+    (obj: ObjectOut) => {
+      setPopup(obj);
+      onFocusChange?.(obj.router_sn);
+    },
+    [onFocusChange],
   );
 
   const handleProviderChange = useCallback((p: MapProvider) => {
@@ -158,6 +168,23 @@ export default function ObjectsMap({ objects, isLoading }: Props) {
     fitToObjects();
   }, [fitToObjects]);
 
+  // Фокусировка на объекте при выборе из таблицы
+  useEffect(() => {
+    if (!focusedSn || !mapLoadedRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const obj = geoObjects.find((o) => o.router_sn === focusedSn);
+    if (!obj || obj.lat == null || obj.lon == null) return;
+
+    map.flyTo({
+      center: [obj.lon, obj.lat],
+      zoom: 14,
+      duration: 800,
+    });
+    setPopup(obj);
+  }, [focusedSn, geoObjects]);
+
   if (isLoading) {
     return <Skeleton className="h-full w-full rounded-xl" />;
   }
@@ -182,7 +209,7 @@ export default function ObjectsMap({ objects, isLoading }: Props) {
           <Popup
             longitude={popup.lon}
             latitude={popup.lat}
-            onClose={() => setPopup(null)}
+            onClose={() => { setPopup(null); onFocusChange?.(null); }}
             closeButton={true}
             closeOnClick={false}
             anchor="bottom"
