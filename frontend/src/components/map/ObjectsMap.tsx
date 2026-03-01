@@ -205,7 +205,7 @@ export default function ObjectsMap({
     setPopup(null);
 
     // Закрываем popup и летим с максимальным зумом
-    const DIVE_MS = 1500;
+    const DIVE_MS = 1200;
     map.flyTo({
       center: [obj.lon, obj.lat],
       zoom: 22,
@@ -274,7 +274,7 @@ export default function ObjectsMap({
           className="absolute inset-0 z-10 pointer-events-none"
           style={{
             background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.95) 70%)",
-            animation: "dive-fade 1.5s ease-out forwards",
+            animation: "dive-fade 1.2s ease-out forwards",
           }}
         />
       )}
