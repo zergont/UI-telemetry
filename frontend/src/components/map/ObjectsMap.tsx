@@ -133,7 +133,7 @@ export default function ObjectsMap({
     if (geoObjects.length === 1) {
       map.flyTo({
         center: [geoObjects[0].lon!, geoObjects[0].lat!],
-        zoom: 12,
+        zoom: 5,
         duration: 800,
       });
       return;
@@ -155,7 +155,7 @@ export default function ObjectsMap({
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      { padding: 80, maxZoom: 14, duration: 800 },
+      { padding: 80, maxZoom: 5, duration: 800 },
     );
   }, [geoObjects]);
 
@@ -204,17 +204,19 @@ export default function ObjectsMap({
     setIsDiving(true);
     setPopup(null);
 
-    // Закрываем popup и летим с нарастающим зумом
+    // Закрываем popup и летим с максимальным зумом
     map.flyTo({
       center: [obj.lon, obj.lat],
-      zoom: 18,
-      duration: 1200,
+      zoom: 22,
+      duration: 3000,
       essential: true,
     });
 
-    // После анимации — переходим на страницу
+    // После анимации зума + небольшая пауза на затемнение — переходим
     const onEnd = () => {
-      navigate(`/objects/${divingSn}`);
+      setTimeout(() => {
+        navigate(`/objects/${divingSn}`);
+      }, 400);
     };
     map.once("moveend", onEnd);
 
@@ -268,20 +270,22 @@ export default function ObjectsMap({
         )}
       </Map>
 
-      {/* Эффект "ныряния" — плавное затемнение */}
+      {/* Эффект "ныряния" — затемнение с "туннельным" сужением */}
       {isDiving && (
         <div
           className="absolute inset-0 z-10 pointer-events-none"
           style={{
-            background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.8) 100%)",
-            animation: "dive-fade 1.2s ease-in forwards",
+            background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.95) 70%)",
+            animation: "dive-fade 3s ease-in forwards",
           }}
         />
       )}
       <style>{`
         @keyframes dive-fade {
-          0% { opacity: 0; }
-          60% { opacity: 0; }
+          0%   { opacity: 0; }
+          20%  { opacity: 0.3; }
+          60%  { opacity: 0.7; }
+          85%  { opacity: 1; }
           100% { opacity: 1; }
         }
       `}</style>
