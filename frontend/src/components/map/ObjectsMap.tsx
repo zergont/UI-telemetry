@@ -205,21 +205,21 @@ export default function ObjectsMap({
     setPopup(null);
 
     // Закрываем popup и летим с максимальным зумом
+    const DIVE_MS = 1500;
     map.flyTo({
       center: [obj.lon, obj.lat],
       zoom: 22,
-      duration: 1500,
+      duration: DIVE_MS,
       essential: true,
     });
 
-    // После анимации зума — сразу переходим
-    const onEnd = () => {
+    // Навигация по таймеру (moveend у MapLibre запаздывает)
+    const timer = setTimeout(() => {
       navigate(`/objects/${divingSn}`);
-    };
-    map.once("moveend", onEnd);
+    }, DIVE_MS);
 
     return () => {
-      map.off("moveend", onEnd);
+      clearTimeout(timer);
     };
   }, [divingSn, geoObjects, navigate]);
 
