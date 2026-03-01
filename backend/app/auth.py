@@ -56,7 +56,7 @@ class AuthContext:
 # IP helpers
 # ---------------------------------------------------------------------------
 
-def _get_client_ip(request: Request, access_cfg: AccessConfig) -> str:
+def get_client_ip(request: Request, access_cfg: AccessConfig) -> str:
     """Определить реальный IP клиента с учётом trusted proxy."""
     client_ip = request.client.host if request.client else "0.0.0.0"
 
@@ -96,7 +96,7 @@ async def get_auth_context(
 ) -> AuthContext:
     """Определить роль пользователя. Приоритет: LAN IP → cookie → bearer."""
     access_cfg = settings.access
-    client_ip = _get_client_ip(request, access_cfg)
+    client_ip = get_client_ip(request, access_cfg)
 
     # 1. LAN admin — по IP-адресу
     if _is_lan_ip(client_ip, access_cfg.lan_subnets):
@@ -178,6 +178,19 @@ async def require_auth(
             detail="Authentication required",
         )
     return ctx
+
+
+def enforce_router_scope(ctx: AuthContext, router_sn: str) -> None:
+    """Проверить, что viewer имеет доступ к данному router_sn.
+
+    Вызывает 403, если scope ограничен и router_sn не в allowed_router_sns.
+    Для admin (allowed_router_sns=None) — пропускает всегда.
+    """
+    if ctx.allowed_router_sns is not None and router_sn not in ctx.allowed_router_sns:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this object",
+        )
 
 
 async def require_admin(

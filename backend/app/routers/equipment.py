@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth import AuthContext, require_admin, require_auth
+from app.auth import AuthContext, enforce_router_scope, require_admin, require_auth
 from app.config import Settings, get_settings
 from app.db.queries.equipment import (
     fetch_equipment_by_object,
@@ -85,6 +85,7 @@ async def list_equipment(
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_auth),
 ):
+    enforce_router_scope(ctx, router_sn)
     equips = await fetch_equipment_by_object(pool, router_sn)
     results = []
     for eq in equips:

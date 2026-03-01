@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from app.auth import COOKIE_NAME, AuthContext, require_admin, require_auth
+from app.auth import COOKIE_NAME, AuthContext, get_client_ip, require_admin, require_auth
 from app.config import Settings, get_settings
 from app.deps import get_pool
 from app.services.access_log import log_access
@@ -77,7 +77,7 @@ async def view_entry(
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
 ):
-    client_ip = request.client.host if request.client else "0.0.0.0"
+    client_ip = get_client_ip(request, settings.access)
 
     # Rate limiting
     if not view_limiter.is_allowed(client_ip):
@@ -126,7 +126,7 @@ async def view_entry(
         value=cookie_value,
         max_age=settings.access.session_max_age_sec,
         httponly=True,
-        secure=True,
+        secure=settings.access.cookie_secure,
         samesite="lax",
         path="/",
     )

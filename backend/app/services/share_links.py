@@ -110,6 +110,12 @@ async def validate_token(pool: asyncpg.Pool, token: str) -> dict | None:
 
     При успехе — инкрементить use_count и вернуть данные ссылки.
     При неудаче — вернуть None.
+
+    Семантика max_uses / use_count:
+        use_count считает количество *первичных входов* по ссылке (GET /view/{token}).
+        Последующие запросы в рамках сессии (по cookie) НЕ увеличивают счётчик.
+        Таким образом max_uses = "сколько раз ссылку открыли", а не "сколько
+        страниц просмотрели". Для MVP это корректное поведение.
     """
     token_hash = _hash_token(token)
     row = await pool.fetchrow(
@@ -150,7 +156,8 @@ async def validate_token(pool: asyncpg.Pool, token: str) -> dict | None:
 async def validate_link_by_id(pool: asyncpg.Pool, link_id: int) -> dict | None:
     """Проверить ссылку по ID (для валидации cookie на каждый запрос).
 
-    НЕ инкрементит use_count (это не новый вход, а проверка сессии).
+    НЕ инкрементит use_count — это проверка существующей сессии,
+    а не новый вход по ссылке. См. docstring validate_token() про семантику.
     """
     row = await pool.fetchrow(
         """

@@ -5,7 +5,7 @@ from datetime import datetime
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import AuthContext, require_auth
+from app.auth import AuthContext, enforce_router_scope, require_auth
 from app.db.queries.history import fetch_history
 from app.deps import get_pool
 from app.schemas.history import HistoryPoint
@@ -26,8 +26,9 @@ async def get_history(
     end: datetime = Query(...),
     limit: int = Query(10000, le=50000),
     pool: asyncpg.Pool = Depends(get_pool),
-    _: AuthContext = Depends(require_auth),
+    ctx: AuthContext = Depends(require_auth),
 ):
+    enforce_router_scope(ctx, router_sn)
     span = (end - start).total_seconds()
     # Auto-downsample for ranges > 24h (assume ~1 record per 30s)
     if span > 86400 and span / 30 > MAX_CHART_POINTS:

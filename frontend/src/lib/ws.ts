@@ -39,10 +39,12 @@ export function createWebSocket(options: WsOptions) {
   let reconnectTimer: ReturnType<typeof setTimeout>;
 
   function connect() {
-    const params = new URLSearchParams({ token: options.token });
+    const params = new URLSearchParams();
+    if (options.token) params.set("token", options.token);
     if (options.subscribe) params.set("subscribe", options.subscribe);
 
-    const url = `${options.url}?${params}`;
+    const qs = params.toString();
+    const url = qs ? `${options.url}?${qs}` : options.url;
     ws = new WebSocket(url);
 
     ws.onopen = () => {
