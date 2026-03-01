@@ -8,7 +8,7 @@ import yaml
 from pydantic import BaseModel
 
 # Версия из кода — обновляется через git pull (config.yaml НЕ в git!)
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 
 
 class AppConfig(BaseModel):
@@ -82,6 +82,7 @@ class AccessConfig(BaseModel):
     share_default_expire_days: int = 7
     trusted_proxy_ips: list[str] = ["127.0.0.1"]
     cookie_secure: bool = True  # False для dev без HTTPS
+    cors_origins: list[str] = []  # Пустой = вычисляется из public_base_url
 
 
 class Settings(BaseModel):

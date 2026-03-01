@@ -1,6 +1,6 @@
 const API_BASE = "";
 
-let _token = "cg-dashboard-secret-token-change-me";
+let _token = "";
 
 export function setToken(token: string) {
   _token = token;
@@ -25,14 +25,20 @@ export async function apiFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((options?.headers as Record<string, string>) ?? {}),
+  };
+
+  // Bearer token добавляем только если реально задан
+  if (_token) {
+    headers["Authorization"] = `Bearer ${_token}`;
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${_token}`,
-      ...options?.headers,
-    },
+    headers,
   });
   if (!res.ok) {
     throw new ApiError(res.status, await res.text());

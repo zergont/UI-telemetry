@@ -12,11 +12,49 @@ import { useTheme } from "@/hooks/use-theme";
 import DguMarker from "./DguMarker";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// --- CartoDB vector tile styles for MapLibre ---
-const CARTO_STYLES: Record<string, string> = {
-  dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-  light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+// ---------------------------------------------------------------------------
+// Провайдеры карт
+// ---------------------------------------------------------------------------
+
+export type MapProvider = "carto" | "maptiler" | "openfreemap";
+
+const MAPTILER_KEY = "7rleXA0jqiQBKMYrXAs3";
+
+const MAP_STYLES: Record<MapProvider, Record<string, string>> = {
+  carto: {
+    dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+  },
+  maptiler: {
+    dark: `https://api.maptiler.com/maps/streets-v2-dark/style.json?key=${MAPTILER_KEY}`,
+    light: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
+  },
+  openfreemap: {
+    dark: "https://tiles.openfreemap.org/styles/liberty",
+    light: "https://tiles.openfreemap.org/styles/bright",
+  },
 };
+
+export const MAP_PROVIDER_LABELS: Record<MapProvider, string> = {
+  carto: "CartoDB",
+  maptiler: "MapTiler",
+  openfreemap: "OpenFreeMap",
+};
+
+/** Получить сохранённый провайдер карт из localStorage */
+export function getMapProvider(): MapProvider {
+  if (typeof window === "undefined") return "maptiler";
+  return (localStorage.getItem("cg-map-provider") as MapProvider) || "maptiler";
+}
+
+/** Сохранить провайдер карт */
+export function setMapProvider(p: MapProvider) {
+  localStorage.setItem("cg-map-provider", p);
+}
+
+// ---------------------------------------------------------------------------
+// Компонент карты
+// ---------------------------------------------------------------------------
 
 interface Props {
   objects: ObjectOut[];
@@ -30,13 +68,23 @@ export default function ObjectsMap({ objects, isLoading }: Props) {
   const [popup, setPopup] = useState<ObjectOut | null>(null);
   const fittedRef = useRef(false);
   const mapLoadedRef = useRef(false);
+  const [provider, setProvider] = useState<MapProvider>(getMapProvider);
 
   const handleMarkerClick = useCallback(
     (obj: ObjectOut) => setPopup(obj),
     [],
   );
 
-  const mapStyle = theme === "dark" ? CARTO_STYLES.dark : CARTO_STYLES.light;
+  const handleProviderChange = useCallback((p: MapProvider) => {
+    setProvider(p);
+    setMapProvider(p);
+    // Сбросить fit — карта перерисуется с новым стилем
+    fittedRef.current = false;
+    mapLoadedRef.current = false;
+  }, []);
+
+  const styles = MAP_STYLES[provider];
+  const mapStyle = theme === "dark" ? styles.dark : styles.light;
 
   // Объекты с координатами
   const geoObjects = useMemo(
@@ -115,42 +163,62 @@ export default function ObjectsMap({ objects, isLoading }: Props) {
   }
 
   return (
-    <Map
-      ref={mapRef}
-      initialViewState={{
-        longitude: 37.6,
-        latitude: 55.75,
-        zoom: 4,
-      }}
-      style={{ width: "100%", height: "100%" }}
-      mapStyle={mapStyle}
-      onLoad={handleMapLoad}
-    >
-      <NavigationControl position="top-right" />
-      {markers}
-      {popup && popup.lat != null && popup.lon != null && (
-        <Popup
-          longitude={popup.lon}
-          latitude={popup.lat}
-          onClose={() => setPopup(null)}
-          closeButton={true}
-          closeOnClick={false}
-          anchor="bottom"
-          offset={16}
-        >
-          <div
-            className="cursor-pointer px-1 py-0.5"
-            onClick={() => navigate(`/objects/${popup.router_sn}`)}
+    <div className="relative h-full w-full">
+      <Map
+        ref={mapRef}
+        key={provider}
+        initialViewState={{
+          longitude: 37.6,
+          latitude: 55.75,
+          zoom: 4,
+        }}
+        style={{ width: "100%", height: "100%" }}
+        mapStyle={mapStyle}
+        onLoad={handleMapLoad}
+      >
+        <NavigationControl position="top-right" />
+        {markers}
+        {popup && popup.lat != null && popup.lon != null && (
+          <Popup
+            longitude={popup.lon}
+            latitude={popup.lat}
+            onClose={() => setPopup(null)}
+            closeButton={true}
+            closeOnClick={false}
+            anchor="bottom"
+            offset={16}
           >
-            <p className="font-semibold text-sm text-gray-900">
-              {popup.name || popup.router_sn}
-            </p>
-            <p className="text-xs text-gray-500">
-              Оборудование: {popup.equipment_count}
-            </p>
-          </div>
-        </Popup>
-      )}
-    </Map>
+            <div
+              className="cursor-pointer px-1 py-0.5"
+              onClick={() => navigate(`/objects/${popup.router_sn}`)}
+            >
+              <p className="font-semibold text-sm text-gray-900">
+                {popup.name || popup.router_sn}
+              </p>
+              <p className="text-xs text-gray-500">
+                Оборудование: {popup.equipment_count}
+              </p>
+            </div>
+          </Popup>
+        )}
+      </Map>
+
+      {/* Переключатель провайдера карт */}
+      <div className="absolute bottom-2 left-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded-md border p-1 text-[10px]">
+        {(Object.keys(MAP_STYLES) as MapProvider[]).map((p) => (
+          <button
+            key={p}
+            onClick={() => handleProviderChange(p)}
+            className={`px-2 py-0.5 rounded transition-colors ${
+              provider === p
+                ? "bg-primary text-primary-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {MAP_PROVIDER_LABELS[p]}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

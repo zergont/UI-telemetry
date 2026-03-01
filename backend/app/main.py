@@ -76,10 +76,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS — ограничиваем origins доменом из конфига
+_settings = get_settings()
+_cors_origins = _settings.access.cors_origins
+if not _cors_origins:
+    # Автоматически из public_base_url (например https://cg.ngenergoservice.ru)
+    _cors_origins = [_settings.access.public_base_url.rstrip("/")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
