@@ -30,8 +30,8 @@ const MAP_STYLES: Record<MapProvider, Record<string, string>> = {
     light: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
   },
   openfreemap: {
-    dark: "https://tiles.openfreemap.org/styles/liberty",
-    light: "https://tiles.openfreemap.org/styles/bright",
+    dark: "https://tiles.openfreemap.org/styles/positron",
+    light: "https://tiles.openfreemap.org/styles/liberty",
   },
 };
 
