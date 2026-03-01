@@ -206,6 +206,9 @@ export default function ObjectsMap({
 
     // Закрываем popup и летим с максимальным зумом
     const DIVE_MS = 800;
+    // Навигация раньше конца flyTo — easing замедляет зум в конце,
+    // а overlay уже тёмный к 70% времени, так что переход незаметен
+    const NAV_AT = Math.round(DIVE_MS * 0.7);
     map.flyTo({
       center: [obj.lon, obj.lat],
       zoom: 20,
@@ -213,10 +216,9 @@ export default function ObjectsMap({
       essential: true,
     });
 
-    // Навигация по таймеру (moveend у MapLibre запаздывает)
     const timer = setTimeout(() => {
       navigate(`/objects/${divingSn}`);
-    }, DIVE_MS);
+    }, NAV_AT);
 
     return () => {
       clearTimeout(timer);
@@ -281,9 +283,9 @@ export default function ObjectsMap({
       <style>{`
         @keyframes dive-fade {
           0%   { opacity: 0; }
-          10%  { opacity: 0.4; }
-          40%  { opacity: 0.7; }
-          70%  { opacity: 0.9; }
+          10%  { opacity: 0.5; }
+          30%  { opacity: 0.8; }
+          60%  { opacity: 1; }
           100% { opacity: 1; }
         }
       `}</style>
