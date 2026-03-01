@@ -208,7 +208,7 @@ export default function ObjectsMap({
     const DIVE_MS = 1200;
     map.flyTo({
       center: [obj.lon, obj.lat],
-      zoom: 22,
+      zoom: 20,
       duration: DIVE_MS,
       essential: true,
     });
