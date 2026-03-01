@@ -213,14 +213,15 @@ export default function ObjectsMap({
 
     // Закрываем popup и летим с максимальным зумом
     const DIVE_MS = 800;
-    // Навигация раньше конца flyTo — easing замедляет зум в конце,
-    // а overlay уже тёмный к 70% времени, так что переход незаметен
-    const NAV_AT = Math.round(DIVE_MS * 0.7);
+    // ease-in: зум разгоняется к концу — эффект «проваливания»
+    // Навигация на 85% — зум ещё ускоряется, overlay уже тёмный
+    const NAV_AT = Math.round(DIVE_MS * 0.85);
     map.flyTo({
       center: [obj.lon, obj.lat],
       zoom: 20,
       duration: DIVE_MS,
       essential: true,
+      easing: (t: number) => t * t,
     });
 
     const timer = setTimeout(() => {
