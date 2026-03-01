@@ -276,16 +276,16 @@ export default function ObjectsMap({
           className="absolute inset-0 z-10 pointer-events-none"
           style={{
             background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.95) 70%)",
-            animation: "dive-fade 2s ease-in forwards",
+            animation: "dive-fade 2.4s ease-out forwards",
           }}
         />
       )}
       <style>{`
         @keyframes dive-fade {
           0%   { opacity: 0; }
-          20%  { opacity: 0.3; }
-          60%  { opacity: 0.7; }
-          85%  { opacity: 1; }
+          10%  { opacity: 0.4; }
+          40%  { opacity: 0.7; }
+          70%  { opacity: 0.9; }
           100% { opacity: 1; }
         }
       `}</style>
