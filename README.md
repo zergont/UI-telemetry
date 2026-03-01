@@ -36,6 +36,8 @@
 
 ## Быстрая установка (Ubuntu 24)
 
+### LAN-only (по IP, self-signed сертификат)
+
 ```bash
 # 1. Клонировать репозиторий
 git clone https://github.com/zergont/UI-telemetry.git /opt/cg-dashboard
@@ -44,11 +46,30 @@ cd /opt/cg-dashboard
 # 2. Запустить скрипт установки
 sudo bash deploy/install.sh
 
-# 3. Отредактировать конфиг
+# 3. Отредактировать конфиг (пароли БД!)
 sudo nano /opt/cg-dashboard/config.yaml
 
 # 4. Запустить
 sudo systemctl start cg-dashboard
+```
+
+### С доменом и NAT (роутер: WAN:443 → сервер:9443)
+
+```bash
+git clone https://github.com/zergont/UI-telemetry.git /opt/cg-dashboard
+cd /opt/cg-dashboard
+
+# Установка с указанием домена
+sudo CG_PUBLIC_BASE_URL="https://cg.example.com" \
+     CG_SERVER_NAME="cg.example.com" \
+     bash deploy/install.sh
+
+sudo nano /opt/cg-dashboard/config.yaml
+sudo systemctl start cg-dashboard
+
+# Опционально: Let's Encrypt (нужен проброс WAN:80 → сервер:80)
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d cg.example.com
 ```
 
 Скрипт `deploy/install.sh` автоматически:
@@ -96,7 +117,7 @@ auth:
   token: "СЛУЧАЙНАЯ_СТРОКА"    # токен для API
 
 access:
-  public_base_url: "https://your-domain.com:9443"
+  public_base_url: "https://your-domain.com"  # без порта при NAT 443→9443
   session_secret: "СЛУЧАЙНАЯ_СТРОКА_32_СИМВОЛА"
 ```
 
@@ -310,23 +331,33 @@ cg-dashboard/
 
 ## Доступ из интернета
 
-### Вариант 1: Проброс порта 9443
+### Вариант 1: Проброс порта 9443 (минимальный)
 
-1. На роутере: `внешний:9443` -> `192.168.0.130:9443`
-2. Доступ: `https://ваш-внешний-ip:9443`
+1. На роутере: `WAN:9443` → `сервер:9443`
+2. Доступ: `https://ваш-ip:9443` (self-signed, предупреждение браузера)
+3. В `config.yaml`: `public_base_url: "https://ваш-ip:9443"`
 
-### Вариант 2: DDNS + проброс
+### Вариант 2: Домен + NAT 443→9443 (рекомендуется)
+
+1. Настроить A-запись домена → ваш внешний IP
+2. На роутере: `WAN:443` → `сервер:9443`, `WAN:80` → `сервер:80`
+3. Установить с параметрами:
+   ```bash
+   sudo CG_PUBLIC_BASE_URL="https://cg.example.com" \
+        CG_SERVER_NAME="cg.example.com" \
+        bash deploy/install.sh
+   ```
+4. Опционально — Let's Encrypt для доверенного сертификата:
+   ```bash
+   sudo apt install certbot python3-certbot-nginx
+   sudo certbot --nginx -d cg.example.com
+   ```
+
+### Вариант 3: DDNS + проброс
 
 1. Настроить DDNS (например, ngs.myds.me)
-2. Пробросить порт 9443
-3. В `config.yaml`: `public_base_url: "https://ngs.myds.me:9443"`
-
-### Вариант 3: Certbot (Let's Encrypt)
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d ваш-домен.example.com
-```
+2. Пробросить порт 9443 (или 443→9443 для чистого URL)
+3. В `config.yaml`: `public_base_url: "https://ngs.myds.me"`
 
 ---
 

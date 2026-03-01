@@ -3,8 +3,13 @@
 # Честная Генерация — Установка на Ubuntu 24.04
 # =============================================================
 #
-# Запуск:
+# Запуск (LAN-only):
 #   sudo bash deploy/install.sh
+#
+# Запуск с доменом (NAT 443→9443):
+#   sudo CG_PUBLIC_BASE_URL="https://cg.example.com" \
+#        CG_SERVER_NAME="cg.example.com" \
+#        bash deploy/install.sh
 #
 # Что делает:
 #   1. Устанавливает системные пакеты (Python 3, Node.js 20, nginx, git)
@@ -41,6 +46,13 @@ INSTALL_DIR="/opt/cg-dashboard"
 CG_USER="cg"
 REPO_URL="https://github.com/zergont/UI-telemetry.git"
 SSL_DIR="/etc/ssl/cg-dashboard"
+
+# ── Параметры из окружения (для NAT/domain-сценария) ──
+# Примеры:
+#   CG_PUBLIC_BASE_URL="https://cg.example.com"  — внешний URL без порта (NAT 443→9443)
+#   CG_SERVER_NAME="cg.example.com"              — server_name для nginx
+CG_PUBLIC_BASE_URL="${CG_PUBLIC_BASE_URL:-}"
+CG_SERVER_NAME="${CG_SERVER_NAME:-}"
 
 # Если запускаем из клонированного репо — берём URL оттуда
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -202,11 +214,16 @@ if [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
         sed -i "s|name: \"cg_telemetry\"|name: \"${DB_NAME}\"|" config.yaml
     fi
 
-    # public_base_url — подставляем IP сервера
-    SERVER_IP=$(hostname -I | awk '{print $1}')
-    if [[ -n "$SERVER_IP" ]]; then
-        sed -i "s|https://your-domain.com:9443|https://${SERVER_IP}:9443|" config.yaml
-        info "public_base_url: https://${SERVER_IP}:9443"
+    # public_base_url — из env или IP сервера
+    if [[ -n "$CG_PUBLIC_BASE_URL" ]]; then
+        sed -i "s|https://your-domain.com:9443|${CG_PUBLIC_BASE_URL}|" config.yaml
+        info "public_base_url: ${CG_PUBLIC_BASE_URL} (из CG_PUBLIC_BASE_URL)"
+    else
+        SERVER_IP=$(hostname -I | awk '{print $1}')
+        if [[ -n "$SERVER_IP" ]]; then
+            sed -i "s|https://your-domain.com:9443|https://${SERVER_IP}:9443|" config.yaml
+            info "public_base_url: https://${SERVER_IP}:9443 (LAN)"
+        fi
     fi
 
     chown $CG_USER:$CG_USER "$INSTALL_DIR/config.yaml"
@@ -300,6 +317,13 @@ fi
 step "10. Nginx (автозапуск при ребуте)"
 # =============================================================
 cp "$INSTALL_DIR/deploy/cg-dashboard-nginx.conf" /etc/nginx/sites-available/cg-dashboard
+
+# Подставить server_name если задан CG_SERVER_NAME
+if [[ -n "$CG_SERVER_NAME" ]]; then
+    sed -i "s|server_name  _;|server_name  ${CG_SERVER_NAME};|g" /etc/nginx/sites-available/cg-dashboard
+    info "nginx server_name: ${CG_SERVER_NAME}"
+fi
+
 ln -sf /etc/nginx/sites-available/cg-dashboard /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
@@ -345,10 +369,20 @@ echo "     sudo systemctl status cg-dashboard"
 echo "     curl http://localhost:5555/api/health"
 echo ""
 echo "  4. Откройте:"
-echo "     https://$(hostname -I | awk '{print $1}'):9443"
+if [[ -n "$CG_PUBLIC_BASE_URL" ]]; then
+    echo "     ${CG_PUBLIC_BASE_URL}"
+else
+    echo "     https://$(hostname -I | awk '{print $1}'):9443"
+fi
 echo ""
 echo "  5. Логи:"
 echo "     sudo journalctl -u cg-dashboard -f"
 echo ""
+if [[ -n "$CG_SERVER_NAME" ]]; then
+    echo -e "  ${CYAN}Let's Encrypt (опционально):${NC}"
+    echo "     sudo apt install certbot python3-certbot-nginx"
+    echo "     sudo certbot --nginx -d ${CG_SERVER_NAME}"
+    echo ""
+fi
 echo -e "  ${CYAN}После ребута всё поднимется автоматически!${NC}"
 echo ""
