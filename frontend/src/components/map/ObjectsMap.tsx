@@ -212,11 +212,9 @@ export default function ObjectsMap({
       essential: true,
     });
 
-    // После анимации зума + небольшая пауза на затемнение — переходим
+    // После анимации зума — сразу переходим
     const onEnd = () => {
-      setTimeout(() => {
-        navigate(`/objects/${divingSn}`);
-      }, 400);
+      navigate(`/objects/${divingSn}`);
     };
     map.once("moveend", onEnd);
 
@@ -276,7 +274,7 @@ export default function ObjectsMap({
           className="absolute inset-0 z-10 pointer-events-none"
           style={{
             background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.95) 70%)",
-            animation: "dive-fade 1.9s ease-out forwards",
+            animation: "dive-fade 1.5s ease-out forwards",
           }}
         />
       )}
