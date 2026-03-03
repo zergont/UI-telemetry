@@ -76,6 +76,16 @@ async def run_migrations(cfg: DatabaseConfig) -> None:
             )
             if obj_exists:
                 grants.append(f"GRANT UPDATE (name, notes) ON objects TO {cfg.ui_user}")
+                # DELETE для каскадного удаления объектов (admin)
+                for tbl in ("objects", "equipment", "latest_state",
+                            "history", "events", "gps_latest_filtered"):
+                    tbl_exists = await conn.fetchval(
+                        "SELECT 1 FROM information_schema.tables "
+                        "WHERE table_schema = 'public' AND table_name = $1",
+                        tbl,
+                    )
+                    if tbl_exists:
+                        grants.append(f"GRANT DELETE ON {tbl} TO {cfg.ui_user}")
 
             for sql in grants:
                 try:

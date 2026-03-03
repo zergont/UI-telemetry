@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timedelta, timezone
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import AuthContext, require_admin, require_auth
 from app.config import Settings, get_settings
 from app.db.queries.equipment import fetch_equipment_by_object
-from app.db.queries.objects import fetch_all_objects, fetch_object_by_sn, update_object_name
+from app.db.queries.objects import (
+    check_object_last_activity,
+    delete_object_cascade,
+    fetch_all_objects,
+    fetch_object_by_sn,
+    update_object_name,
+)
 from app.deps import get_pool
 from app.schemas.objects import ObjectNameUpdate, ObjectOut
 from app.services.telemetry import derive_connection_status
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/objects", tags=["objects"])
+
+# Минимальное время тишины перед удалением (нет данных от объекта)
+DELETE_QUIET_MINUTES = 30
 
 
 def _aggregate_connection_status(statuses: list[str]) -> str:
@@ -110,3 +124,45 @@ async def rename_object(
     if not ok:
         raise HTTPException(status_code=404, detail="Object not found")
     return {"ok": True}
+
+
+@router.delete("/{router_sn}")
+async def delete_object(
+    router_sn: str,
+    pool: asyncpg.Pool = Depends(get_pool),
+    ctx: AuthContext = Depends(require_admin),
+):
+    """Полное каскадное удаление объекта и всех его данных.
+
+    Проверяет, что с момента последних данных прошло >= 30 минут
+    (объект не передаёт данные).
+    """
+    info = await check_object_last_activity(pool, router_sn)
+    if not info:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    last = info.get("last_activity")
+    if last is not None:
+        now = datetime.now(timezone.utc)
+        if isinstance(last, datetime) and last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        quiet = now - last
+        if quiet < timedelta(minutes=DELETE_QUIET_MINUTES):
+            remaining = DELETE_QUIET_MINUTES - int(quiet.total_seconds() // 60)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Объект передавал данные менее {DELETE_QUIET_MINUTES} мин. назад. "
+                    f"Остановите передачу и подождите ещё ~{remaining} мин."
+                ),
+            )
+
+    ok = await delete_object_cascade(pool, router_sn)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    logger.info(
+        "Объект %s удалён администратором (IP: %s)",
+        router_sn, ctx.client_ip,
+    )
+    return {"ok": True, "deleted": router_sn}

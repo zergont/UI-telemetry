@@ -42,3 +42,51 @@ async def update_object_name(pool: asyncpg.Pool, router_sn: str, name: str) -> b
             name, router_sn,
         )
     return result == "UPDATE 1"
+
+
+async def check_object_last_activity(
+    pool: asyncpg.Pool, router_sn: str,
+) -> dict[str, Any] | None:
+    """Проверить, существует ли объект и когда были последние данные.
+
+    Возвращает {exists: True, last_activity: datetime|None} или None.
+    last_activity — максимум из equipment.last_seen_at для этого объекта.
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                o.router_sn,
+                (SELECT MAX(e.last_seen_at) FROM equipment e
+                 WHERE e.router_sn = o.router_sn) AS last_activity
+            FROM objects o
+            WHERE o.router_sn = $1
+        """, router_sn)
+    if not row:
+        return None
+    return dict(row)
+
+
+async def delete_object_cascade(pool: asyncpg.Pool, router_sn: str) -> bool:
+    """Каскадное удаление объекта и всех связанных данных в одной транзакции."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Порядок: от вложенных к корню
+            await conn.execute(
+                "DELETE FROM history WHERE router_sn = $1", router_sn)
+            await conn.execute(
+                "DELETE FROM latest_state WHERE router_sn = $1", router_sn)
+            await conn.execute(
+                "DELETE FROM events WHERE router_sn = $1", router_sn)
+            await conn.execute(
+                "DELETE FROM equipment WHERE router_sn = $1", router_sn)
+            await conn.execute(
+                "DELETE FROM gps_latest_filtered WHERE router_sn = $1", router_sn)
+            # Ревокнуть share-ссылки (soft-delete)
+            await conn.execute(
+                "UPDATE share_links SET revoked_at = now() "
+                "WHERE scope_type = 'site' AND scope_id = $1 AND revoked_at IS NULL",
+                router_sn,
+            )
+            result = await conn.execute(
+                "DELETE FROM objects WHERE router_sn = $1", router_sn)
+    return result == "DELETE 1"

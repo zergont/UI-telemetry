@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
 export interface ObjectOut {
@@ -18,5 +18,18 @@ export function useObjects() {
     queryKey: ["objects"],
     queryFn: () => apiFetch<ObjectOut[]>("/api/objects"),
     refetchInterval: 60_000,
+  });
+}
+
+export function useDeleteObject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (routerSn: string) =>
+      apiFetch<{ ok: boolean }>(`/api/objects/${routerSn}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["objects"] });
+    },
   });
 }
