@@ -274,7 +274,7 @@ export default function ObjectsMap({
               const isOnline = popup.status === "ONLINE";
               return (
                 <div
-                  className="cursor-pointer select-none w-60"
+                  className="cursor-pointer select-none"
                   onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
                 >
                   {/* Header */}
@@ -389,8 +389,11 @@ export default function ObjectsMap({
           border: 1px solid var(--border) !important;
           border-radius: 10px !important;
           padding: 12px 14px !important;
+          width: 240px !important;
+          box-sizing: content-box !important;
           box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.25) !important;
           font-family: inherit !important;
+          overflow: hidden !important;
         }
         .cg-popup .maplibregl-popup-tip {
           border-top-color: var(--background) !important;
