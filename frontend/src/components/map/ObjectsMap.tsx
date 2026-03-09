@@ -274,7 +274,7 @@ export default function ObjectsMap({
               const isOnline = popup.status === "ONLINE";
               return (
                 <div
-                  className="cursor-pointer select-none w-56"
+                  className="cursor-pointer select-none w-60"
                   onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
                 >
                   {/* Header */}
@@ -310,19 +310,20 @@ export default function ObjectsMap({
                   {popup.total_installed_power_kw != null ? (
                   <><div className="h-px bg-border mb-2" />
                     <div className="mb-2">
+                      {/* Строка: лейбл слева, процент справа */}
                       <div className="flex justify-between items-baseline mb-1">
                         <span className="text-[11px] text-muted-foreground">Нагрузка</span>
-                        <span className="text-[11px] font-medium tabular-nums">
-                          {popup.total_load_kw != null ? popup.total_load_kw.toFixed(0) : "—"}
-                          {" / "}
-                          {Math.round(popup.total_installed_power_kw)} кВт
-                          {loadPct != null && (
-                            <span className="text-muted-foreground ml-1">({loadPct}%)</span>
-                          )}
-                        </span>
+                        {loadPct != null && (
+                          <span className={`text-[11px] font-semibold tabular-nums ${
+                            loadPct > 85 ? "text-red-400" :
+                            loadPct > 65 ? "text-amber-400" :
+                            "text-foreground"
+                          }`}>{loadPct}%</span>
+                        )}
                       </div>
+                      {/* Прогресс-бар */}
                       {loadPct != null && (
-                        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden mb-1.5">
                           <div
                             className={`h-full rounded-full transition-all ${
                               loadPct > 85 ? "bg-red-500" :
@@ -333,6 +334,15 @@ export default function ObjectsMap({
                           />
                         </div>
                       )}
+                      {/* Значения кВт под баром */}
+                      <div className="text-right tabular-nums">
+                        <span className="text-[11px] font-medium">
+                          {popup.total_load_kw != null ? popup.total_load_kw.toFixed(0) : "—"}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {" / "}{Math.round(popup.total_installed_power_kw)} кВт
+                        </span>
+                      </div>
                     </div>
                   </>) : null}
 
