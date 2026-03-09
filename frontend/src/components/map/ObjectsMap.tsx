@@ -258,41 +258,101 @@ export default function ObjectsMap({
             longitude={popup.lon}
             latitude={popup.lat}
             onClose={() => { setPopup(null); onFocusChange?.(null); }}
-            closeButton={true}
+            closeButton={false}
             closeOnClick={false}
             anchor="bottom"
-            offset={16}
+            offset={20}
+            className="cg-popup"
           >
-            <div
-              className="cursor-pointer px-1 py-0.5 min-w-[140px]"
-              onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
-            >
-              <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">
-                {popup.name || popup.router_sn}
-              </p>
-              <div className="text-xs text-gray-500 space-y-0.5 mt-1">
-                {popup.total_installed_power_kw != null && (
-                  <p>
-                    Мощность уст.: <span className="font-medium text-gray-700 dark:text-gray-300">
-                      {Math.round(popup.total_installed_power_kw)} кВт
-                    </span>
-                  </p>
-                )}
-                {popup.total_load_kw != null && (
-                  <p>
-                    Нагрузка: <span className="font-medium text-gray-700 dark:text-gray-300">
-                      {popup.total_load_kw.toFixed(1)} кВт
-                      {popup.total_installed_power_kw != null && popup.total_installed_power_kw > 0 && (
-                        <span className="text-gray-400 ml-1">
-                          ({Math.round(popup.total_load_kw / popup.total_installed_power_kw * 100)}%)
-                        </span>
+            {(() => {
+              const loadPct =
+                popup.total_installed_power_kw != null &&
+                popup.total_installed_power_kw > 0 &&
+                popup.total_load_kw != null
+                  ? Math.round((popup.total_load_kw / popup.total_installed_power_kw) * 100)
+                  : null;
+              const isOnline = popup.status === "ONLINE";
+              return (
+                <div
+                  className="cursor-pointer select-none w-56"
+                  onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm leading-tight truncate">
+                        {popup.name || popup.router_sn}
+                      </p>
+                      {popup.name && (
+                        <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                          {popup.router_sn}
+                        </p>
                       )}
+                    </div>
+                    <span className={`shrink-0 mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                      isOnline
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-zinc-500/20 text-zinc-400"
+                    }`}>
+                      {isOnline ? "онлайн" : "офлайн"}
                     </span>
-                  </p>
-                )}
-                <p>Оборудование: {popup.equipment_count}</p>
-              </div>
-            </div>
+                    <button
+                      className="shrink-0 mt-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={(e) => { e.stopPropagation(); setPopup(null); onFocusChange?.(null); }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-px bg-border mb-2" />
+
+                  {/* Power stats */}
+                  {popup.total_installed_power_kw != null ? (
+                    <div className="mb-2">
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="text-[11px] text-muted-foreground">Нагрузка</span>
+                        <span className="text-[11px] font-medium tabular-nums">
+                          {popup.total_load_kw != null ? popup.total_load_kw.toFixed(0) : "—"}
+                          {" / "}
+                          {Math.round(popup.total_installed_power_kw)} кВт
+                          {loadPct != null && (
+                            <span className="text-muted-foreground ml-1">({loadPct}%)</span>
+                          )}
+                        </span>
+                      </div>
+                      {loadPct != null && (
+                        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              loadPct > 85 ? "bg-red-500" :
+                              loadPct > 65 ? "bg-amber-400" :
+                              "bg-blue-500"
+                            }`}
+                            style={{ width: `${Math.min(loadPct, 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {/* Footer */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] text-muted-foreground">
+                      {popup.equipment_count} {popup.equipment_count === 1 ? "установка" : "установки"}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      Открыть
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 5h6M5 2l3 3-3 3"/>
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </Popup>
         )}
       </Map>
@@ -314,6 +374,17 @@ export default function ObjectsMap({
           20%  { opacity: 0.85; }
           45%  { opacity: 1; }
           100% { opacity: 1; }
+        }
+        .cg-popup .maplibregl-popup-content {
+          background: var(--background) !important;
+          color: var(--foreground) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 10px !important;
+          padding: 12px 14px !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2) !important;
+        }
+        .cg-popup .maplibregl-popup-tip {
+          border-top-color: var(--background) !important;
         }
       `}</style>
 

@@ -26,20 +26,28 @@ export function useEquipment(routerSn: string) {
   useEffect(() => {
     if (!routerSn) return;
 
-    let debounceId: ReturnType<typeof setTimeout> | null = null;
+    // Throttle: не чаще одного рефетча каждые 20 сек.
+    // Дебаунс не подходит — WS стреляет каждые 2-5 сек и постоянно
+    // сбрасывал бы таймер, так что он никогда не срабатывал.
+    const THROTTLE_MS = 20_000;
+    // Первый рефетч — с задержкой 3 сек (чтобы cg-bd-writer успел записать в БД).
+    const WRITER_DELAY_MS = 3_000;
+    let lastFiredAt = 0;
+    let pendingId: ReturnType<typeof setTimeout> | null = null;
 
-    // Zustand vanilla subscribe — не вызывает ре-рендер компонента.
-    // Когда приходит новая телеметрия для нашего router_sn,
-    // ждём 3 сек (чтобы cg-bd-writer успел записать в БД) и инвалидируем кэш.
     const unsub = useTelemetryStore.subscribe((state, prev) => {
       for (const [key, ts] of state.lastUpdate) {
         if (!key.startsWith(`${routerSn}:`)) continue;
         const prevTs = prev.lastUpdate.get(key) ?? 0;
         if (ts > prevTs) {
-          if (debounceId) clearTimeout(debounceId);
-          debounceId = setTimeout(() => {
+          const now = Date.now();
+          // Throttle: игнорируем, если рефетч был недавно или уже запланирован
+          if (pendingId !== null || now - lastFiredAt < THROTTLE_MS) return;
+          pendingId = setTimeout(() => {
+            pendingId = null;
+            lastFiredAt = Date.now();
             qc.invalidateQueries({ queryKey: ["equipment", routerSn] });
-          }, 3_000);
+          }, WRITER_DELAY_MS);
           return;
         }
       }
@@ -47,7 +55,7 @@ export function useEquipment(routerSn: string) {
 
     return () => {
       unsub();
-      if (debounceId) clearTimeout(debounceId);
+      if (pendingId) clearTimeout(pendingId);
     };
   }, [routerSn, qc]);
 
