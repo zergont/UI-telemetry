@@ -289,10 +289,10 @@ export default function ObjectsMap({
                         </p>
                       )}
                     </div>
-                    <span className={`shrink-0 mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                    <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
                       isOnline
-                        ? "bg-green-500/20 text-green-400"
-                        : "bg-zinc-500/20 text-zinc-400"
+                        ? "bg-green-500/15 text-green-400"
+                        : "bg-zinc-500/15 text-zinc-500"
                     }`}>
                       {isOnline ? "онлайн" : "офлайн"}
                     </span>
@@ -306,11 +306,9 @@ export default function ObjectsMap({
                     </button>
                   </div>
 
-                  {/* Divider */}
-                  <div className="h-px bg-border mb-2" />
-
-                  {/* Power stats */}
+                  {/* Power stats — показываем вместе с разделителем только если есть данные */}
                   {popup.total_installed_power_kw != null ? (
+                  <><div className="h-px bg-border mb-2" />
                     <div className="mb-2">
                       <div className="flex justify-between items-baseline mb-1">
                         <span className="text-[11px] text-muted-foreground">Нагрузка</span>
@@ -336,10 +334,10 @@ export default function ObjectsMap({
                         </div>
                       )}
                     </div>
-                  ) : null}
+                  </>) : null}
 
                   {/* Footer */}
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center mt-2">
                     <span className="text-[11px] text-muted-foreground">
                       {popup.equipment_count} {popup.equipment_count === 1 ? "установка" : "установки"}
                     </span>
@@ -381,10 +379,12 @@ export default function ObjectsMap({
           border: 1px solid var(--border) !important;
           border-radius: 10px !important;
           padding: 12px 14px !important;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2) !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.25) !important;
+          font-family: inherit !important;
         }
         .cg-popup .maplibregl-popup-tip {
           border-top-color: var(--background) !important;
+          filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));
         }
       `}</style>
 
