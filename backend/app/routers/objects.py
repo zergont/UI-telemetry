@@ -66,10 +66,7 @@ async def list_objects(
     if ctx.allowed_router_sns is not None:
         rows = [r for r in rows if r["router_sn"] in ctx.allowed_router_sns]
 
-    kr = settings.telemetry.key_registers
-    power_map = await fetch_power_totals_bulk(
-        pool, kr.installed_power, kr.current_load,
-    )
+    power_map = await fetch_power_totals_bulk(pool)
 
     results = []
     for row in rows:
@@ -108,10 +105,9 @@ async def get_object(
     if not row:
         raise HTTPException(status_code=404, detail="Object not found")
 
-    kr = settings.telemetry.key_registers
     status, pw = await asyncio.gather(
         _calc_object_status(pool, router_sn, settings.telemetry.offline_timeout_sec),
-        fetch_power_totals_single(pool, router_sn, kr.installed_power, kr.current_load),
+        fetch_power_totals_single(pool, router_sn),
     )
     return ObjectOut(
         router_sn=row["router_sn"],

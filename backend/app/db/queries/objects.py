@@ -46,57 +46,40 @@ async def update_object_name(pool: asyncpg.Pool, router_sn: str, name: str) -> b
 
 async def fetch_power_totals_bulk(
     pool: asyncpg.Pool,
-    installed_addr: int,
-    load_addr: int,
 ) -> dict[str, dict[str, Any]]:
     """Суммарная установленная мощность и нагрузка по всем объектам (один запрос).
 
+    Читает из таблицы equipment — там хранятся уже вычисленные значения
+    installed_power_kw / current_load_kw, которые надёжнее чем latest_state
+    (в latest_state регистры могут иметь raw=65535/NA для части устройств).
+
     Возвращает dict: {router_sn: {total_installed_power_kw, total_load_kw}}.
-    NA-значения (raw 65535/32767 или reason содержит 'NA') исключаются.
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
                 router_sn,
-                SUM(value) FILTER (
-                    WHERE addr = $1
-                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
-                ) AS total_installed_power_kw,
-                SUM(value) FILTER (
-                    WHERE addr = $2
-                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
-                ) AS total_load_kw
-            FROM latest_state
+                SUM(installed_power_kw) AS total_installed_power_kw,
+                SUM(current_load_kw)    AS total_load_kw
+            FROM equipment
             GROUP BY router_sn
-        """, installed_addr, load_addr)
+        """)
     return {r["router_sn"]: dict(r) for r in rows}
 
 
 async def fetch_power_totals_single(
     pool: asyncpg.Pool,
     router_sn: str,
-    installed_addr: int,
-    load_addr: int,
 ) -> dict[str, Any]:
-    """Суммарная мощность/нагрузка для одного объекта."""
+    """Суммарная мощность/нагрузка для одного объекта из таблицы equipment."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT
-                SUM(value) FILTER (
-                    WHERE addr = $2
-                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
-                ) AS total_installed_power_kw,
-                SUM(value) FILTER (
-                    WHERE addr = $3
-                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
-                ) AS total_load_kw
-            FROM latest_state
+                SUM(installed_power_kw) AS total_installed_power_kw,
+                SUM(current_load_kw)    AS total_load_kw
+            FROM equipment
             WHERE router_sn = $1
-        """, router_sn, installed_addr, load_addr)
+        """, router_sn)
     return dict(row) if row else {}
 
 
