@@ -16,6 +16,8 @@ class ObjectOut(BaseModel):
     status: str = "OFFLINE"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    total_installed_power_kw: Optional[float] = None
+    total_load_kw: Optional[float] = None
 
 
 class ObjectNameUpdate(BaseModel):

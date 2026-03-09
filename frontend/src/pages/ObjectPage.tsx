@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, MapPin, Clock } from "lucide-react";
+import { ArrowLeft, MapPin, Clock, Zap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useEquipment } from "@/hooks/use-equipment";
@@ -26,6 +26,13 @@ export default function ObjectPage() {
   });
 
   const { data: equipment, isLoading: eqLoading } = useEquipment(routerSn!);
+
+  const powerStats = useMemo(() => {
+    if (!equipment || equipment.length === 0) return null;
+    const installed = equipment.reduce((s, eq) => s + (eq.installed_power_kw ?? 0), 0);
+    const load = equipment.reduce((s, eq) => s + (eq.current_load_kw ?? 0), 0);
+    return { installed, load, pct: installed > 0 ? Math.round(load / installed * 100) : null };
+  }, [equipment]);
 
   const renameMutation = useRenameObject(routerSn!);
   const handleRename = useCallback(
@@ -72,6 +79,17 @@ export default function ObjectPage() {
               <span className="flex items-center gap-1">
                 <MapPin className="h-3 w-3" />
                 {object.lat.toFixed(4)}, {object.lon.toFixed(4)}
+              </span>
+            )}
+            {powerStats && (
+              <span className="flex items-center gap-1" title="Суммарная нагрузка / установленная мощность">
+                <Zap className="h-3 w-3" />
+                <span className="tabular-nums">
+                  {powerStats.load.toFixed(1)} / {Math.round(powerStats.installed)} кВт
+                  {powerStats.pct != null && (
+                    <span className="ml-1 text-xs">({powerStats.pct}%)</span>
+                  )}
+                </span>
               </span>
             )}
             {drift != null && (

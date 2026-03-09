@@ -96,7 +96,7 @@ export default function ObjectsTable({
     );
   }
 
-  const colSpan = isAdmin ? 6 : 5;
+  const colSpan = isAdmin ? 8 : 7;
 
   return (
     <>
@@ -106,6 +106,8 @@ export default function ObjectsTable({
             <TableRow>
               <TableHead>Объект</TableHead>
               <TableHead className="hidden sm:table-cell">SN</TableHead>
+              <TableHead className="hidden lg:table-cell text-right">Мощность уст.</TableHead>
+              <TableHead className="hidden lg:table-cell text-right">Нагрузка</TableHead>
               <TableHead className="text-center">Оборудование</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead className="hidden md:table-cell">
@@ -139,6 +141,25 @@ export default function ObjectsTable({
                   </TableCell>
                   <TableCell className="hidden sm:table-cell font-mono text-xs text-muted-foreground">
                     {obj.router_sn}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-right text-sm tabular-nums">
+                    {obj.total_installed_power_kw != null
+                      ? `${Math.round(obj.total_installed_power_kw)} кВт`
+                      : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-right text-sm tabular-nums">
+                    {obj.total_load_kw != null
+                      ? (
+                        <span>
+                          {obj.total_load_kw.toFixed(1)} кВт
+                          {obj.total_installed_power_kw != null && obj.total_installed_power_kw > 0 && (
+                            <span className="text-muted-foreground text-xs ml-1">
+                              ({Math.round(obj.total_load_kw / obj.total_installed_power_kw * 100)}%)
+                            </span>
+                          )}
+                        </span>
+                      )
+                      : <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell className="text-center">
                     {obj.equipment_count}

@@ -264,15 +264,34 @@ export default function ObjectsMap({
             offset={16}
           >
             <div
-              className="cursor-pointer px-1 py-0.5"
+              className="cursor-pointer px-1 py-0.5 min-w-[140px]"
               onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
             >
-              <p className="font-semibold text-sm text-gray-900">
+              <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">
                 {popup.name || popup.router_sn}
               </p>
-              <p className="text-xs text-gray-500">
-                Оборудование: {popup.equipment_count}
-              </p>
+              <div className="text-xs text-gray-500 space-y-0.5 mt-1">
+                {popup.total_installed_power_kw != null && (
+                  <p>
+                    Мощность уст.: <span className="font-medium text-gray-700 dark:text-gray-300">
+                      {Math.round(popup.total_installed_power_kw)} кВт
+                    </span>
+                  </p>
+                )}
+                {popup.total_load_kw != null && (
+                  <p>
+                    Нагрузка: <span className="font-medium text-gray-700 dark:text-gray-300">
+                      {popup.total_load_kw.toFixed(1)} кВт
+                      {popup.total_installed_power_kw != null && popup.total_installed_power_kw > 0 && (
+                        <span className="text-gray-400 ml-1">
+                          ({Math.round(popup.total_load_kw / popup.total_installed_power_kw * 100)}%)
+                        </span>
+                      )}
+                    </span>
+                  </p>
+                )}
+                <p>Оборудование: {popup.equipment_count}</p>
+              </div>
             </div>
           </Popup>
         )}

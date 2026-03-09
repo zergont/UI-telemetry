@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -14,6 +15,8 @@ from app.db.queries.objects import (
     delete_object_cascade,
     fetch_all_objects,
     fetch_object_by_sn,
+    fetch_power_totals_bulk,
+    fetch_power_totals_single,
     update_object_name,
 )
 from app.deps import get_pool
@@ -63,11 +66,17 @@ async def list_objects(
     if ctx.allowed_router_sns is not None:
         rows = [r for r in rows if r["router_sn"] in ctx.allowed_router_sns]
 
+    kr = settings.telemetry.key_registers
+    power_map = await fetch_power_totals_bulk(
+        pool, kr.installed_power, kr.current_load,
+    )
+
     results = []
     for row in rows:
         status = await _calc_object_status(
             pool, row["router_sn"], settings.telemetry.offline_timeout_sec,
         )
+        pw = power_map.get(row["router_sn"], {})
         results.append(ObjectOut(
             router_sn=row["router_sn"],
             name=row.get("name"),
@@ -78,6 +87,8 @@ async def list_objects(
             status=status,
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
+            total_installed_power_kw=pw.get("total_installed_power_kw"),
+            total_load_kw=pw.get("total_load_kw"),
         ))
     return results
 
@@ -97,8 +108,10 @@ async def get_object(
     if not row:
         raise HTTPException(status_code=404, detail="Object not found")
 
-    status = await _calc_object_status(
-        pool, row["router_sn"], settings.telemetry.offline_timeout_sec,
+    kr = settings.telemetry.key_registers
+    status, pw = await asyncio.gather(
+        _calc_object_status(pool, router_sn, settings.telemetry.offline_timeout_sec),
+        fetch_power_totals_single(pool, router_sn, kr.installed_power, kr.current_load),
     )
     return ObjectOut(
         router_sn=row["router_sn"],
@@ -110,6 +123,8 @@ async def get_object(
         status=status,
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
+        total_installed_power_kw=pw.get("total_installed_power_kw"),
+        total_load_kw=pw.get("total_load_kw"),
     )
 
 

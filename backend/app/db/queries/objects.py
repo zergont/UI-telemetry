@@ -44,6 +44,62 @@ async def update_object_name(pool: asyncpg.Pool, router_sn: str, name: str) -> b
     return result == "UPDATE 1"
 
 
+async def fetch_power_totals_bulk(
+    pool: asyncpg.Pool,
+    installed_addr: int,
+    load_addr: int,
+) -> dict[str, dict[str, Any]]:
+    """Суммарная установленная мощность и нагрузка по всем объектам (один запрос).
+
+    Возвращает dict: {router_sn: {total_installed_power_kw, total_load_kw}}.
+    NA-значения (raw 65535/32767 или reason содержит 'NA') исключаются.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                router_sn,
+                SUM(value) FILTER (
+                    WHERE addr = $1
+                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
+                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
+                ) AS total_installed_power_kw,
+                SUM(value) FILTER (
+                    WHERE addr = $2
+                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
+                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
+                ) AS total_load_kw
+            FROM latest_state
+            GROUP BY router_sn
+        """, installed_addr, load_addr)
+    return {r["router_sn"]: dict(r) for r in rows}
+
+
+async def fetch_power_totals_single(
+    pool: asyncpg.Pool,
+    router_sn: str,
+    installed_addr: int,
+    load_addr: int,
+) -> dict[str, Any]:
+    """Суммарная мощность/нагрузка для одного объекта."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                SUM(value) FILTER (
+                    WHERE addr = $2
+                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
+                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
+                ) AS total_installed_power_kw,
+                SUM(value) FILTER (
+                    WHERE addr = $3
+                      AND (raw IS NULL OR raw NOT IN (65535, 32767))
+                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
+                ) AS total_load_kw
+            FROM latest_state
+            WHERE router_sn = $1
+        """, router_sn, installed_addr, load_addr)
+    return dict(row) if row else {}
+
+
 async def check_object_last_activity(
     pool: asyncpg.Pool, router_sn: str,
 ) -> dict[str, Any] | None:

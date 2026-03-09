@@ -11,6 +11,8 @@ export interface ObjectOut {
   status: string;
   created_at: string | null;
   updated_at: string | null;
+  total_installed_power_kw: number | null;
+  total_load_kw: number | null;
 }
 
 export function useObjects() {
