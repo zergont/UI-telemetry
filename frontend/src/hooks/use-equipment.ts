@@ -1,5 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { apiFetch } from "@/lib/api";
+import { useTelemetryStore } from "@/stores/telemetry-store";
 
 export interface EquipmentOut {
   router_sn: string;
@@ -19,10 +21,41 @@ export interface EquipmentOut {
 }
 
 export function useEquipment(routerSn: string) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!routerSn) return;
+
+    let debounceId: ReturnType<typeof setTimeout> | null = null;
+
+    // Zustand vanilla subscribe — не вызывает ре-рендер компонента.
+    // Когда приходит новая телеметрия для нашего router_sn,
+    // ждём 3 сек (чтобы cg-bd-writer успел записать в БД) и инвалидируем кэш.
+    const unsub = useTelemetryStore.subscribe((state, prev) => {
+      for (const [key, ts] of state.lastUpdate) {
+        if (!key.startsWith(`${routerSn}:`)) continue;
+        const prevTs = prev.lastUpdate.get(key) ?? 0;
+        if (ts > prevTs) {
+          if (debounceId) clearTimeout(debounceId);
+          debounceId = setTimeout(() => {
+            qc.invalidateQueries({ queryKey: ["equipment", routerSn] });
+          }, 3_000);
+          return;
+        }
+      }
+    });
+
+    return () => {
+      unsub();
+      if (debounceId) clearTimeout(debounceId);
+    };
+  }, [routerSn, qc]);
+
   return useQuery({
     queryKey: ["equipment", routerSn],
     queryFn: () =>
       apiFetch<EquipmentOut[]>(`/api/objects/${routerSn}/equipment`),
     enabled: !!routerSn,
+    refetchInterval: 60_000, // фолбэк при отключённом WS
   });
 }
