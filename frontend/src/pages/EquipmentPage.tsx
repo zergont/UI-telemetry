@@ -45,7 +45,7 @@ export default function EquipmentPage() {
   }>();
 
   const isAdmin = useIsAdmin();
-  const [activeTab, setActiveTab] = useState("registers");
+  const [activeTab, setActiveTab] = useState("history");
 
   const key = makeEquipKey(routerSn!, equipType!, panelId!);
   const liveRegs = useTelemetryStore((s) => s.registers.get(key));
