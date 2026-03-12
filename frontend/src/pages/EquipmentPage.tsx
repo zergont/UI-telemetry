@@ -206,7 +206,7 @@ export default function EquipmentPage() {
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="registers" className="w-full" onValueChange={setActiveTab}>
+      <Tabs defaultValue="history" className="w-full" onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="registers">Регистры</TabsTrigger>
@@ -514,10 +514,27 @@ function HistoryTab({
     "30d": 30 * 86400_000,
   };
 
+  // Интервалы live-обновления (мс). Только для коротких диапазонов.
+  const liveInterval: Record<string, number> = {
+    "1h": 60_000,       // раз в минуту
+    "24h": 5 * 60_000,  // раз в 5 минут
+  };
+
   const showDate = range === "7d" || range === "30d";
+  const isLive = range in liveInterval;
+
+  // Тик: обновляется каждые N секунд для скользящего окна
+  const [nowTick, setNowTick] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
+  useEffect(() => {
+    if (!isLive) return;
+    const interval = liveInterval[range];
+    const id = setInterval(() => setNowTick(Math.floor(Date.now() / 60_000) * 60_000), interval);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range]);
 
   const { start, end, startMs, endMs } = useMemo(() => {
-    const now = new Date();
+    const now = new Date(isLive ? nowTick : Date.now());
     now.setSeconds(0, 0);
     const s = new Date(now.getTime() - (rangeMs[range] || rangeMs["24h"]));
     return {
@@ -527,9 +544,9 @@ function HistoryTab({
       endMs: now.getTime(),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range]);
+  }, [range, nowTick]);
 
-  const { data: history, isLoading } = useHistory(
+  const { data: history, isLoading, isFetching } = useHistory(
     routerSn, equipType, panelId, selectedAddr, start, end,
   );
 
@@ -596,6 +613,14 @@ function HistoryTab({
           ))}
         </div>
 
+        {/* Live-индикатор для коротких диапазонов */}
+        {isLive && (
+          <span className="flex items-center gap-1.5 text-xs text-emerald-500">
+            <span className={`h-2 w-2 rounded-full ${isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"}`} />
+            Live
+          </span>
+        )}
+
         {/* Предупреждение: данные покрывают не весь выбранный период */}
         {!isLoading && coverage && coverage.pct < 90 && (
           <span className="text-xs text-amber-500">
@@ -632,8 +657,8 @@ function HistoryTab({
                 tick={{ fontSize: 11 }}
                 className="fill-muted-foreground"
                 width={80}
-                domain={["dataMin", "dataMax"]}
-                padding={{ top: 20, bottom: 20 }}
+                domain={[0, "dataMax"]}
+                padding={{ top: 20, bottom: 0 }}
               />
               <RechartsTooltip
                 labelFormatter={(v) => fmtTooltipLabel(v as number, showDate)}

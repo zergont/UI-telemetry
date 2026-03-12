@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
 export interface HistoryPoint {
@@ -31,5 +31,6 @@ export function useHistory(
       return apiFetch<HistoryPoint[]>(`/api/history?${params}`);
     },
     enabled: enabled && !!routerSn && !!equipType,
+    placeholderData: keepPreviousData,
   });
 }
