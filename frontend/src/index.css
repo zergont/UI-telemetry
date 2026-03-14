@@ -122,3 +122,8 @@
     @apply bg-background text-foreground;
     }
 }
+
+/* Убрать лого TradingView из lightweight-charts (Apache 2.0 — атрибуция не обязательна) */
+.tv-lightweight-charts a {
+  display: none !important;
+}
