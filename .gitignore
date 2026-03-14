@@ -33,4 +33,4 @@ __pycache__/
 # Окружение и секреты
 .env
 venv/
-.venv
+.venv.vs/
