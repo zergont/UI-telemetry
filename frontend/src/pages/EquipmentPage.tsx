@@ -532,37 +532,19 @@ function HistoryTab({
     setViewport({ startMs, endMs: Math.min(endMs, now + 30_000) });
   }, []);
 
-  // Запрашиваемый диапазон зависит от режима:
-  //  • Зум (span < 50% range)  → только viewport → детальное разрешение
-  //  • Пан (span ≈ range)      → расширяем окно влево, правый край = now
-  //  • Без viewport             → полный диапазон range
+  // Запрашиваемый диапазон:
+  //  • viewport задан → viewport.startMs … now  (правый край всегда now — live не пропадает)
+  //  • viewport null  → defaultStart … now
+  //
+  // queryEnd всегда = now: при любом паннинге/зуме данные не пропадают,
+  // backend сам делает bucketing → всегда ≤ TARGET_POINTS точек.
   const { queryStart, queryEnd } = useMemo(() => {
     const nowMs = nowTick;
-    const rangeSpan = RANGE_MS[range] ?? RANGE_MS["24h"];
-    const defaultStartMs = nowMs - rangeSpan;
+    const defaultStartMs = nowMs - (RANGE_MS[range] ?? RANGE_MS["24h"]);
 
-    if (viewport) {
-      const viewportSpan = viewport.endMs - viewport.startMs;
-      const liveEnd = (nowMs - viewport.endMs < 2 * 60_000) ? nowMs : viewport.endMs;
-
-      if (viewportSpan <= rangeSpan * 0.5) {
-        // Зум: запрашиваем только видимое окно (детальное разрешение)
-        return {
-          queryStart: new Date(viewport.startMs).toISOString(),
-          queryEnd:   new Date(liveEnd).toISOString(),
-        };
-      } else {
-        // Пан: расширяем окно влево, правый край всегда now (чтобы live-данные не пропали)
-        const extendedStart = Math.min(defaultStartMs, viewport.startMs);
-        return {
-          queryStart: new Date(extendedStart).toISOString(),
-          queryEnd:   new Date(nowMs).toISOString(),
-        };
-      }
-    }
-
+    const startMs = viewport ? viewport.startMs : defaultStartMs;
     return {
-      queryStart: new Date(defaultStartMs).toISOString(),
+      queryStart: new Date(startMs).toISOString(),
       queryEnd:   new Date(nowMs).toISOString(),
     };
   }, [range, nowTick, viewport]);
