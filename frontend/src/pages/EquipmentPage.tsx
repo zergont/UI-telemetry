@@ -27,7 +27,7 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
-import { HistoryChart, type ChartPoint, type HistoryChartHandle } from "@/components/equipment/HistoryChart";
+import { HistoryChart, type ChartPoint } from "@/components/equipment/HistoryChart";
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -497,19 +497,10 @@ function HistoryTab({
 }) {
   const [selectedAddr, setSelectedAddr] = useState(40034);
   const [range, setRange]               = useState("24h");
-  const chartRef = useRef<HistoryChartHandle>(null);
-
-  // Viewport для progressive loading: null = показываем весь range
-  const [viewport, setViewport] = useState<{ startMs: number; endMs: number } | null>(null);
 
   const isLive = range in LIVE_INTERVAL_MS;
 
-  // Сбрасываем viewport при смене диапазона
-  useEffect(() => { setViewport(null); }, [range]);
-  // Сбрасываем viewport при смене регистра
-  useEffect(() => { setViewport(null); }, [selectedAddr]);
-
-  // Live-тик: сдвигает скользящее окно
+  // Live-тик: сдвигает скользящее окно для коротких диапазонов
   const [nowTick, setNowTick] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
   useEffect(() => {
     if (!isLive) return;
@@ -520,22 +511,13 @@ function HistoryTab({
     return () => clearInterval(id);
   }, [range, isLive]);
 
-  // Базовый диапазон (без zoom)
-  const { baseStart, baseEnd } = useMemo(() => {
+  // Запрашиваемый диапазон
+  const { queryStart, queryEnd } = useMemo(() => {
     const now = new Date(isLive ? nowTick : Date.now());
     now.setSeconds(0, 0);
-    const s = new Date(now.getTime() - (RANGE_MS[range] ?? RANGE_MS["24h"]));
-    return { baseStart: s.toISOString(), baseEnd: now.toISOString() };
+    const start = new Date(now.getTime() - (RANGE_MS[range] ?? RANGE_MS["24h"]));
+    return { queryStart: start.toISOString(), queryEnd: now.toISOString() };
   }, [range, nowTick, isLive]);
-
-  // Фактически запрашиваемый диапазон (viewport или базовый)
-  const { queryStart, queryEnd } = useMemo(() => {
-    if (!viewport) return { queryStart: baseStart, queryEnd: baseEnd };
-    return {
-      queryStart: new Date(viewport.startMs).toISOString(),
-      queryEnd:   new Date(viewport.endMs).toISOString(),
-    };
-  }, [viewport, baseStart, baseEnd]);
 
   const { data: history, isLoading, isFetching } = useHistory(
     routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd,
@@ -554,12 +536,7 @@ function HistoryTab({
     [history],
   );
 
-  const handleViewportChange = useCallback((startMs: number, endMs: number) => {
-    setViewport({ startMs, endMs });
-  }, []);
-
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
-  const isZoomed = viewport !== null;
 
   return (
     <div className="space-y-4">
@@ -583,7 +560,7 @@ function HistoryTab({
               key={r}
               onClick={() => setRange(r)}
               className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                range === r && !isZoomed
+                range === r
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
@@ -593,21 +570,8 @@ function HistoryTab({
           ))}
         </div>
 
-        {/* Кнопка сброса zoom */}
-        {isZoomed && (
-          <button
-            onClick={() => {
-              setViewport(null);
-              chartRef.current?.fitContent();
-            }}
-            className="px-3 py-1 rounded-md text-sm bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
-          >
-            ✕ сбросить zoom
-          </button>
-        )}
-
         {/* Live-индикатор */}
-        {isLive && !isZoomed && (
+        {isLive && (
           <span className="flex items-center gap-1.5 text-xs text-emerald-500">
             <span className={`h-2 w-2 rounded-full ${
               isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"
@@ -628,12 +592,10 @@ function HistoryTab({
         </Card>
       ) : (
         <HistoryChart
-          ref={chartRef}
           data={chartData}
           label={selectedReg?.label}
           color={selectedReg?.color ?? "#22c55e"}
           isFetching={isFetching}
-          onViewportChange={handleViewportChange}
         />
       )}
     </div>
