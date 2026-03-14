@@ -27,7 +27,7 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
-import { HistoryChart, type ChartPoint } from "@/components/equipment/HistoryChart";
+import { HistoryChart, type ChartPoint, type HistoryChartHandle } from "@/components/equipment/HistoryChart";
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -497,6 +497,7 @@ function HistoryTab({
 }) {
   const [selectedAddr, setSelectedAddr] = useState(40034);
   const [range, setRange]               = useState("24h");
+  const chartRef = useRef<HistoryChartHandle>(null);
 
   // Viewport для progressive loading: null = показываем весь range
   const [viewport, setViewport] = useState<{ startMs: number; endMs: number } | null>(null);
@@ -595,7 +596,10 @@ function HistoryTab({
         {/* Кнопка сброса zoom */}
         {isZoomed && (
           <button
-            onClick={() => setViewport(null)}
+            onClick={() => {
+              setViewport(null);
+              chartRef.current?.fitContent();
+            }}
             className="px-3 py-1 rounded-md text-sm bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
           >
             ✕ сбросить zoom
@@ -624,6 +628,7 @@ function HistoryTab({
         </Card>
       ) : (
         <HistoryChart
+          ref={chartRef}
           data={chartData}
           label={selectedReg?.label}
           color={selectedReg?.color ?? "#22c55e"}

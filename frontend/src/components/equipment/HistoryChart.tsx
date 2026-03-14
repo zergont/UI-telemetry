@@ -7,9 +7,10 @@
  *  • crosshair с тултипом
  *  • min_value/max_value — полоса диапазона (для 1min/1hour агрегатов)
  *  • onViewportChange — callback для progressive loading
+ *  • ref.fitContent() — вписать все данные по оси X (сброс zoom)
  */
 
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import {
   createChart,
   ColorType,
@@ -17,13 +18,18 @@ import {
   AreaSeries,
   LineSeries,
 } from "lightweight-charts";
-import type { IChartApi, ISeriesApi, Time } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time, AutoscaleInfo } from "lightweight-charts";
 
 export interface ChartPoint {
   ts: number;       // epoch ms
   value: number;
   min_value?: number | null;
   max_value?: number | null;
+}
+
+export interface HistoryChartHandle {
+  /** Вписать весь ряд данных по оси времени; на время вызова onViewportChange глушится */
+  fitContent(): void;
 }
 
 interface HistoryChartProps {
@@ -37,184 +43,228 @@ interface HistoryChartProps {
 
 const CHART_HEIGHT = 380;
 const VIEWPORT_DEBOUNCE_MS = 400;
+/** После fitContent() глушим callback на это время, чтобы сброс zoom не перезаписал viewport */
+const FIT_SUPPRESS_MS = 800;
 
-export function HistoryChart({
-  data,
-  color = "#22c55e",
-  isFetching = false,
-  onViewportChange,
-}: HistoryChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef     = useRef<IChartApi | null>(null);
-  const seriesRef    = useRef<ISeriesApi<"Area"> | null>(null);
-  const bandHighRef  = useRef<ISeriesApi<"Line"> | null>(null);
-  const bandLowRef   = useRef<ISeriesApi<"Line"> | null>(null);
-  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
+  function HistoryChart({ data, color = "#22c55e", isFetching = false, onViewportChange }, ref) {
+    const containerRef    = useRef<HTMLDivElement>(null);
+    const chartRef        = useRef<IChartApi | null>(null);
+    const seriesRef       = useRef<ISeriesApi<"Area"> | null>(null);
+    const bandHighRef     = useRef<ISeriesApi<"Line"> | null>(null);
+    const bandLowRef      = useRef<ISeriesApi<"Line"> | null>(null);
+    const debounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const suppressVpRef   = useRef(false);  // глушим onViewportChange во время fitContent
+    // Актуальные данные и цвет — держим в ref для init-эффекта (React StrictMode)
+    const latestDataRef   = useRef(data);
+    const latestColorRef  = useRef(color);
+    latestDataRef.current  = data;
+    latestColorRef.current = color;
 
-  // ── Инициализация графика (один раз) ─────────────────────────────────────
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const chart = createChart(containerRef.current, {
-      height: CHART_HEIGHT,
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#9ca3af",
-        fontFamily: "inherit",
+    // ── Императивный хэндл ───────────────────────────────────────────────────
+    useImperativeHandle(ref, () => ({
+      fitContent() {
+        if (!chartRef.current) return;
+        suppressVpRef.current = true;
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        chartRef.current.timeScale().fitContent();
+        debounceRef.current = setTimeout(() => {
+          suppressVpRef.current = false;
+        }, FIT_SUPPRESS_MS);
       },
-      grid: {
-        vertLines: { color: "#1f2937" },
-        horzLines: { color: "#1f2937" },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: "#4b5563", labelBackgroundColor: "#374151" },
-        horzLine: { color: "#4b5563", labelBackgroundColor: "#374151" },
-      },
-      rightPriceScale: {
-        borderColor: "#374151",
-        scaleMargins: { top: 0.1, bottom: 0.05 },
-        minimumWidth: 60,
-      },
-      timeScale: {
-        borderColor: "#374151",
-        timeVisible: true,
-        secondsVisible: true,
-      },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true },
-      handleScale:  { mouseWheel: true, pinch: true },
-    });
+    }));
 
-    // Основная серия (Area) — v5 API
-    const series = chart.addSeries(AreaSeries, {
-      lineColor:   color,
-      topColor:    color + "33",
-      bottomColor: color + "00",
-      lineWidth: 1,
-      priceFormat: { type: "price", precision: 1, minMove: 0.1 },
-      autoscaleInfoProvider: () => ({
-        priceRange: { minValue: 0, maxValue: undefined as unknown as number },
-      }),
-    });
+    // ── Инициализация графика (один раз) ────────────────────────────────────
+    useEffect(() => {
+      if (!containerRef.current) return;
 
-    // Полосы min/max для агрегированных данных
-    const bandHigh = chart.addSeries(LineSeries, {
-      color: color + "55",
-      lineWidth: 1,
-      lineStyle: 2, // dashed
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    const bandLow = chart.addSeries(LineSeries, {
-      color: color + "55",
-      lineWidth: 1,
-      lineStyle: 2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
+      const chart = createChart(containerRef.current, {
+        height: CHART_HEIGHT,
+        layout: {
+          background: { type: ColorType.Solid, color: "transparent" },
+          textColor: "#9ca3af",
+          fontFamily: "inherit",
+        },
+        grid: {
+          vertLines: { color: "#1f2937" },
+          horzLines: { color: "#1f2937" },
+        },
+        crosshair: {
+          mode: CrosshairMode.Normal,
+          vertLine: { color: "#4b5563", labelBackgroundColor: "#374151" },
+          horzLine: { color: "#4b5563", labelBackgroundColor: "#374151" },
+        },
+        rightPriceScale: {
+          borderColor: "#374151",
+          scaleMargins: { top: 0.1, bottom: 0.05 },
+          minimumWidth: 60,
+        },
+        timeScale: {
+          borderColor: "#374151",
+          timeVisible: true,
+          secondsVisible: true,
+        },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
+        handleScale:  { mouseWheel: true, pinch: true },
+      });
 
-    chartRef.current    = chart;
-    seriesRef.current   = series;
-    bandHighRef.current = bandHigh;
-    bandLowRef.current  = bandLow;
+      // Основная серия (Area) — v5 API
+      const c = latestColorRef.current;
+      const series = chart.addSeries(AreaSeries, {
+        lineColor:   c,
+        topColor:    c + "33",
+        bottomColor: c + "00",
+        lineWidth: 1,
+        priceFormat: { type: "price", precision: 1, minMove: 0.1 },
+        // Y-ось всегда от 0 (нагрузка не бывает ниже нуля)
+        autoscaleInfoProvider: (original: () => AutoscaleInfo | null): AutoscaleInfo | null => {
+          const res = original();
+          if (!res) return res;
+          return {
+            priceRange: { minValue: 0, maxValue: res.priceRange.maxValue },
+            margins: res.margins,
+          };
+        },
+      });
 
-    // Resize observer
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
-    });
-    ro.observe(containerRef.current);
+      // Полосы min/max для агрегированных данных
+      const bandHigh = chart.addSeries(LineSeries, {
+        color: c + "55",
+        lineWidth: 1,
+        lineStyle: 2, // dashed
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      const bandLow = chart.addSeries(LineSeries, {
+        color: c + "55",
+        lineWidth: 1,
+        lineStyle: 2,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+      });
 
-    return () => {
-      ro.disconnect();
-      chart.remove();
-      chartRef.current    = null;
-      seriesRef.current   = null;
-      bandHighRef.current = null;
-      bandLowRef.current  = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      chartRef.current    = chart;
+      seriesRef.current   = series;
+      bandHighRef.current = bandHigh;
+      bandLowRef.current  = bandLow;
 
-  // ── Подписка на изменение viewport → progressive loading ─────────────────
-  useEffect(() => {
-    if (!chartRef.current || !onViewportChange) return;
-    const timeScale = chartRef.current.timeScale();
-
-    const handler = () => {
-      const range = timeScale.getVisibleRange();
-      if (!range) return;
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        onViewportChange(
-          (range.from as number) * 1000,
-          (range.to   as number) * 1000,
+      // Применяем данные, которые уже есть на момент (пере)маунта.
+      // Критично для React StrictMode: при двойном маунте data-эффект
+      // не перезапускается, поэтому устанавливаем данные здесь явно.
+      const initialData = latestDataRef.current;
+      if (initialData.length) {
+        series.setData(
+          initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
         );
-      }, VIEWPORT_DEBOUNCE_MS);
-    };
+        const hasBand = initialData.some(
+          (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
+        );
+        if (hasBand) {
+          bandHigh.setData(initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value })));
+          bandLow.setData(initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value })));
+        }
+      }
 
-    timeScale.subscribeVisibleTimeRangeChange(handler);
-    return () => {
-      timeScale.unsubscribeVisibleTimeRangeChange(handler);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [onViewportChange]);
+      // Resize observer
+      const ro = new ResizeObserver(() => {
+        if (containerRef.current) {
+          chart.applyOptions({ width: containerRef.current.clientWidth });
+        }
+      });
+      ro.observe(containerRef.current);
 
-  // ── Обновление данных ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
+      return () => {
+        ro.disconnect();
+        chart.remove();
+        chartRef.current    = null;
+        seriesRef.current   = null;
+        bandHighRef.current = null;
+        bandLowRef.current  = null;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-    if (!data.length) {
-      seriesRef.current.setData([]);
-      bandHighRef.current.setData([]);
-      bandLowRef.current.setData([]);
-      return;
-    }
+    // ── Подписка на изменение viewport → progressive loading ─────────────────
+    useEffect(() => {
+      if (!chartRef.current || !onViewportChange) return;
+      const timeScale = chartRef.current.timeScale();
 
-    seriesRef.current.setData(
-      data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
-    );
+      const handler = () => {
+        if (suppressVpRef.current) return;
+        const range = timeScale.getVisibleRange();
+        if (!range) return;
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+          if (suppressVpRef.current) return;
+          onViewportChange(
+            (range.from as number) * 1000,
+            (range.to   as number) * 1000,
+          );
+        }, VIEWPORT_DEBOUNCE_MS);
+      };
 
-    const hasBand = data.some(
-      (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
-    );
+      timeScale.subscribeVisibleTimeRangeChange(handler);
+      return () => {
+        timeScale.unsubscribeVisibleTimeRangeChange(handler);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+      };
+    }, [onViewportChange]);
 
-    if (hasBand) {
-      bandHighRef.current.setData(
-        data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
+    // ── Обновление данных ────────────────────────────────────────────────────
+    useEffect(() => {
+      if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
+
+      if (!data.length) {
+        seriesRef.current.setData([]);
+        bandHighRef.current.setData([]);
+        bandLowRef.current.setData([]);
+        return;
+      }
+
+      seriesRef.current.setData(
+        data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
       );
-      bandLowRef.current.setData(
-        data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
+
+      const hasBand = data.some(
+        (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
       );
-    } else {
-      bandHighRef.current.setData([]);
-      bandLowRef.current.setData([]);
-    }
-  }, [data]);
 
-  // ── Обновляем цвет при смене регистра ────────────────────────────────────
-  useEffect(() => {
-    if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
-    seriesRef.current.applyOptions({
-      lineColor:   color,
-      topColor:    color + "33",
-      bottomColor: color + "00",
-    });
-    bandHighRef.current.applyOptions({ color: color + "55" });
-    bandLowRef.current.applyOptions({ color: color + "55" });
-  }, [color]);
+      if (hasBand) {
+        bandHighRef.current.setData(
+          data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
+        );
+        bandLowRef.current.setData(
+          data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
+        );
+      } else {
+        bandHighRef.current.setData([]);
+        bandLowRef.current.setData([]);
+      }
+    }, [data]);
 
-  return (
-    <div className="relative rounded-xl overflow-hidden border border-border">
-      {isFetching && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/40 backdrop-blur-[1px] rounded-xl pointer-events-none">
-          <span className="text-xs text-muted-foreground animate-pulse">загрузка…</span>
-        </div>
-      )}
-      <div ref={containerRef} style={{ height: CHART_HEIGHT }} />
-    </div>
-  );
-}
+    // ── Обновляем цвет при смене регистра ───────────────────────────────────
+    useEffect(() => {
+      if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
+      seriesRef.current.applyOptions({
+        lineColor:   color,
+        topColor:    color + "33",
+        bottomColor: color + "00",
+      });
+      bandHighRef.current.applyOptions({ color: color + "55" });
+      bandLowRef.current.applyOptions({ color: color + "55" });
+    }, [color]);
+
+    return (
+      <div className="relative rounded-xl overflow-hidden border border-border">
+        {isFetching && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/40 backdrop-blur-[1px] rounded-xl pointer-events-none">
+            <span className="text-xs text-muted-foreground animate-pulse">загрузка…</span>
+          </div>
+        )}
+        <div ref={containerRef} style={{ height: CHART_HEIGHT }} />
+      </div>
+    );
+  }
+);
