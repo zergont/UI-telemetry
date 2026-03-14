@@ -526,6 +526,9 @@ function HistoryTab({
   // Viewport меняется при любом движении (пан или зум).
   const handleViewportChange = useCallback((startMs: number, endMs: number) => {
     const now = Date.now();
+    // Если левый край viewport уехал за "сейчас" — там нет данных, не запрашиваем.
+    // Иначе авто-ресет: clamp endMs → tiny span → zoom-mode → 0 точек → прыжок графика.
+    if (startMs >= now) return;
     setViewport({ startMs, endMs: Math.min(endMs, now + 30_000) });
   }, []);
 
