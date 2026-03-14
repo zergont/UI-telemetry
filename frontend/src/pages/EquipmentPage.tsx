@@ -482,7 +482,7 @@ const RANGE_MS: Record<string, number> = {
 
 // Для коротких диапазонов скользящее окно обновляется автоматически
 const LIVE_INTERVAL_MS: Record<string, number> = {
-  "1h":  60_000,        // каждую минуту
+  "1h":  15_000,        // каждые 15 сек
   "24h": 5 * 60_000,    // каждые 5 мин
 };
 
@@ -501,11 +501,11 @@ function HistoryTab({
   const isLive = range in LIVE_INTERVAL_MS;
 
   // Live-тик: сдвигает скользящее окно для коротких диапазонов
-  const [nowTick, setNowTick] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     if (!isLive) return;
     const id = setInterval(
-      () => setNowTick(Math.floor(Date.now() / 60_000) * 60_000),
+      () => setNowTick(Date.now()),
       LIVE_INTERVAL_MS[range],
     );
     return () => clearInterval(id);
@@ -514,7 +514,6 @@ function HistoryTab({
   // Запрашиваемый диапазон
   const { queryStart, queryEnd } = useMemo(() => {
     const now = new Date(isLive ? nowTick : Date.now());
-    now.setSeconds(0, 0);
     const start = new Date(now.getTime() - (RANGE_MS[range] ?? RANGE_MS["24h"]));
     return { queryStart: start.toISOString(), queryEnd: now.toISOString() };
   }, [range, nowTick, isLive]);
