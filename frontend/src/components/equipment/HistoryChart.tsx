@@ -97,6 +97,13 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const suppressVpRef   = useRef(false);  // глушим onViewportChange во время fitContent
     /** true = пользователь вручную покрутил граф; setData не вызывает fitContent */
     const userZoomedRef   = useRef(false);
+    /**
+     * Накопленные данные по всем загруженным окнам.
+     * Ключ — epoch ms (ts). При паннинге/зуме новые точки мержатся,
+     * а не заменяют уже загруженные → левая/правая области не стираются.
+     * Сбрасывается в fitContent() (= смена диапазона).
+     */
+    const accumulatedRef  = useRef<Map<number, ChartPoint>>(new Map());
     // Актуальные данные и цвет — держим в ref для init-эффекта (React StrictMode)
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
@@ -110,7 +117,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     useImperativeHandle(ref, () => ({
       fitContent() {
         if (!chartRef.current) return;
-        userZoomedRef.current  = false;   // сбросить признак ручного зума
+        accumulatedRef.current = new Map();  // сбросить накопленные данные при смене диапазона
+        userZoomedRef.current  = false;      // сбросить признак ручного зума
         suppressVpRef.current  = true;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         chartRef.current.timeScale().fitContent();
@@ -205,6 +213,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       // не перезапускается, поэтому устанавливаем данные здесь явно.
       const initialData = latestDataRef.current;
       if (initialData.length) {
+        for (const p of initialData) accumulatedRef.current.set(p.ts, p);
         series.setData(
           initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
         );
@@ -274,35 +283,41 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
 
       if (!data.length) {
+        // Пустой ответ = смена диапазона или нет данных → полный сброс
+        accumulatedRef.current = new Map();
         seriesRef.current.setData([]);
         bandHighRef.current.setData([]);
         bandLowRef.current.setData([]);
         return;
       }
 
+      // Мержим новые точки в накопленный кэш (ts → ChartPoint).
+      // Одинаковые ts перезаписываются — live-обновления корректно обновляют последние точки.
+      for (const p of data) accumulatedRef.current.set(p.ts, p);
+
+      const allPoints = Array.from(accumulatedRef.current.values())
+        .sort((a, b) => a.ts - b.ts);
+
       seriesRef.current.setData(
-        data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
+        allPoints.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
       );
 
-      const hasBand = data.some(
+      const hasBand = allPoints.some(
         (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
       );
 
       if (hasBand) {
         bandHighRef.current.setData(
-          data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
+          allPoints.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
         );
         bandLowRef.current.setData(
-          data.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
+          allPoints.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
         );
       } else {
         bandHighRef.current.setData([]);
         bandLowRef.current.setData([]);
       }
 
-      // fitContent вызываем только если пользователь НЕ зумировал вручную.
-      // Это предотвращает сброс zoom при live-обновлениях и при progressive loading.
-      // userZoomedRef сбрасывается в fitContent() (вызывается при смене диапазона).
       if (!userZoomedRef.current) {
         chartRef.current?.timeScale().fitContent();
       }
