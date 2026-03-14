@@ -523,12 +523,17 @@ function HistoryTab({
     chartRef.current?.fitContent();
   }, []);
 
-  // Зум пользователя → обновляем viewport для progressive loading
-  // Зажимаем endMs: не дальше 30 сек в будущее (защита от зума за последнюю точку)
+  // Зум пользователя → обновляем viewport для progressive loading.
+  // Паннинг без зума (span близок к диапазону) — игнорируем, чтобы данные не пропадали.
   const handleViewportChange = useCallback((startMs: number, endMs: number) => {
+    const viewportSpan = endMs - startMs;
+    const rangeSpan = RANGE_MS[range] ?? RANGE_MS["24h"];
+    // Progressive loading только если пользователь реально приблизил (span < 50% диапазона).
+    // При обычном паннинге span остаётся ~= rangeSpan → пропускаем.
+    if (viewportSpan > rangeSpan * 0.5) return;
     const now = Date.now();
     setViewport({ startMs, endMs: Math.min(endMs, now + 30_000) });
-  }, []);
+  }, [range]);
 
   // Запрашиваемый диапазон: viewport (при зуме) или полный range
   const { queryStart, queryEnd } = useMemo(() => {
