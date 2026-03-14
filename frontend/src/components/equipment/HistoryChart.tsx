@@ -192,7 +192,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           const res = original();
           if (!res) return res;
           return {
-            priceRange: { minValue: 0, maxValue: res.priceRange.maxValue },
+            priceRange: { minValue: 0, maxValue: res.priceRange?.maxValue ?? 0 },
             margins: res.margins,
           };
         },
@@ -248,7 +248,6 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           // Среднее время на 1 логическую единицу = (dataRange) / (totalDataBars)
           // totalDataBars ≈ last logical index of data. Approximation: use lr.to when
           // viewport is at default position, but simpler: data time / data logical range
-          const series = seriesRef.current;
           const dataCount = latestDataRef.current.length;
           if (dataCount > 1) {
             const msPerBar = (dr.max - dr.min) / (dataCount - 1);
