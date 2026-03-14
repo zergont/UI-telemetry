@@ -281,6 +281,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         bandHighRef.current.setData([]);
         bandLowRef.current.setData([]);
       }
+
+      // После смены данных всегда вписываем весь ряд в экран.
+      // Это критично при переключении диапазона (напр. 24h → 1h):
+      // без вызова видимый диапазон остаётся от предыдущего набора данных.
+      chartRef.current?.timeScale().fitContent();
     }, [data]);
 
     // ── Обновляем цвет при смене регистра ───────────────────────────────────
