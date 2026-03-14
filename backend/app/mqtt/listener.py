@@ -22,6 +22,8 @@ async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub) -> None:
             async with aiomqtt.Client(
                 hostname=cfg.host,
                 port=cfg.port,
+                username=cfg.user or None,
+                password=cfg.password or None,
                 identifier=cfg.client_id,
             ) as client:
                 logger.info("MQTT connected to %s:%s, subscribing to %s", cfg.host, cfg.port, topic)

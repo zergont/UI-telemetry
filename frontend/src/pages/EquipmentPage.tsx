@@ -464,6 +464,11 @@ function RegistersTab({
 }
 
 // --- History Tab ---
+// Биржевой паттерн:
+//  • Кнопки диапазона загружают данные целиком (≤2000 точек)
+//  • Pan — свободный, без API-запросов
+//  • Zoom — при значительном изменении масштаба → fetch с другой детализацией
+//  • Live — дописываем точки, авто-скролл если пользователь не двигал
 
 const REGISTER_OPTIONS = [
   { addr: 40034, label: "Нагрузка (кВт)",      color: "#22c55e" },
@@ -480,13 +485,33 @@ const RANGE_MS: Record<string, number> = {
   "30d": 30 * 86_400_000,
 };
 
-// Все диапазоны живые; интервал зависит от шага данных
+/** Интервалы live-обновлений (подгрузка новых точек справа) */
 const LIVE_INTERVAL_MS: Record<string, number> = {
-  "1h":  15_000,       // шаг ~5 сек  → обновление 15 сек
-  "24h": 2 * 60_000,   // шаг ~43 сек → обновление 2 мин
-  "7d":  2 * 60_000,   // шаг ~5 мин  → обновление 2 мин
-  "30d": 2 * 60_000,   // шаг ~21 мин → обновление 2 мин
+  "1h":  15_000,
+  "24h": 2 * 60_000,
+  "7d":  2 * 60_000,
+  "30d": 2 * 60_000,
 };
+
+/**
+ * Пороги для определения уровня детализации по видимому span.
+ * При zoom определяем, в какой «уровень» попадает видимый диапазон,
+ * и если он отличается от текущего — перезапрашиваем.
+ */
+function spanToRange(spanMs: number): string {
+  if (spanMs <= 3_600_000)      return "1h";
+  if (spanMs <= 86_400_000)     return "24h";
+  if (spanMs <= 7 * 86_400_000) return "7d";
+  return "30d";
+}
+
+/** Слияние двух массивов ChartPoint с дедупликацией по ts */
+function mergeChartData(a: ChartPoint[], b: ChartPoint[]): ChartPoint[] {
+  const map = new Map<number, ChartPoint>();
+  for (const p of a) map.set(p.ts, p);
+  for (const p of b) map.set(p.ts, p); // новые данные перезаписывают старые
+  return [...map.values()].sort((x, y) => x.ts - y.ts);
+}
 
 function HistoryTab({
   routerSn,
@@ -502,58 +527,87 @@ function HistoryTab({
   const [selectedAddr, setSelectedAddr] = useState(40034);
   const [range, setRange]               = useState("24h");
 
-  // viewport: задаётся при зуме пользователем (progressive loading)
-  // null = показываем полный диапазон range
-  const [viewport, setViewport] = useState<{ startMs: number; endMs: number } | null>(null);
+  // Накопленные данные при zoom/pan — не теряем уже загруженное
+  const [accumulatedData, setAccumulatedData] = useState<ChartPoint[]>([]);
+  const zoomOverrideRef = useRef<{ spanMs: number; centerMs: number } | null>(null);
 
-  // Все диапазоны живые — тик обновляет скользящее окно
+  // zoomOverride: при зуме пользователем — запрашиваем другой диапазон с центром
+  // null = используем стандартный range (кнопка)
+  const [zoomOverride, setZoomOverride] = useState<{
+    spanMs: number;
+    centerMs: number;
+  } | null>(null);
+
+  zoomOverrideRef.current = zoomOverride;
+
+  // Live-тик: обновляет данные, только если нет zoom-override
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
+    if (zoomOverride) return;  // при ручном зуме — пауза live
     const id = setInterval(
       () => setNowTick(Date.now()),
       LIVE_INTERVAL_MS[range] ?? LIVE_INTERVAL_MS["24h"],
     );
     return () => clearInterval(id);
-  }, [range]);
+  }, [range, zoomOverride]);
 
-  // Смена диапазона: сбросить viewport + зум на графике
+  // Смена диапазона кнопкой: показать только выбранный range, буфер — за кадром
   const handleRangeChange = useCallback((r: string) => {
     setRange(r);
-    setViewport(null);
-    chartRef.current?.fitContent();
-  }, []);
-
-  // Viewport меняется при любом движении (пан или зум).
-  const handleViewportChange = useCallback((startMs: number, endMs: number) => {
+    setZoomOverride(null);
+    setAccumulatedData([]);
+    initialRangeSetRef.current = false; // сбросить, чтобы при загрузке новых данных показать нужный range
     const now = Date.now();
-    // Если левый край viewport уехал за "сейчас" — там нет данных, не запрашиваем.
-    // Иначе авто-ресет: clamp endMs → tiny span → zoom-mode → 0 точек → прыжок графика.
-    if (startMs >= now) return;
-    setViewport({ startMs, endMs: Math.min(endMs, now + 30_000) });
+    setNowTick(now);
+    const rangeMs = RANGE_MS[r] ?? RANGE_MS["24h"];
+    // Показываем только выбранный диапазон, остальное — буфер для пана
+    chartRef.current?.setVisibleRange(now - rangeMs, now);
   }, []);
 
-  // Запрашиваемый диапазон:
-  //  • viewport задан → viewport.startMs … now  (правый край всегда now — live не пропадает)
-  //  • viewport null  → defaultStart … now
-  //
-  // queryEnd всегда = now: при любом паннинге/зуме данные не пропадают,
-  // backend сам делает bucketing → всегда ≤ TARGET_POINTS точек.
-  const { queryStart, queryEnd } = useMemo(() => {
-    const nowMs = nowTick;
-    const defaultStartMs = nowMs - (RANGE_MS[range] ?? RANGE_MS["24h"]);
+  // Callback из графика: zoom изменил масштаб, или pan достиг края данных
+  const handleNeedData = useCallback((visibleSpanMs: number, centerMs: number) => {
+    const now = Date.now();
+    const newRange = spanToRange(visibleSpanMs);
+    const halfRange = RANGE_MS[newRange] / 2;
+    // Ограничиваем center: не дальше now - halfRange (чтобы не запрашивать будущее)
+    const clampedCenter = Math.min(centerMs, now - halfRange);
+    setZoomOverride({ spanMs: RANGE_MS[newRange], centerMs: clampedCenter });
+    setRange(newRange);
+  }, []);
 
-    const startMs = viewport ? viewport.startMs : defaultStartMs;
+  // Запрашиваемый диапазон.
+  // Загружаем 3x от видимого span (1.5x в каждую сторону) — запас для пана.
+  // Backend всё равно возвращает ≤2000 точек с bucketing.
+  const FETCH_MULTIPLIER = 3;
+
+  const { queryStart, queryEnd } = useMemo(() => {
+    if (zoomOverride) {
+      // Zoom/pan-edge: центрируем вокруг точки фокуса с запасом
+      const fetchSpan = zoomOverride.spanMs * FETCH_MULTIPLIER;
+      const halfFetch = fetchSpan / 2;
+      const now = Date.now();
+      const start = zoomOverride.centerMs - halfFetch;
+      const end = Math.min(zoomOverride.centerMs + halfFetch, now);
+      return {
+        queryStart: new Date(start).toISOString(),
+        queryEnd:   new Date(end).toISOString(),
+      };
+    }
+    // Стандартный range: загружаем rangeMs + запас влево для пана
+    const nowMs = nowTick;
+    const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
+    const fetchSpan = rangeMs * FETCH_MULTIPLIER;
     return {
-      queryStart: new Date(startMs).toISOString(),
+      queryStart: new Date(nowMs - fetchSpan).toISOString(),
       queryEnd:   new Date(nowMs).toISOString(),
     };
-  }, [range, nowTick, viewport]);
+  }, [range, nowTick, zoomOverride]);
 
   const { data: history, isLoading, isFetching } = useHistory(
     routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd,
   );
 
-  const chartData = useMemo<ChartPoint[]>(
+  const rawChartData = useMemo<ChartPoint[]>(
     () =>
       (history ?? [])
         .filter((p) => p.ts != null && p.value != null)
@@ -566,13 +620,30 @@ function HistoryTab({
     [history],
   );
 
-  // Если viewport-запрос вернул пусто (зум ушёл за данные) → сброс на полный диапазон
+  // Накапливаем данные при zoom/pan, сбрасываем при live-обновлениях
+  const initialRangeSetRef = useRef(false);
   useEffect(() => {
-    if (!isLoading && !isFetching && chartData.length === 0 && viewport !== null) {
-      setViewport(null);
-      chartRef.current?.fitContent();
+    if (rawChartData.length === 0) return;
+    if (zoomOverrideRef.current) {
+      // zoom/pan режим — мержим с уже загруженным
+      setAccumulatedData((prev) => mergeChartData(prev, rawChartData));
+    } else {
+      // live режим — просто заменяем
+      setAccumulatedData(rawChartData);
+      // При первой загрузке показываем только выбранный диапазон, буфер — за кадром
+      if (!initialRangeSetRef.current) {
+        initialRangeSetRef.current = true;
+        const now = Date.now();
+        const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
+        // Небольшой таймаут чтобы chart успел отрисовать данные
+        setTimeout(() => {
+          chartRef.current?.setVisibleRange(now - rangeMs, now);
+        }, 50);
+      }
     }
-  }, [isLoading, isFetching, chartData.length, viewport]);
+  }, [rawChartData, range]);
+
+  const chartData = accumulatedData;
 
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
 
@@ -598,7 +669,7 @@ function HistoryTab({
               key={r}
               onClick={() => handleRangeChange(r)}
               className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                range === r
+                range === r && !zoomOverride
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
@@ -611,14 +682,18 @@ function HistoryTab({
         {/* Live-индикатор */}
         <span className="flex items-center gap-1.5 text-xs text-emerald-500">
           <span className={`h-2 w-2 rounded-full ${
-            isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"
+            zoomOverride
+              ? "bg-gray-400"                              // пауза live
+              : isFetching
+                ? "bg-amber-400"                           // загрузка
+                : "bg-emerald-500 animate-pulse"           // live
           }`} />
-          Live
+          {zoomOverride ? "Zoom" : "Live"}
         </span>
       </div>
 
       {/* График */}
-      {isLoading ? (
+      {isLoading && chartData.length === 0 ? (
         <Skeleton className="h-[380px] w-full rounded-xl" />
       ) : chartData.length === 0 ? (
         <Card>
@@ -632,8 +707,8 @@ function HistoryTab({
           data={chartData}
           label={selectedReg?.label}
           color={selectedReg?.color ?? "#22c55e"}
-          isFetching={isFetching}
-          onViewportChange={handleViewportChange}
+          isLoading={isFetching}
+          onNeedData={handleNeedData}
         />
       )}
     </div>

@@ -36,6 +36,8 @@ class DatabaseConfig(BaseModel):
 class MqttConfig(BaseModel):
     host: str = "localhost"
     port: int = 1883
+    user: str = ""
+    password: str = ""
     topic_prefix: str = "cg/v1/decoded/SN"
     client_id: str = "cg-dashboard"
     reconnect_interval: int = 5

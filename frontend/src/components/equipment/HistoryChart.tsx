@@ -1,18 +1,12 @@
 /**
- * HistoryChart — обёртка над lightweight-charts v5.
+ * HistoryChart — обёртка над lightweight-charts v5 (биржевой паттерн).
  *
- * Возможности:
- *  • колёсико мыши — zoom с фокусом на курсоре
- *  • drag — pan влево/вправо
- *  • crosshair с тултипом
- *  • min_value/max_value — полоса диапазона (для 1min/1hour агрегатов)
- *  • onViewportChange — callback для progressive loading (debounced)
- *  • ref.fitContent() — вписать все данные по оси X (сброс zoom)
- *
- * Логика fitContent vs userZoomed:
- *  • После смены диапазона (снаружи вызывают fitContent()) → userZoomedRef сбрасывается,
- *    следующий setData автоматически вписывает новые данные.
- *  • Если пользователь вручную покрутил граф → userZoomedRef=true → setData не трогает zoom.
+ * Принцип работы:
+ *  • Данные загружаются при смене диапазона (≤2000 точек от backend).
+ *  • Pan — свободный, без API. Когда >50% видимой области за краем данных —
+ *    срабатывает onNeedData для подгрузки.
+ *  • Zoom — при изменении масштаба (>15% span) → onNeedData с новым span/center.
+ *  • Live — данные обновляются снаружи, авто-скролл если пользователь не двигал.
  */
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -29,12 +23,10 @@ import type { IChartApi, ISeriesApi, Time, AutoscaleInfo } from "lightweight-cha
 // ── Московское время ─────────────────────────────────────────────────────────
 const MSK = "Europe/Moscow";
 
-/** Форматирует Unix-секунды → строка в МСК */
 function mskFmt(unixSec: number, opts: Intl.DateTimeFormatOptions): string {
   return new Date(unixSec * 1000).toLocaleString("ru-RU", { timeZone: MSK, ...opts });
 }
 
-/** Форматтер меток оси X (tick marks) в МСК */
 function mskTickMarkFormatter(time: number, type: TickMarkType): string {
   switch (type) {
     case TickMarkType.Year:
@@ -52,13 +44,14 @@ function mskTickMarkFormatter(time: number, type: TickMarkType): string {
   }
 }
 
-/** Форматтер crosshair-подписи времени в МСК */
 function mskTimeFormatter(time: number): string {
   return mskFmt(time, {
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
 }
+
+// ── Типы ─────────────────────────────────────────────────────────────────────
 
 export interface ChartPoint {
   ts: number;       // epoch ms
@@ -68,62 +61,84 @@ export interface ChartPoint {
 }
 
 export interface HistoryChartHandle {
-  /** Сбросить ручной зум и вписать весь ряд данных по оси времени */
+  /** Сбросить ручной зум/пан и вписать все данные */
   fitContent(): void;
+  /** Показать конкретный диапазон (epoch ms), остальные данные — буфер для пана */
+  setVisibleRange(fromMs: number, toMs: number): void;
 }
 
 interface HistoryChartProps {
   data: ChartPoint[];
   label?: string;
   color?: string;
-  isFetching?: boolean;
-  /** Вызывается (debounced) при изменении viewport — для progressive loading */
-  onViewportChange?: (startMs: number, endMs: number) => void;
+  isLoading?: boolean;
+  /**
+   * Вызывается когда нужны новые данные:
+   *  • zoom изменил масштаб → другая детализация
+   *  • pan достиг края данных → нужна подгрузка
+   * visibleSpanMs — видимый диапазон, centerMs — центр видимой области.
+   */
+  onNeedData?: (visibleSpanMs: number, centerMs: number) => void;
 }
 
 const CHART_HEIGHT = 380;
-const VIEWPORT_DEBOUNCE_MS = 700;
-/** После fitContent() глушим onViewportChange на это время */
-const FIT_SUPPRESS_MS = 800;
+const DEBOUNCE_MS      = 400;
+const FIT_SUPPRESS_MS  = 600;
+/** Минимальное изменение span чтобы считать zoom, а не pan */
+const ZOOM_THRESHOLD   = 0.15;
+/** Доля видимой области за краем данных, при которой запрашиваем подгрузку.
+ *  0.3 = когда 30%+ видимой области за краем данных → подгрузка начинается рано,
+ *  пользователь не видит пустых зон. */
+const EDGE_THRESHOLD   = 0.3;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
-  function HistoryChart({ data, color = "#22c55e", isFetching = false, onViewportChange }, ref) {
+  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData }, ref) {
     const containerRef    = useRef<HTMLDivElement>(null);
     const chartRef        = useRef<IChartApi | null>(null);
     const seriesRef       = useRef<ISeriesApi<"Area"> | null>(null);
     const bandHighRef     = useRef<ISeriesApi<"Line"> | null>(null);
     const bandLowRef      = useRef<ISeriesApi<"Line"> | null>(null);
     const debounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const suppressVpRef   = useRef(false);  // глушим onViewportChange во время fitContent
-    /** true = пользователь вручную покрутил граф; setData не вызывает fitContent */
-    const userZoomedRef   = useRef(false);
-    /**
-     * Накопленные данные по всем загруженным окнам.
-     * Ключ — epoch ms (ts). При паннинге/зуме новые точки мержатся,
-     * а не заменяют уже загруженные → левая/правая области не стираются.
-     * Сбрасывается в fitContent() (= смена диапазона).
-     */
-    const accumulatedRef  = useRef<Map<number, ChartPoint>>(new Map());
-    // Актуальные данные и цвет — держим в ref для init-эффекта (React StrictMode)
+    const suppressRef     = useRef(false);
+    /** true = пользователь двигал/зумил; setData НЕ вызывает fitContent */
+    const userTouchedRef  = useRef(false);
+    /** Предыдущий видимый span — для определения zoom vs pan */
+    const prevSpanRef     = useRef<number | null>(null);
+    /** Границы загруженных данных (epoch ms) */
+    const dataRangeRef    = useRef<{ min: number; max: number } | null>(null);
+
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
     latestDataRef.current  = data;
     latestColorRef.current = color;
-    // Актуальный callback — ref чтобы не перепривязывать обработчик при каждом рендере
-    const onVpChangeRef   = useRef(onViewportChange);
-    onVpChangeRef.current  = onViewportChange;
+    const onNeedDataRef = useRef(onNeedData);
+    onNeedDataRef.current = onNeedData;
 
     // ── Императивный хэндл ───────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
       fitContent() {
         if (!chartRef.current) return;
-        accumulatedRef.current = new Map();  // сбросить накопленные данные при смене диапазона
-        userZoomedRef.current  = false;      // сбросить признак ручного зума
-        suppressVpRef.current  = true;
+        userTouchedRef.current = false;
+        prevSpanRef.current    = null;
+        suppressRef.current    = true;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         chartRef.current.timeScale().fitContent();
         debounceRef.current = setTimeout(() => {
-          suppressVpRef.current = false;
+          suppressRef.current = false;
+        }, FIT_SUPPRESS_MS);
+      },
+      setVisibleRange(fromMs: number, toMs: number) {
+        if (!chartRef.current) return;
+        userTouchedRef.current = false;
+        prevSpanRef.current    = null;
+        suppressRef.current    = true;
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        chartRef.current.timeScale().setVisibleRange({
+          from: (fromMs / 1000) as Time,
+          to:   (toMs   / 1000) as Time,
+        });
+        debounceRef.current = setTimeout(() => {
+          suppressRef.current = false;
         }, FIT_SUPPRESS_MS);
       },
     }));
@@ -166,7 +181,6 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         handleScale:  { mouseWheel: true, pinch: true },
       });
 
-      // Основная серия (Area) — v5 API
       const c = latestColorRef.current;
       const series = chart.addSeries(AreaSeries, {
         lineColor:   c,
@@ -174,7 +188,6 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         bottomColor: c + "00",
         lineWidth: 1,
         priceFormat: { type: "price", precision: 1, minMove: 0.1 },
-        // Y-ось всегда от 0 (нагрузка не бывает ниже нуля)
         autoscaleInfoProvider: (original: () => AutoscaleInfo | null): AutoscaleInfo | null => {
           const res = original();
           if (!res) return res;
@@ -185,22 +198,13 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         },
       });
 
-      // Полосы min/max для агрегированных данных
       const bandHigh = chart.addSeries(LineSeries, {
-        color: c + "55",
-        lineWidth: 1,
-        lineStyle: 2, // dashed
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false,
+        color: c + "55", lineWidth: 1, lineStyle: 2,
+        lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       });
       const bandLow = chart.addSeries(LineSeries, {
-        color: c + "55",
-        lineWidth: 1,
-        lineStyle: 2,
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false,
+        color: c + "55", lineWidth: 1, lineStyle: 2,
+        lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       });
 
       chartRef.current    = chart;
@@ -208,26 +212,114 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       bandHighRef.current = bandHigh;
       bandLowRef.current  = bandLow;
 
-      // Применяем данные, которые уже есть на момент (пере)маунта.
-      // Критично для React StrictMode: при двойном маунте data-эффект
-      // не перезапускается, поэтому устанавливаем данные здесь явно.
+      // Начальные данные
       const initialData = latestDataRef.current;
       if (initialData.length) {
-        for (const p of initialData) accumulatedRef.current.set(p.ts, p);
-        series.setData(
-          initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
-        );
-        const hasBand = initialData.some(
-          (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
-        );
-        if (hasBand) {
-          bandHigh.setData(initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value })));
-          bandLow.setData(initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value })));
-        }
+        applyData(series, bandHigh, bandLow, initialData);
+        updateDataRange(initialData);
         chart.timeScale().fitContent();
       }
 
-      // Resize observer
+      // ── Подписка на viewport change ───────────────────────────────────
+      const timeScale = chart.timeScale();
+      const handler = () => {
+        if (suppressRef.current) return;
+        userTouchedRef.current = true;
+
+        // Используем ЛОГИЧЕСКИЙ диапазон для zoom detection
+        // (getVisibleRange возвращает TIME только по существующим данным,
+        //  при пане за край span ложно уменьшается → ложный zoom)
+        const lr = timeScale.getVisibleLogicalRange();
+        if (!lr) return;
+        const logicalSpan = lr.to - lr.from;
+
+        // TIME диапазон — для center расчёта
+        const vr = timeScale.getVisibleRange();
+
+        const nowMs  = Date.now();
+        const prev   = prevSpanRef.current;
+
+        // Оценка реального viewport span через логический диапазон и плотность данных
+        // (getVisibleRange даёт TIME только для видимых данных — при пане за край
+        //  timeSpan сжимается, давая ложный edge detection)
+        const dr = dataRangeRef.current;
+        let estimatedViewportSpanMs: number;
+        if (dr && dr.max > dr.min) {
+          // Среднее время на 1 логическую единицу = (dataRange) / (totalDataBars)
+          // totalDataBars ≈ last logical index of data. Approximation: use lr.to when
+          // viewport is at default position, but simpler: data time / data logical range
+          const series = seriesRef.current;
+          const dataCount = latestDataRef.current.length;
+          if (dataCount > 1) {
+            const msPerBar = (dr.max - dr.min) / (dataCount - 1);
+            estimatedViewportSpanMs = logicalSpan * msPerBar;
+          } else {
+            estimatedViewportSpanMs = logicalSpan * 1000; // fallback 1s/bar
+          }
+        } else {
+          estimatedViewportSpanMs = logicalSpan * 1000;
+        }
+
+        // Center: если есть видимые данные — используем их center,
+        // иначе оцениваем по логическому сдвигу
+        let center: number;
+        let fromMs: number;
+        let toMs: number;
+        if (vr) {
+          fromMs = (vr.from as number) * 1000;
+          toMs   = (vr.to   as number) * 1000;
+          center = (fromMs + toMs) / 2;
+        } else {
+          // Нет видимых данных — оценим center через логический диапазон
+          if (dr) {
+            const dataCount = latestDataRef.current.length;
+            const msPerBar = dataCount > 1 ? (dr.max - dr.min) / (dataCount - 1) : 1000;
+            const viewportCenterLogical = (lr.from + lr.to) / 2;
+            center = dr.min + viewportCenterLogical * msPerBar;
+          } else {
+            return;
+          }
+          fromMs = center - estimatedViewportSpanMs / 2;
+          toMs   = center + estimatedViewportSpanMs / 2;
+        }
+
+        // Если ушли в будущее — пропускаем всё
+        if (toMs > nowMs + 60_000) {
+          return;
+        }
+
+        let needFetch = false;
+
+        // 1) Zoom: ЛОГИЧЕСКИЙ span изменился значительно
+        if (prev !== null && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD) {
+          needFetch = true;
+        }
+
+        // 2) Pan edge: используем estimated viewport span для корректного overlap
+        if (!needFetch && dr) {
+          const overlap = Math.max(0, Math.min(toMs, dr.max) - Math.max(fromMs, dr.min));
+          const overlapRatio = overlap / estimatedViewportSpanMs;
+          if (overlapRatio < (1 - EDGE_THRESHOLD)) {
+            needFetch = true;
+          }
+        }
+
+        prevSpanRef.current = logicalSpan;
+
+        if (needFetch) {
+          const cb = onNeedDataRef.current;
+          if (cb) {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => {
+              if (suppressRef.current) return;
+              cb(estimatedViewportSpanMs, center);
+            }, DEBOUNCE_MS);
+          }
+        }
+      };
+
+      timeScale.subscribeVisibleTimeRangeChange(handler);
+
       const ro = new ResizeObserver(() => {
         if (containerRef.current) {
           chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -236,6 +328,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       ro.observe(containerRef.current);
 
       return () => {
+        timeScale.unsubscribeVisibleTimeRangeChange(handler);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
         ro.disconnect();
         chart.remove();
         chartRef.current    = null;
@@ -246,84 +340,27 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ── Подписка на изменение viewport ───────────────────────────────────────
-    // Всегда подписываемся (даже без onViewportChange) — нужно для userZoomedRef.
-    // Callback передаётся через ref чтобы не перепривязывать обработчик.
-    useEffect(() => {
-      if (!chartRef.current) return;
-      const timeScale = chartRef.current.timeScale();
-
-      const handler = () => {
-        if (suppressVpRef.current) return;
-        userZoomedRef.current = true;   // пользователь вручную двигал граф
-        const cb = onVpChangeRef.current;
-        if (!cb) return;
-        const range = timeScale.getVisibleRange();
-        if (!range) return;
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => {
-          if (suppressVpRef.current) return;
-          cb(
-            (range.from as number) * 1000,
-            (range.to   as number) * 1000,
-          );
-        }, VIEWPORT_DEBOUNCE_MS);
-      };
-
-      timeScale.subscribeVisibleTimeRangeChange(handler);
-      return () => {
-        timeScale.unsubscribeVisibleTimeRangeChange(handler);
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-      };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // mount-only — onViewportChange читается через ref
-
     // ── Обновление данных ────────────────────────────────────────────────────
     useEffect(() => {
       if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
 
       if (!data.length) {
-        // Пустой ответ = смена диапазона или нет данных → полный сброс
-        accumulatedRef.current = new Map();
         seriesRef.current.setData([]);
         bandHighRef.current.setData([]);
         bandLowRef.current.setData([]);
+        dataRangeRef.current = null;
         return;
       }
 
-      // Мержим новые точки в накопленный кэш (ts → ChartPoint).
-      // Одинаковые ts перезаписываются — live-обновления корректно обновляют последние точки.
-      for (const p of data) accumulatedRef.current.set(p.ts, p);
+      applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data);
+      updateDataRange(data);
 
-      const allPoints = Array.from(accumulatedRef.current.values())
-        .sort((a, b) => a.ts - b.ts);
-
-      seriesRef.current.setData(
-        allPoints.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
-      );
-
-      const hasBand = allPoints.some(
-        (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
-      );
-
-      if (hasBand) {
-        bandHighRef.current.setData(
-          allPoints.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
-        );
-        bandLowRef.current.setData(
-          allPoints.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
-        );
-      } else {
-        bandHighRef.current.setData([]);
-        bandLowRef.current.setData([]);
-      }
-
-      if (!userZoomedRef.current) {
+      if (!userTouchedRef.current) {
         chartRef.current?.timeScale().fitContent();
       }
     }, [data]);
 
-    // ── Обновляем цвет при смене регистра ───────────────────────────────────
+    // ── Обновляем цвет ──────────────────────────────────────────────────────
     useEffect(() => {
       if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
       seriesRef.current.applyOptions({
@@ -335,9 +372,20 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       bandLowRef.current.applyOptions({ color: color + "55" });
     }, [color]);
 
+    // ── Обновить границы загруженных данных ──────────────────────────────────
+    function updateDataRange(pts: ChartPoint[]) {
+      if (!pts.length) { dataRangeRef.current = null; return; }
+      let min = pts[0].ts, max = pts[0].ts;
+      for (const p of pts) {
+        if (p.ts < min) min = p.ts;
+        if (p.ts > max) max = p.ts;
+      }
+      dataRangeRef.current = { min, max };
+    }
+
     return (
       <div className="relative rounded-xl overflow-hidden border border-border">
-        {isFetching && (
+        {isLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/40 backdrop-blur-[1px] rounded-xl pointer-events-none">
             <span className="text-xs text-muted-foreground animate-pulse">загрузка…</span>
           </div>
@@ -347,3 +395,34 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     );
   }
 );
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function applyData(
+  series: ISeriesApi<"Area">,
+  bandHigh: ISeriesApi<"Line">,
+  bandLow: ISeriesApi<"Line">,
+  data: ChartPoint[],
+) {
+  const sorted = [...data].sort((a, b) => a.ts - b.ts);
+
+  series.setData(
+    sorted.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
+  );
+
+  const hasBand = sorted.some(
+    (p) => p.min_value != null && p.max_value != null && p.min_value !== p.max_value
+  );
+
+  if (hasBand) {
+    bandHigh.setData(
+      sorted.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
+    );
+    bandLow.setData(
+      sorted.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
+    );
+  } else {
+    bandHigh.setData([]);
+    bandLow.setData([]);
+  }
+}
