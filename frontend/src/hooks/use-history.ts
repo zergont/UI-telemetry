@@ -4,6 +4,8 @@ import { apiFetch } from "@/lib/api";
 export interface HistoryPoint {
   ts: string | null;
   value: number | null;
+  min_value: number | null;
+  max_value: number | null;
   text: string | null;
   reason: string | null;
 }

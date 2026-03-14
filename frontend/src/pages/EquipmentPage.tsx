@@ -27,15 +27,7 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { HistoryChart, type ChartPoint } from "@/components/equipment/HistoryChart";
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -471,30 +463,29 @@ function RegistersTab({
   );
 }
 
-// --- History helpers ---
-
-/** Форматирование метки оси X */
-function fmtAxisTick(epochMs: number, showDate: boolean): string {
-  const d = new Date(epochMs);
-  if (showDate) {
-    return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-  }
-  return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-}
-
-/** Tooltip — полная дата+время при range > 24h */
-function fmtTooltipLabel(epochMs: number, showDate: boolean): string {
-  const d = new Date(epochMs);
-  if (showDate) {
-    return d.toLocaleString("ru-RU", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-  return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
 // --- History Tab ---
+
+const REGISTER_OPTIONS = [
+  { addr: 40034, label: "Нагрузка (кВт)",      color: "#22c55e" },
+  { addr: 40070, label: "Наработка (сек)",      color: "#3b82f6" },
+  { addr: 40063, label: "Температура масла",    color: "#f97316" },
+  { addr: 40062, label: "Давление масла",       color: "#a855f7" },
+  { addr: 40290, label: "ControllerOn Time",    color: "#06b6d4" },
+];
+
+const RANGE_MS: Record<string, number> = {
+  "1h":  3_600_000,
+  "24h": 86_400_000,
+  "7d":  7  * 86_400_000,
+  "30d": 30 * 86_400_000,
+};
+
+// Для коротких диапазонов скользящее окно обновляется автоматически
+const LIVE_INTERVAL_MS: Record<string, number> = {
+  "1h":  60_000,        // каждую минуту
+  "24h": 5 * 60_000,    // каждые 5 мин
+};
+
 function HistoryTab({
   routerSn,
   equipType,
@@ -505,105 +496,93 @@ function HistoryTab({
   panelId: string;
 }) {
   const [selectedAddr, setSelectedAddr] = useState(40034);
-  const [range, setRange] = useState("24h");
+  const [range, setRange]               = useState("24h");
 
-  const rangeMs: Record<string, number> = {
-    "1h": 3600_000,
-    "24h": 86400_000,
-    "7d": 7 * 86400_000,
-    "30d": 30 * 86400_000,
-  };
+  // Viewport для progressive loading: null = показываем весь range
+  const [viewport, setViewport] = useState<{ startMs: number; endMs: number } | null>(null);
 
-  // Интервалы live-обновления (мс). Только для коротких диапазонов.
-  const liveInterval: Record<string, number> = {
-    "1h": 60_000,       // раз в минуту
-    "24h": 5 * 60_000,  // раз в 5 минут
-  };
+  const isLive = range in LIVE_INTERVAL_MS;
 
-  const showDate = range === "7d" || range === "30d";
-  const isLive = range in liveInterval;
+  // Сбрасываем viewport при смене диапазона
+  useEffect(() => { setViewport(null); }, [range]);
+  // Сбрасываем viewport при смене регистра
+  useEffect(() => { setViewport(null); }, [selectedAddr]);
 
-  // Тик: обновляется каждые N секунд для скользящего окна
+  // Live-тик: сдвигает скользящее окно
   const [nowTick, setNowTick] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
   useEffect(() => {
     if (!isLive) return;
-    const interval = liveInterval[range];
-    const id = setInterval(() => setNowTick(Math.floor(Date.now() / 60_000) * 60_000), interval);
+    const id = setInterval(
+      () => setNowTick(Math.floor(Date.now() / 60_000) * 60_000),
+      LIVE_INTERVAL_MS[range],
+    );
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range]);
+  }, [range, isLive]);
 
-  const { start, end, startMs, endMs } = useMemo(() => {
+  // Базовый диапазон (без zoom)
+  const { baseStart, baseEnd } = useMemo(() => {
     const now = new Date(isLive ? nowTick : Date.now());
     now.setSeconds(0, 0);
-    const s = new Date(now.getTime() - (rangeMs[range] || rangeMs["24h"]));
+    const s = new Date(now.getTime() - (RANGE_MS[range] ?? RANGE_MS["24h"]));
+    return { baseStart: s.toISOString(), baseEnd: now.toISOString() };
+  }, [range, nowTick, isLive]);
+
+  // Фактически запрашиваемый диапазон (viewport или базовый)
+  const { queryStart, queryEnd } = useMemo(() => {
+    if (!viewport) return { queryStart: baseStart, queryEnd: baseEnd };
     return {
-      start: s.toISOString(),
-      end: now.toISOString(),
-      startMs: s.getTime(),
-      endMs: now.getTime(),
+      queryStart: new Date(viewport.startMs).toISOString(),
+      queryEnd:   new Date(viewport.endMs).toISOString(),
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range, nowTick]);
+  }, [viewport, baseStart, baseEnd]);
 
   const { data: history, isLoading, isFetching } = useHistory(
-    routerSn, equipType, panelId, selectedAddr, start, end,
+    routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd,
   );
 
-  // Храним epoch ms для числовой оси (scale="time")
-  const chartData = useMemo(
+  const chartData = useMemo<ChartPoint[]>(
     () =>
       (history ?? [])
         .filter((p) => p.ts != null && p.value != null)
-        .map((p) => ({ ts: new Date(p.ts!).getTime(), value: p.value })),
+        .map((p) => ({
+          ts:        new Date(p.ts!).getTime(),
+          value:     p.value as number,
+          min_value: p.min_value ?? null,
+          max_value: p.max_value ?? null,
+        })),
     [history],
   );
 
-  // Покрытие данных — предупреждаем если данных < 90% запрошенного диапазона
-  const coverage = useMemo(() => {
-    if (chartData.length < 2) return null;
-    const first = chartData[0].ts;
-    const last = chartData[chartData.length - 1].ts;
-    const spanMs = last - first;
-    const selectedMs = rangeMs[range] || rangeMs["24h"];
-    return {
-      first: new Date(first),
-      last: new Date(last),
-      pct: Math.min(Math.round((spanMs / selectedMs) * 100), 100),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartData, range]);
+  const handleViewportChange = useCallback((startMs: number, endMs: number) => {
+    setViewport({ startMs, endMs });
+  }, []);
 
-  const REGISTER_OPTIONS = [
-    { addr: 40034, label: "Нагрузка (кВт)" },
-    { addr: 40070, label: "Наработка (сек)" },
-    { addr: 40063, label: "Температура масла" },
-    { addr: 40062, label: "Давление масла" },
-    { addr: 40290, label: "ControllerOn Time" },
-  ];
+  const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
+  const isZoomed = viewport !== null;
 
   return (
     <div className="space-y-4">
+      {/* Панель управления */}
       <div className="flex flex-wrap items-center gap-3">
+        {/* Выбор регистра */}
         <select
           value={selectedAddr}
           onChange={(e) => setSelectedAddr(Number(e.target.value))}
           className="rounded-md border bg-card px-3 py-1.5 text-sm"
         >
           {REGISTER_OPTIONS.map((opt) => (
-            <option key={opt.addr} value={opt.addr}>
-              {opt.label}
-            </option>
+            <option key={opt.addr} value={opt.addr}>{opt.label}</option>
           ))}
         </select>
 
+        {/* Кнопки диапазона */}
         <div className="flex gap-1">
-          {Object.keys(rangeMs).map((r) => (
+          {Object.keys(RANGE_MS).map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}
               className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                range === r
+                range === r && !isZoomed
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
@@ -613,25 +592,30 @@ function HistoryTab({
           ))}
         </div>
 
-        {/* Live-индикатор для коротких диапазонов */}
-        {isLive && (
-          <span className="flex items-center gap-1.5 text-xs text-emerald-500">
-            <span className={`h-2 w-2 rounded-full ${isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"}`} />
-            Live
-          </span>
+        {/* Кнопка сброса zoom */}
+        {isZoomed && (
+          <button
+            onClick={() => setViewport(null)}
+            className="px-3 py-1 rounded-md text-sm bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+          >
+            ✕ сбросить zoom
+          </button>
         )}
 
-        {/* Предупреждение: данные покрывают не весь выбранный период */}
-        {!isLoading && coverage && coverage.pct < 90 && (
-          <span className="text-xs text-amber-500">
-            Данные за {coverage.pct}% периода
-            ({coverage.first.toLocaleDateString("ru-RU")} — {coverage.last.toLocaleDateString("ru-RU")})
+        {/* Live-индикатор */}
+        {isLive && !isZoomed && (
+          <span className="flex items-center gap-1.5 text-xs text-emerald-500">
+            <span className={`h-2 w-2 rounded-full ${
+              isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"
+            }`} />
+            Live
           </span>
         )}
       </div>
 
+      {/* График */}
       {isLoading ? (
-        <Skeleton className="h-[400px] w-full rounded-xl" />
+        <Skeleton className="h-[380px] w-full rounded-xl" />
       ) : chartData.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
@@ -639,47 +623,13 @@ function HistoryTab({
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-xl border bg-card p-4">
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="ts"
-                type="number"
-                scale="time"
-                domain={[startMs, endMs]}
-                tickFormatter={(v) => fmtAxisTick(v, showDate)}
-                tick={{ fontSize: 11 }}
-                className="fill-muted-foreground"
-                minTickGap={showDate ? 60 : 40}
-              />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                className="fill-muted-foreground"
-                width={80}
-                domain={[0, "dataMax"]}
-                padding={{ top: 20, bottom: 0 }}
-              />
-              <RechartsTooltip
-                labelFormatter={(v) => fmtTooltipLabel(v as number, showDate)}
-                contentStyle={{
-                  backgroundColor: "var(--card)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  fontSize: "12px",
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke="var(--primary)"
-                dot={false}
-                strokeWidth={2}
-                connectNulls={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <HistoryChart
+          data={chartData}
+          label={selectedReg?.label}
+          color={selectedReg?.color ?? "#22c55e"}
+          isFetching={isFetching}
+          onViewportChange={handleViewportChange}
+        />
       )}
     </div>
   );
