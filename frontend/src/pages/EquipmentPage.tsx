@@ -27,7 +27,7 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
-import { HistoryChart, type ChartPoint } from "@/components/equipment/HistoryChart";
+import { HistoryChart, type ChartPoint, type HistoryChartHandle } from "@/components/equipment/HistoryChart";
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -480,10 +480,12 @@ const RANGE_MS: Record<string, number> = {
   "30d": 30 * 86_400_000,
 };
 
-// Для коротких диапазонов скользящее окно обновляется автоматически
+// Все диапазоны живые; интервал зависит от шага данных
 const LIVE_INTERVAL_MS: Record<string, number> = {
-  "1h":  15_000,        // каждые 15 сек
-  "24h": 5 * 60_000,    // каждые 5 мин
+  "1h":  15_000,       // шаг ~5 сек  → обновление 15 сек
+  "24h": 2 * 60_000,   // шаг ~43 сек → обновление 2 мин
+  "7d":  2 * 60_000,   // шаг ~5 мин  → обновление 2 мин
+  "30d": 2 * 60_000,   // шаг ~21 мин → обновление 2 мин
 };
 
 function HistoryTab({
@@ -495,28 +497,53 @@ function HistoryTab({
   equipType: string;
   panelId: string;
 }) {
+  const chartRef = useRef<HistoryChartHandle>(null);
+
   const [selectedAddr, setSelectedAddr] = useState(40034);
   const [range, setRange]               = useState("24h");
 
-  const isLive = range in LIVE_INTERVAL_MS;
+  // viewport: задаётся при зуме пользователем (progressive loading)
+  // null = показываем полный диапазон range
+  const [viewport, setViewport] = useState<{ startMs: number; endMs: number } | null>(null);
 
-  // Live-тик: сдвигает скользящее окно для коротких диапазонов
+  // Все диапазоны живые — тик обновляет скользящее окно
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
-    if (!isLive) return;
     const id = setInterval(
       () => setNowTick(Date.now()),
-      LIVE_INTERVAL_MS[range],
+      LIVE_INTERVAL_MS[range] ?? LIVE_INTERVAL_MS["24h"],
     );
     return () => clearInterval(id);
-  }, [range, isLive]);
+  }, [range]);
 
-  // Запрашиваемый диапазон
+  // Смена диапазона: сбросить viewport + зум на графике
+  const handleRangeChange = useCallback((r: string) => {
+    setRange(r);
+    setViewport(null);
+    chartRef.current?.fitContent();
+  }, []);
+
+  // Зум пользователя → обновляем viewport для progressive loading
+  // Зажимаем endMs: не дальше 30 сек в будущее (защита от зума за последнюю точку)
+  const handleViewportChange = useCallback((startMs: number, endMs: number) => {
+    const now = Date.now();
+    setViewport({ startMs, endMs: Math.min(endMs, now + 30_000) });
+  }, []);
+
+  // Запрашиваемый диапазон: viewport (при зуме) или полный range
   const { queryStart, queryEnd } = useMemo(() => {
-    const now = new Date(isLive ? nowTick : Date.now());
-    const start = new Date(now.getTime() - (RANGE_MS[range] ?? RANGE_MS["24h"]));
-    return { queryStart: start.toISOString(), queryEnd: now.toISOString() };
-  }, [range, nowTick, isLive]);
+    const nowMs = nowTick;
+    if (viewport) {
+      // Если правый край viewport ≤2 мин от "сейчас" → это живой край, растягиваем до now
+      const endMs = (nowMs - viewport.endMs < 2 * 60_000) ? nowMs : viewport.endMs;
+      return {
+        queryStart: new Date(viewport.startMs).toISOString(),
+        queryEnd:   new Date(endMs).toISOString(),
+      };
+    }
+    const start = new Date(nowMs - (RANGE_MS[range] ?? RANGE_MS["24h"]));
+    return { queryStart: start.toISOString(), queryEnd: new Date(nowMs).toISOString() };
+  }, [range, nowTick, viewport]);
 
   const { data: history, isLoading, isFetching } = useHistory(
     routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd,
@@ -534,6 +561,14 @@ function HistoryTab({
         })),
     [history],
   );
+
+  // Если viewport-запрос вернул пусто (зум ушёл за данные) → сброс на полный диапазон
+  useEffect(() => {
+    if (!isLoading && !isFetching && chartData.length === 0 && viewport !== null) {
+      setViewport(null);
+      chartRef.current?.fitContent();
+    }
+  }, [isLoading, isFetching, chartData.length, viewport]);
 
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
 
@@ -557,7 +592,7 @@ function HistoryTab({
           {Object.keys(RANGE_MS).map((r) => (
             <button
               key={r}
-              onClick={() => setRange(r)}
+              onClick={() => handleRangeChange(r)}
               className={`px-3 py-1 rounded-md text-sm transition-colors ${
                 range === r
                   ? "bg-primary text-primary-foreground"
@@ -570,14 +605,12 @@ function HistoryTab({
         </div>
 
         {/* Live-индикатор */}
-        {isLive && (
-          <span className="flex items-center gap-1.5 text-xs text-emerald-500">
-            <span className={`h-2 w-2 rounded-full ${
-              isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"
-            }`} />
-            Live
-          </span>
-        )}
+        <span className="flex items-center gap-1.5 text-xs text-emerald-500">
+          <span className={`h-2 w-2 rounded-full ${
+            isFetching ? "bg-amber-400" : "bg-emerald-500 animate-pulse"
+          }`} />
+          Live
+        </span>
       </div>
 
       {/* График */}
@@ -591,10 +624,12 @@ function HistoryTab({
         </Card>
       ) : (
         <HistoryChart
+          ref={chartRef}
           data={chartData}
           label={selectedReg?.label}
           color={selectedReg?.color ?? "#22c55e"}
           isFetching={isFetching}
+          onViewportChange={handleViewportChange}
         />
       )}
     </div>

@@ -6,8 +6,13 @@
  *  • drag — pan влево/вправо
  *  • crosshair с тултипом
  *  • min_value/max_value — полоса диапазона (для 1min/1hour агрегатов)
- *  • onViewportChange — callback для progressive loading
+ *  • onViewportChange — callback для progressive loading (debounced)
  *  • ref.fitContent() — вписать все данные по оси X (сброс zoom)
+ *
+ * Логика fitContent vs userZoomed:
+ *  • После смены диапазона (снаружи вызывают fitContent()) → userZoomedRef сбрасывается,
+ *    следующий setData автоматически вписывает новые данные.
+ *  • Если пользователь вручную покрутил граф → userZoomedRef=true → setData не трогает zoom.
  */
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -63,7 +68,7 @@ export interface ChartPoint {
 }
 
 export interface HistoryChartHandle {
-  /** Вписать весь ряд данных по оси времени; на время вызова onViewportChange глушится */
+  /** Сбросить ручной зум и вписать весь ряд данных по оси времени */
   fitContent(): void;
 }
 
@@ -77,8 +82,8 @@ interface HistoryChartProps {
 }
 
 const CHART_HEIGHT = 380;
-const VIEWPORT_DEBOUNCE_MS = 400;
-/** После fitContent() глушим callback на это время, чтобы сброс zoom не перезаписал viewport */
+const VIEWPORT_DEBOUNCE_MS = 700;
+/** После fitContent() глушим onViewportChange на это время */
 const FIT_SUPPRESS_MS = 800;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
@@ -90,17 +95,23 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const bandLowRef      = useRef<ISeriesApi<"Line"> | null>(null);
     const debounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
     const suppressVpRef   = useRef(false);  // глушим onViewportChange во время fitContent
+    /** true = пользователь вручную покрутил граф; setData не вызывает fitContent */
+    const userZoomedRef   = useRef(false);
     // Актуальные данные и цвет — держим в ref для init-эффекта (React StrictMode)
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
     latestDataRef.current  = data;
     latestColorRef.current = color;
+    // Актуальный callback — ref чтобы не перепривязывать обработчик при каждом рендере
+    const onVpChangeRef   = useRef(onViewportChange);
+    onVpChangeRef.current  = onViewportChange;
 
     // ── Императивный хэндл ───────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
       fitContent() {
         if (!chartRef.current) return;
-        suppressVpRef.current = true;
+        userZoomedRef.current  = false;   // сбросить признак ручного зума
+        suppressVpRef.current  = true;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         chartRef.current.timeScale().fitContent();
         debounceRef.current = setTimeout(() => {
@@ -204,6 +215,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           bandHigh.setData(initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value })));
           bandLow.setData(initialData.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value })));
         }
+        chart.timeScale().fitContent();
       }
 
       // Resize observer
@@ -225,19 +237,24 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ── Подписка на изменение viewport → progressive loading ─────────────────
+    // ── Подписка на изменение viewport ───────────────────────────────────────
+    // Всегда подписываемся (даже без onViewportChange) — нужно для userZoomedRef.
+    // Callback передаётся через ref чтобы не перепривязывать обработчик.
     useEffect(() => {
-      if (!chartRef.current || !onViewportChange) return;
+      if (!chartRef.current) return;
       const timeScale = chartRef.current.timeScale();
 
       const handler = () => {
         if (suppressVpRef.current) return;
+        userZoomedRef.current = true;   // пользователь вручную двигал граф
+        const cb = onVpChangeRef.current;
+        if (!cb) return;
         const range = timeScale.getVisibleRange();
         if (!range) return;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
           if (suppressVpRef.current) return;
-          onViewportChange(
+          cb(
             (range.from as number) * 1000,
             (range.to   as number) * 1000,
           );
@@ -249,7 +266,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         timeScale.unsubscribeVisibleTimeRangeChange(handler);
         if (debounceRef.current) clearTimeout(debounceRef.current);
       };
-    }, [onViewportChange]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // mount-only — onViewportChange читается через ref
 
     // ── Обновление данных ────────────────────────────────────────────────────
     useEffect(() => {
@@ -282,10 +300,12 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         bandLowRef.current.setData([]);
       }
 
-      // После смены данных всегда вписываем весь ряд в экран.
-      // Это критично при переключении диапазона (напр. 24h → 1h):
-      // без вызова видимый диапазон остаётся от предыдущего набора данных.
-      chartRef.current?.timeScale().fitContent();
+      // fitContent вызываем только если пользователь НЕ зумировал вручную.
+      // Это предотвращает сброс zoom при live-обновлениях и при progressive loading.
+      // userZoomedRef сбрасывается в fitContent() (вызывается при смене диапазона).
+      if (!userZoomedRef.current) {
+        chartRef.current?.timeScale().fitContent();
+      }
     }, [data]);
 
     // ── Обновляем цвет при смене регистра ───────────────────────────────────
