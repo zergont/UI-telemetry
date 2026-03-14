@@ -523,31 +523,45 @@ function HistoryTab({
     chartRef.current?.fitContent();
   }, []);
 
-  // Зум пользователя → обновляем viewport для progressive loading.
-  // Паннинг без зума (span близок к диапазону) — игнорируем, чтобы данные не пропадали.
+  // Viewport меняется при любом движении (пан или зум).
   const handleViewportChange = useCallback((startMs: number, endMs: number) => {
-    const viewportSpan = endMs - startMs;
-    const rangeSpan = RANGE_MS[range] ?? RANGE_MS["24h"];
-    // Progressive loading только если пользователь реально приблизил (span < 50% диапазона).
-    // При обычном паннинге span остаётся ~= rangeSpan → пропускаем.
-    if (viewportSpan > rangeSpan * 0.5) return;
     const now = Date.now();
     setViewport({ startMs, endMs: Math.min(endMs, now + 30_000) });
-  }, [range]);
+  }, []);
 
-  // Запрашиваемый диапазон: viewport (при зуме) или полный range
+  // Запрашиваемый диапазон зависит от режима:
+  //  • Зум (span < 50% range)  → только viewport → детальное разрешение
+  //  • Пан (span ≈ range)      → расширяем окно влево, правый край = now
+  //  • Без viewport             → полный диапазон range
   const { queryStart, queryEnd } = useMemo(() => {
     const nowMs = nowTick;
+    const rangeSpan = RANGE_MS[range] ?? RANGE_MS["24h"];
+    const defaultStartMs = nowMs - rangeSpan;
+
     if (viewport) {
-      // Если правый край viewport ≤2 мин от "сейчас" → это живой край, растягиваем до now
-      const endMs = (nowMs - viewport.endMs < 2 * 60_000) ? nowMs : viewport.endMs;
-      return {
-        queryStart: new Date(viewport.startMs).toISOString(),
-        queryEnd:   new Date(endMs).toISOString(),
-      };
+      const viewportSpan = viewport.endMs - viewport.startMs;
+      const liveEnd = (nowMs - viewport.endMs < 2 * 60_000) ? nowMs : viewport.endMs;
+
+      if (viewportSpan <= rangeSpan * 0.5) {
+        // Зум: запрашиваем только видимое окно (детальное разрешение)
+        return {
+          queryStart: new Date(viewport.startMs).toISOString(),
+          queryEnd:   new Date(liveEnd).toISOString(),
+        };
+      } else {
+        // Пан: расширяем окно влево, правый край всегда now (чтобы live-данные не пропали)
+        const extendedStart = Math.min(defaultStartMs, viewport.startMs);
+        return {
+          queryStart: new Date(extendedStart).toISOString(),
+          queryEnd:   new Date(nowMs).toISOString(),
+        };
+      }
     }
-    const start = new Date(nowMs - (RANGE_MS[range] ?? RANGE_MS["24h"]));
-    return { queryStart: start.toISOString(), queryEnd: new Date(nowMs).toISOString() };
+
+    return {
+      queryStart: new Date(defaultStartMs).toISOString(),
+      queryEnd:   new Date(nowMs).toISOString(),
+    };
   }, [range, nowTick, viewport]);
 
   const { data: history, isLoading, isFetching } = useHistory(
