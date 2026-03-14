@@ -15,10 +15,45 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  TickMarkType,
   AreaSeries,
   LineSeries,
 } from "lightweight-charts";
 import type { IChartApi, ISeriesApi, Time, AutoscaleInfo } from "lightweight-charts";
+
+// ── Московское время ─────────────────────────────────────────────────────────
+const MSK = "Europe/Moscow";
+
+/** Форматирует Unix-секунды → строка в МСК */
+function mskFmt(unixSec: number, opts: Intl.DateTimeFormatOptions): string {
+  return new Date(unixSec * 1000).toLocaleString("ru-RU", { timeZone: MSK, ...opts });
+}
+
+/** Форматтер меток оси X (tick marks) в МСК */
+function mskTickMarkFormatter(time: number, type: TickMarkType): string {
+  switch (type) {
+    case TickMarkType.Year:
+      return mskFmt(time, { year: "numeric" });
+    case TickMarkType.Month:
+      return mskFmt(time, { month: "short", year: "2-digit" });
+    case TickMarkType.DayOfMonth:
+      return mskFmt(time, { day: "numeric", month: "short" });
+    case TickMarkType.Time:
+      return mskFmt(time, { hour: "2-digit", minute: "2-digit" });
+    case TickMarkType.TimeWithSeconds:
+      return mskFmt(time, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    default:
+      return mskFmt(time, { hour: "2-digit", minute: "2-digit" });
+  }
+}
+
+/** Форматтер crosshair-подписи времени в МСК */
+function mskTimeFormatter(time: number): string {
+  return mskFmt(time, {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
 
 export interface ChartPoint {
   ts: number;       // epoch ms
@@ -103,6 +138,10 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           borderColor: "#374151",
           timeVisible: true,
           secondsVisible: true,
+          tickMarkFormatter: mskTickMarkFormatter,
+        },
+        localization: {
+          timeFormatter: mskTimeFormatter,
         },
         handleScroll: { mouseWheel: true, pressedMouseMove: true },
         handleScale:  { mouseWheel: true, pinch: true },
