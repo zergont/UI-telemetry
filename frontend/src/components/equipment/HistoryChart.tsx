@@ -17,7 +17,14 @@ import {
   AreaSeries,
   LineSeries,
 } from "lightweight-charts";
-import type { IChartApi, ISeriesApi, Time, AutoscaleInfo } from "lightweight-charts";
+import type {
+  IChartApi,
+  ISeriesApi,
+  Time,
+  AutoscaleInfo,
+  ISeriesPrimitive,
+  SeriesAttachedParameter,
+} from "lightweight-charts";
 import { useSettingsStore } from "@/stores/settings-store";
 
 // ── Часовой пояс ──────────────────────────────────────────────────────────────
@@ -33,6 +40,169 @@ function toChartTime(utcMs: number, tzOffsetSec: number): number {
 /** "TZ-shifted" epoch sec → UTC epoch ms (при чтении из графика) */
 function fromChartTime(chartSec: number, tzOffsetSec: number): number {
   return (chartSec - tzOffsetSec) * 1000;
+}
+
+// ── Фоновые зоны (Custom Primitive) ──────────────────────────────────────────
+// Рисуем прямо на canvas через lightweight-charts v5 ISeriesPrimitive.
+// Зоны — статические прямоугольники на всю высоту панели:
+//   серый  — до первой записи в БД (нет исторических данных)
+//   красный — разрывы данных (пропало N точек подряд)
+//   синий  — будущее время (данные ещё не пришли)
+
+interface ZoneData {
+  fromMs: number;   // epoch ms
+  toMs:   number;   // epoch ms
+  color:  string;   // rgba
+}
+
+class ZonesPrimitive implements ISeriesPrimitive<Time> {
+  private _zones: ZoneData[]       = [];
+  private _chart: IChartApi | null = null;
+  private _tzRef: { current: number };
+  private _requestUpdate?: () => void;
+  /** Диапазон загруженных данных (epoch ms) — для определения направления null */
+  private _dataMinMs: number | null = null;
+  private _dataMaxMs: number | null = null;
+
+  // Стабильные ссылки — не пересоздаём объекты каждый кадр
+  private _renderer = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    draw: (target: any) => this._draw(target),
+  };
+  private _view = {
+    renderer:  () => this._renderer,
+    zOrder:    () => "bottom" as const,
+  };
+
+  constructor(tzRef: { current: number }) {
+    this._tzRef = tzRef;
+  }
+
+  attached(p: SeriesAttachedParameter<Time>): void {
+    this._chart          = p.chart;
+    this._requestUpdate  = p.requestUpdate;
+  }
+
+  detached(): void {
+    this._chart         = null;
+    this._requestUpdate = undefined;
+  }
+
+  /** Обновить диапазон данных (для корректного позиционирования зон за краями). */
+  setDataRange(minMs: number | null, maxMs: number | null): void {
+    this._dataMinMs = minMs;
+    this._dataMaxMs = maxMs;
+  }
+
+  updateZones(zones: ZoneData[]): void {
+    this._zones = zones;
+    this._requestUpdate?.();
+  }
+
+  forceRedraw(): void {
+    this._requestUpdate?.();
+  }
+
+  paneViews() {
+    if (!this._chart) return [];
+    return [this._view];
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _draw(target: any): void {
+    const chart = this._chart;
+    if (!chart || this._dataMinMs === null || this._dataMaxMs === null) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    target.useBitmapCoordinateSpace(({ context, bitmapSize, horizontalPixelRatio }: any) => {
+      const ts = chart.timeScale();
+      const tz = this._tzRef.current;
+      const W  = bitmapSize.width / horizontalPixelRatio;
+      const H  = bitmapSize.height;
+
+      // Диапазон данных в TZ-shifted sec
+      const dataMinSec = this._dataMinMs! / 1000 + tz;
+      const dataMaxSec = this._dataMaxMs! / 1000 + tz;
+
+      for (const z of this._zones) {
+        const fromSec = z.fromMs / 1000 + tz;
+        const toSec   = z.toMs   / 1000 + tz;
+
+        const rawX0 = ts.timeToCoordinate(fromSec as Time);
+        const rawX1 = ts.timeToCoordinate(toSec   as Time);
+
+        // ── x0: null → определяем правее или левее данных ──────────────────
+        let x0: number;
+        if (rawX0 !== null) {
+          x0 = rawX0;
+        } else if (fromSec > dataMaxSec) {
+          // зона начинается ПРАВЕЕ всех данных → ничего видимого → пропускаем
+          continue;
+        } else {
+          // зона начинается ЛЕВЕЕ всех данных → прижимаем к левому краю
+          x0 = 0;
+        }
+
+        // ── x1: null → определяем правее или левее данных ──────────────────
+        let x1: number;
+        if (rawX1 !== null) {
+          x1 = rawX1;
+        } else if (toSec <= dataMaxSec) {
+          // Timestamp в пределах (или до) данных, но timeToCoordinate вернул null:
+          // это значит точка вне видимой области (слева) или попала между баров
+          // (on-the-fly агрегация → exact-ts не совпадает с бакетом).
+          // В обоих случаях зона кончается левее экрана → пропускаем.
+          continue;
+        } else {
+          // Timestamp правее последних данных (будущее) → прижимаем к правому краю
+          x1 = W;
+        }
+
+        if (x1 <= x0) continue;
+
+        context.fillStyle = z.color;
+        context.fillRect(
+          Math.round(x0 * horizontalPixelRatio),
+          0,
+          Math.round((x1 - x0) * horizontalPixelRatio),
+          H,
+        );
+      }
+    });
+  }
+}
+
+/**
+ * Собирает массив зон.
+ *
+ * dataMaxMs — последняя точка в загруженных данных (epoch ms).
+ * Синяя зона начинается именно отсюда, а не от Date.now(), иначе
+ * timeToCoordinate(now) вернёт null (нет данных с таким timestamp) и
+ * координата x0 ошибочно прижмётся к левому краю canvas.
+ */
+function buildZones(
+  firstDataAt: number | null | undefined,
+  gaps: Array<{ fromMs: number; toMs: number }> | undefined,
+  dataMaxMs: number | null,
+): ZoneData[] {
+  const zones: ZoneData[] = [];
+
+  // Серая: до первой записи в БД
+  if (firstDataAt != null) {
+    zones.push({ fromMs: 0, toMs: firstDataAt, color: "rgba(156,163,175,0.15)" });
+  }
+
+  // Красные: разрывы данных
+  for (const g of gaps ?? []) {
+    zones.push({ fromMs: g.fromMs, toMs: g.toMs, color: "rgba(239,68,68,0.18)" });
+  }
+
+  // Синяя: от последней точки данных до «вечности» (обрежется до края canvas)
+  if (dataMaxMs !== null) {
+    zones.push({ fromMs: dataMaxMs, toMs: dataMaxMs + 10 * 365 * 86_400_000, color: "rgba(59,130,246,0.12)" });
+  }
+
+  return zones;
 }
 
 // ── Типы ─────────────────────────────────────────────────────────────────────
@@ -65,6 +235,10 @@ interface HistoryChartProps {
   onNeedData?: (visibleSpanMs: number, centerMs: number) => void;
   /** Желаемый видимый диапазон (epoch ms). Применяется СРАЗУ после setData. */
   pendingRange?: { from: number; to: number; key: number } | null;
+  /** Первая запись в БД для этого регистра (epoch ms) — граница серой зоны */
+  firstDataAt?: number | null;
+  /** Разрывы данных от backend (epoch ms) — красные зоны */
+  gaps?: Array<{ fromMs: number; toMs: number }>;
 }
 
 const CHART_HEIGHT = 380;
@@ -78,7 +252,7 @@ const ZOOM_THRESHOLD   = 0.15;
 const EDGE_THRESHOLD   = 0.3;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
-  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange }, ref) {
+  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps }, ref) {
     const tzOffsetHours   = useSettingsStore((s) => s.tzOffsetHours);
     const tzOffsetSec     = tzOffsetHours * 3600;
     const tzOffsetSecRef  = useRef(tzOffsetSec);
@@ -99,6 +273,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const dataRangeRef    = useRef<{ min: number; max: number } | null>(null);
     /** Последний применённый pendingRange.key — чтобы не применять повторно */
     const lastAppliedRangeKeyRef = useRef(-1);
+
+    const zonePrimitiveRef = useRef<ZonesPrimitive | null>(null);
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
@@ -196,6 +372,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         color: c + "55", lineWidth: 1, lineStyle: 2,
         lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       });
+
+      // Примитив фоновых зон — аттачим к основной серии
+      const zones = new ZonesPrimitive(tzOffsetSecRef);
+      series.attachPrimitive(zones);
+      zonePrimitiveRef.current = zones;
 
       chartRef.current    = chart;
       seriesRef.current   = series;
@@ -319,11 +500,12 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         timeScale.unsubscribeVisibleTimeRangeChange(handler);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         ro.disconnect();
-        chart.remove();
-        chartRef.current    = null;
-        seriesRef.current   = null;
-        bandHighRef.current = null;
-        bandLowRef.current  = null;
+        chart.remove(); // примитив detach-ится автоматически
+        chartRef.current       = null;
+        seriesRef.current      = null;
+        bandHighRef.current    = null;
+        bandLowRef.current     = null;
+        zonePrimitiveRef.current = null;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -363,6 +545,22 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         }, FIT_SUPPRESS_MS);
       }
     }, [data, pendingRange]);
+
+    // ── Обновление фоновых зон ───────────────────────────────────────────────
+    // Зависимость от data гарантирует, что dataRangeRef уже обновлён
+    // (эффект [data, pendingRange] выполняется раньше этого).
+    useEffect(() => {
+      const dr = dataRangeRef.current;
+      const prim = zonePrimitiveRef.current;
+      if (!prim) return;
+      prim.setDataRange(dr?.min ?? null, dr?.max ?? null);
+      prim.updateZones(buildZones(firstDataAt, gaps, dr?.max ?? null));
+    }, [data, firstDataAt, gaps]);
+
+    // При смене часового пояса перерисовываем зоны (tz учитывается в draw)
+    useEffect(() => {
+      zonePrimitiveRef.current?.forceRedraw();
+    }, [tzOffsetSec]);
 
     // ── Обновляем цвет ──────────────────────────────────────────────────────
     useEffect(() => {
