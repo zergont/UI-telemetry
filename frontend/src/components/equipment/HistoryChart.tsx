@@ -452,8 +452,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           toMs   = center + estimatedViewportSpanMs / 2;
         }
 
-        // Если ушли в будущее — пропускаем всё
-        if (toMs > nowMs + 60_000) {
+        // Если ушли СЛИШКОМ далеко в будущее — пропускаем
+        // (порог 3ч: учитываем futureBuffer до 2ч + небольшой запас)
+        if (toMs > nowMs + 3 * 3_600_000) {
           return;
         }
 

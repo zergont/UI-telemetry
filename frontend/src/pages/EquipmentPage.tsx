@@ -20,6 +20,7 @@ import { useHistory } from "@/hooks/use-history";
 import { useEquipment } from "@/hooks/use-equipment";
 import { useRenameEquipment } from "@/hooks/use-rename";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import StatusBadge from "@/components/equipment/StatusBadge";
 import MetricDisplay from "@/components/equipment/MetricDisplay";
 import {
@@ -524,6 +525,7 @@ function HistoryTab({
   panelId: string;
 }) {
   const chartRef = useRef<HistoryChartHandle>(null);
+  const minGapPoints = useSettingsStore((s) => s.minGapPoints);
 
   const [selectedAddr, setSelectedAddr] = useState(40034);
   const [range, setRange]               = useState("24h");
@@ -617,13 +619,13 @@ function HistoryTab({
     [],
   );
 
-  const { data: history, isLoading, isFetching } = useHistory(
-    routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd, targetPoints,
+  const { data: historyResp, isLoading, isFetching } = useHistory(
+    routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd, targetPoints, true, minGapPoints,
   );
 
   const rawChartData = useMemo<ChartPoint[]>(
     () =>
-      (history ?? [])
+      (historyResp?.points ?? [])
         .filter((p) => p.ts != null && p.value != null)
         .map((p) => ({
           // Бэкенд отдаёт UTC без суффикса ('2026-03-15T04:17:24'),
@@ -633,7 +635,25 @@ function HistoryTab({
           min_value: p.min_value ?? null,
           max_value: p.max_value ?? null,
         })),
-    [history],
+    [historyResp],
+  );
+
+  // Граница серой зоны — первая запись в БД
+  const firstDataAt = useMemo(() => {
+    const raw = historyResp?.first_data_at;
+    if (!raw) return null;
+    const s = raw.endsWith("Z") ? raw : raw + "Z";
+    return new Date(s).getTime();
+  }, [historyResp?.first_data_at]);
+
+  // Красные зоны — разрывы данных
+  const chartGaps = useMemo(
+    () =>
+      (historyResp?.gaps ?? []).map((g) => ({
+        fromMs: new Date(g.from_ts.endsWith("Z") ? g.from_ts : g.from_ts + "Z").getTime(),
+        toMs:   new Date(g.to_ts.endsWith("Z")   ? g.to_ts   : g.to_ts   + "Z").getTime(),
+      })),
+    [historyResp?.gaps],
   );
 
   // Накапливаем данные при zoom/pan, сбрасываем при live-обновлениях
@@ -646,11 +666,14 @@ function HistoryTab({
     }
   }, [rawChartData]);
 
-  // Желаемый видимый диапазон — пересчитывается при каждом клике кнопки
+  // Желаемый видимый диапазон — пересчитывается при каждом клике кнопки.
+  // Правый край сдвигаем чуть в будущее (5% диапазона, макс 2ч) — иначе синяя
+  // зона «будущего» занимает <1px (последний бар за несколько секунд до now).
   const pendingRange = useMemo(() => {
     const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
     const now = Date.now();
-    return { from: now - rangeMs, to: now, key: rangeKey };
+    const futureBuffer = Math.min(rangeMs * 0.05, 2 * 3_600_000);
+    return { from: now - rangeMs, to: now + futureBuffer, key: rangeKey };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey]);
 
@@ -721,6 +744,8 @@ function HistoryTab({
           isLoading={isFetching}
           onNeedData={handleNeedData}
           pendingRange={zoomOverride ? null : pendingRange}
+          firstDataAt={firstDataAt}
+          gaps={chartGaps}
         />
       )}
     </div>
