@@ -129,6 +129,50 @@ async def _query_raw(
         )
 
 
+def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
+    """
+    Находит разрывы (потери данных) между последовательными точками.
+
+    expected_interval = Q1 всех интервалов между точками (устойчив к выбросам).
+    threshold = (min_gap_points + 1) × expected_interval.
+
+    Правило нулевого моста:
+      если value до разрыва ≈ 0 И value после ≈ 0 — не считается потерей данных
+      (оборудование не работало, точки приходили редко).
+    """
+    if len(points) < 2:
+        return []
+
+    diffs = sorted(
+        (points[i + 1]["ts"] - points[i]["ts"]).total_seconds()
+        for i in range(len(points) - 1)
+        if (points[i + 1]["ts"] - points[i]["ts"]).total_seconds() > 0
+    )
+    if not diffs:
+        return []
+
+    # Q1 — базовый интервал, устойчивый к большим разрывам в данных
+    expected = max(diffs[len(diffs) // 4], 1.0)
+    threshold = (min_gap_points + 1) * expected
+
+    gaps = []
+    for i in range(len(points) - 1):
+        diff = (points[i + 1]["ts"] - points[i]["ts"]).total_seconds()
+        if diff <= threshold:
+            continue
+
+        v0 = points[i].get("value")
+        v1 = points[i + 1].get("value")
+        zero_bridge = (
+            v0 is not None and v1 is not None
+            and abs(v0) < 0.001 and abs(v1) < 0.001
+        )
+        if not zero_bridge:
+            gaps.append({"from_ts": points[i]["ts"], "to_ts": points[i + 1]["ts"]})
+
+    return gaps
+
+
 async def fetch_history(
     pool: asyncpg.Pool,
     router_sn: str,
@@ -138,19 +182,23 @@ async def fetch_history(
     start: datetime,
     end: datetime,
     limit: int = TARGET_POINTS,
-) -> list[dict[str, Any]]:
+    min_gap_points: int = 3,
+) -> dict[str, Any]:
     """
     Автоматически выбирает источник данных:
       1. Pre-aggregated таблица (history_1min / history_1hour) — если существует.
       2. Fallback на raw history с on-the-fly SQL-агрегацией — если таблицы нет.
 
-    Возвращает список {ts, value, min_value, max_value, text, reason}.
-    min_value/max_value > value только для агрегированных данных.
+    Возвращает:
+      points        — список точек {ts, value, min_value, max_value, text, reason}
+      first_data_at — первая запись в raw-таблице history (для серой зоны)
+      gaps          — разрывы данных (красные зоны) [{from_ts, to_ts}]
     """
     span = (end - start).total_seconds()
     table = _choose_table(span)
 
     async with pool.acquire() as conn:
+        actual_table = table  # таблица, из которой реально читаем данные
         if table == "history":
             rows = await _query_raw(
                 conn, router_sn, equip_type, panel_id, addr, start, end, span, limit
@@ -162,8 +210,29 @@ async def fetch_history(
                 )
             except asyncpg.UndefinedTableError:
                 # Агрегатная таблица ещё не создана → fallback на raw history
+                actual_table = "history"
                 rows = await _query_raw(
                     conn, router_sn, equip_type, panel_id, addr, start, end, span, limit
                 )
 
-    return [dict(r) for r in rows]
+        # Первая запись в той же таблице, что используется для данных
+        # (граница серой зоны «данных нет»)
+        first_data_at = await conn.fetchval(
+            f"""
+            SELECT MIN(ts) FROM {actual_table}
+            WHERE router_sn = $1
+              AND equip_type = $2
+              AND panel_id   = $3
+              AND addr       = $4
+            """,
+            router_sn, equip_type, panel_id, addr,
+        )
+
+    points = [dict(r) for r in rows]
+    gaps = _compute_gaps(points, min_gap_points)
+
+    return {
+        "points": points,
+        "first_data_at": first_data_at,
+        "gaps": gaps,
+    }
