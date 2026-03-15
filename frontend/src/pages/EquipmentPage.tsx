@@ -478,9 +478,10 @@ const REGISTER_OPTIONS = [
   { addr: 40290, label: "ControllerOn Time",    color: "#06b6d4" },
 ];
 
+// Видимый диапазон на экране при нажатии кнопки
 const RANGE_MS: Record<string, number> = {
-  "1h":  3_600_000,
-  "24h": 86_400_000,
+  "1h":  4 * 3_600_000,       // кнопка «1ч» → видно ~4 часа
+  "24h": 86_400_000,           // кнопка «24ч» → видно 24 часа
   "7d":  7  * 86_400_000,
   "30d": 30 * 86_400_000,
 };
@@ -530,6 +531,8 @@ function HistoryTab({
   // Накопленные данные при zoom/pan — не теряем уже загруженное
   const [accumulatedData, setAccumulatedData] = useState<ChartPoint[]>([]);
   const zoomOverrideRef = useRef<{ spanMs: number; centerMs: number } | null>(null);
+  // Счётчик нажатий кнопки — гарантирует вызов setVisibleRange при повторном клике
+  const [rangeKey, setRangeKey] = useState(0);
 
   // zoomOverride: при зуме пользователем — запрашиваем другой диапазон с центром
   // null = используем стандартный range (кнопка)
@@ -556,12 +559,8 @@ function HistoryTab({
     setRange(r);
     setZoomOverride(null);
     setAccumulatedData([]);
-    initialRangeSetRef.current = false; // сбросить, чтобы при загрузке новых данных показать нужный range
-    const now = Date.now();
-    setNowTick(now);
-    const rangeMs = RANGE_MS[r] ?? RANGE_MS["24h"];
-    // Показываем только выбранный диапазон, остальное — буфер для пана
-    chartRef.current?.setVisibleRange(now - rangeMs, now);
+    setNowTick(Date.now());
+    setRangeKey((k) => k + 1);
   }, []);
 
   // Callback из графика: zoom изменил масштаб, или pan достиг края данных
@@ -576,35 +575,50 @@ function HistoryTab({
   }, []);
 
   // Запрашиваемый диапазон.
-  // Загружаем 3x от видимого span (1.5x в каждую сторону) — запас для пана.
-  // Backend всё равно возвращает ≤2000 точек с bucketing.
-  const FETCH_MULTIPLIER = 3;
+  // На широком экране видимая область может вмещать больше номинала
+  // (напр. 4ч при «1ч»). Множитель адаптивный:
+  //   1ч  → ×12 = 12ч (3 экрана буфера при 4ч видимых)
+  //   24ч → ×4  = 96ч (3 экрана буфера при 24ч видимых)
+  //   7d  → ×3  = 21д
+  //   30d → ×2  = 60д
+  // RANGE_MS["1h"]=4ч → ×3 = 12ч загрузки (8ч буфер слева)
+  // RANGE_MS["24h"]=24ч → ×4 = 96ч (72ч буфер)
+  const FETCH_MULTIPLIER_MAP: Record<string, number> = {
+    "1h": 3, "24h": 4, "7d": 3, "30d": 2,
+  };
+  const fetchMultiplier = FETCH_MULTIPLIER_MAP[range] ?? 4;
 
   const { queryStart, queryEnd } = useMemo(() => {
     if (zoomOverride) {
-      // Zoom/pan-edge: центрируем вокруг точки фокуса с запасом
-      const fetchSpan = zoomOverride.spanMs * FETCH_MULTIPLIER;
-      const halfFetch = fetchSpan / 2;
+      // Zoom/pan-edge: грузим fetchMultiplier × span со смещением влево
+      const fetchSpan = zoomOverride.spanMs * fetchMultiplier;
       const now = Date.now();
-      const start = zoomOverride.centerMs - halfFetch;
-      const end = Math.min(zoomOverride.centerMs + halfFetch, now);
+      // centerMs — центр видимой области. Правый край = center + span/2
+      const rightEdge = Math.min(zoomOverride.centerMs + zoomOverride.spanMs / 2, now);
+      const start = rightEdge - fetchSpan;
       return {
         queryStart: new Date(start).toISOString(),
-        queryEnd:   new Date(end).toISOString(),
+        queryEnd:   new Date(rightEdge).toISOString(),
       };
     }
-    // Стандартный range: загружаем rangeMs + запас влево для пана
+    // Стандартный range: загружаем fetchMultiplier × rangeMs влево
     const nowMs = nowTick;
     const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
-    const fetchSpan = rangeMs * FETCH_MULTIPLIER;
     return {
-      queryStart: new Date(nowMs - fetchSpan).toISOString(),
+      queryStart: new Date(nowMs - rangeMs * fetchMultiplier).toISOString(),
       queryEnd:   new Date(nowMs).toISOString(),
     };
   }, [range, nowTick, zoomOverride]);
 
+  // Запрашиваем столько точек, чтобы покрыть 4 экрана по ширине.
+  // Минимум 2000 (по умолчанию backend), максимум 20000 (ограничение API).
+  const targetPoints = useMemo(
+    () => Math.min(20000, Math.max(2000, window.innerWidth * 4)),
+    [],
+  );
+
   const { data: history, isLoading, isFetching } = useHistory(
-    routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd,
+    routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd, targetPoints,
   );
 
   const rawChartData = useMemo<ChartPoint[]>(
@@ -612,7 +626,9 @@ function HistoryTab({
       (history ?? [])
         .filter((p) => p.ts != null && p.value != null)
         .map((p) => ({
-          ts:        new Date(p.ts!).getTime(),
+          // Бэкенд отдаёт UTC без суффикса ('2026-03-15T04:17:24'),
+          // JS без 'Z' трактует как локальное время → добавляем 'Z'.
+          ts:        new Date(p.ts!.endsWith("Z") ? p.ts! : p.ts! + "Z").getTime(),
           value:     p.value as number,
           min_value: p.min_value ?? null,
           max_value: p.max_value ?? null,
@@ -621,27 +637,22 @@ function HistoryTab({
   );
 
   // Накапливаем данные при zoom/pan, сбрасываем при live-обновлениях
-  const initialRangeSetRef = useRef(false);
   useEffect(() => {
     if (rawChartData.length === 0) return;
     if (zoomOverrideRef.current) {
-      // zoom/pan режим — мержим с уже загруженным
       setAccumulatedData((prev) => mergeChartData(prev, rawChartData));
     } else {
-      // live режим — просто заменяем
       setAccumulatedData(rawChartData);
-      // При первой загрузке показываем только выбранный диапазон, буфер — за кадром
-      if (!initialRangeSetRef.current) {
-        initialRangeSetRef.current = true;
-        const now = Date.now();
-        const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
-        // Небольшой таймаут чтобы chart успел отрисовать данные
-        setTimeout(() => {
-          chartRef.current?.setVisibleRange(now - rangeMs, now);
-        }, 50);
-      }
     }
-  }, [rawChartData, range]);
+  }, [rawChartData]);
+
+  // Желаемый видимый диапазон — пересчитывается при каждом клике кнопки
+  const pendingRange = useMemo(() => {
+    const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
+    const now = Date.now();
+    return { from: now - rangeMs, to: now, key: rangeKey };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeKey]);
 
   const chartData = accumulatedData;
 
@@ -709,6 +720,7 @@ function HistoryTab({
           color={selectedReg?.color ?? "#22c55e"}
           isLoading={isFetching}
           onNeedData={handleNeedData}
+          pendingRange={zoomOverride ? null : pendingRange}
         />
       )}
     </div>

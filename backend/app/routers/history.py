@@ -21,6 +21,7 @@ async def get_history(
     addr: int = Query(...),
     start: datetime = Query(...),
     end: datetime = Query(...),
+    points: int = Query(2000, ge=100, le=20000),
     pool: asyncpg.Pool = Depends(get_pool),
     ctx: AuthContext = Depends(require_auth),
 ):
@@ -30,6 +31,6 @@ async def get_history(
     #   ≤ 30d → history_1min
     #   > 30d → history_1hour
     rows = await fetch_history(
-        pool, router_sn, equip_type, panel_id, addr, start, end,
+        pool, router_sn, equip_type, panel_id, addr, start, end, limit=points,
     )
     return [HistoryPoint(**r) for r in rows]

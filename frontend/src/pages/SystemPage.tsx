@@ -10,12 +10,15 @@ import {
   GitCommit,
   GitBranch,
   Tag,
+  Clock,
+  ExternalLink,
 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useIsAdmin } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSettingsStore, TZ_OPTIONS } from "@/stores/settings-store";
 
 interface VersionInfo {
   version: string;
@@ -51,6 +54,8 @@ const STATE_LABELS: Record<string, string> = {
 
 export default function SystemPage() {
   const isAdmin = useIsAdmin();
+  const { tzOffsetHours, setTzOffsetHours } = useSettingsStore();
+  const adminPanelUrl = `${window.location.protocol}//${window.location.hostname}:9443/admin/`;
   const [polling, setPolling] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [updateLog, setUpdateLog] = useState<string[]>([]);
@@ -162,6 +167,56 @@ export default function SystemPage() {
         </Link>
         <h1 className="text-2xl font-bold">Система</h1>
       </div>
+
+      {/* Timezone */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Часовой пояс
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            Используется для отображения времени на графиках.
+          </p>
+          <select
+            value={tzOffsetHours}
+            onChange={(e) => setTzOffsetHours(Number(e.target.value))}
+            className="w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {TZ_OPTIONS.map((tz) => (
+              <option key={tz.offset} value={tz.offset}>
+                {tz.label}
+              </option>
+            ))}
+          </select>
+        </CardContent>
+      </Card>
+
+      {/* Admin panel link */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ExternalLink className="h-4 w-4" />
+            Панель управления
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            Административный интерфейс сервера (Cockpit).
+          </p>
+          <a
+            href={adminPanelUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+          >
+            {adminPanelUrl}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </CardContent>
+      </Card>
 
       {/* Current version */}
       <Card>

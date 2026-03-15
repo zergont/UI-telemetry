@@ -14,41 +14,25 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
-  TickMarkType,
   AreaSeries,
   LineSeries,
 } from "lightweight-charts";
 import type { IChartApi, ISeriesApi, Time, AutoscaleInfo } from "lightweight-charts";
+import { useSettingsStore } from "@/stores/settings-store";
 
-// ── Московское время ─────────────────────────────────────────────────────────
-const MSK = "Europe/Moscow";
+// ── Часовой пояс ──────────────────────────────────────────────────────────────
+// lightweight-charts позиционирует точки по UTC.
+// Чтобы ось показывала локальное время, сдвигаем timestamp'ы на tzOffsetSec
+// при записи и обратно при чтении. Смещение берётся из настроек (settings-store).
 
-function mskFmt(unixSec: number, opts: Intl.DateTimeFormatOptions): string {
-  return new Date(unixSec * 1000).toLocaleString("ru-RU", { timeZone: MSK, ...opts });
+/** UTC epoch ms → "TZ-shifted" epoch sec (для записи в график) */
+function toChartTime(utcMs: number, tzOffsetSec: number): number {
+  return utcMs / 1000 + tzOffsetSec;
 }
 
-function mskTickMarkFormatter(time: number, type: TickMarkType): string {
-  switch (type) {
-    case TickMarkType.Year:
-      return mskFmt(time, { year: "numeric" });
-    case TickMarkType.Month:
-      return mskFmt(time, { month: "short", year: "2-digit" });
-    case TickMarkType.DayOfMonth:
-      return mskFmt(time, { day: "numeric", month: "short" });
-    case TickMarkType.Time:
-      return mskFmt(time, { hour: "2-digit", minute: "2-digit" });
-    case TickMarkType.TimeWithSeconds:
-      return mskFmt(time, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    default:
-      return mskFmt(time, { hour: "2-digit", minute: "2-digit" });
-  }
-}
-
-function mskTimeFormatter(time: number): string {
-  return mskFmt(time, {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-  });
+/** "TZ-shifted" epoch sec → UTC epoch ms (при чтении из графика) */
+function fromChartTime(chartSec: number, tzOffsetSec: number): number {
+  return (chartSec - tzOffsetSec) * 1000;
 }
 
 // ── Типы ─────────────────────────────────────────────────────────────────────
@@ -79,6 +63,8 @@ interface HistoryChartProps {
    * visibleSpanMs — видимый диапазон, centerMs — центр видимой области.
    */
   onNeedData?: (visibleSpanMs: number, centerMs: number) => void;
+  /** Желаемый видимый диапазон (epoch ms). Применяется СРАЗУ после setData. */
+  pendingRange?: { from: number; to: number; key: number } | null;
 }
 
 const CHART_HEIGHT = 380;
@@ -92,7 +78,12 @@ const ZOOM_THRESHOLD   = 0.15;
 const EDGE_THRESHOLD   = 0.3;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
-  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData }, ref) {
+  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange }, ref) {
+    const tzOffsetHours   = useSettingsStore((s) => s.tzOffsetHours);
+    const tzOffsetSec     = tzOffsetHours * 3600;
+    const tzOffsetSecRef  = useRef(tzOffsetSec);
+    tzOffsetSecRef.current = tzOffsetSec;
+
     const containerRef    = useRef<HTMLDivElement>(null);
     const chartRef        = useRef<IChartApi | null>(null);
     const seriesRef       = useRef<ISeriesApi<"Area"> | null>(null);
@@ -106,6 +97,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const prevSpanRef     = useRef<number | null>(null);
     /** Границы загруженных данных (epoch ms) */
     const dataRangeRef    = useRef<{ min: number; max: number } | null>(null);
+    /** Последний применённый pendingRange.key — чтобы не применять повторно */
+    const lastAppliedRangeKeyRef = useRef(-1);
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
@@ -134,8 +127,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         suppressRef.current    = true;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         chartRef.current.timeScale().setVisibleRange({
-          from: (fromMs / 1000) as Time,
-          to:   (toMs   / 1000) as Time,
+          from: toChartTime(fromMs, tzOffsetSecRef.current) as Time,
+          to:   toChartTime(toMs,   tzOffsetSecRef.current) as Time,
         });
         debounceRef.current = setTimeout(() => {
           suppressRef.current = false;
@@ -172,10 +165,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           borderColor: "#374151",
           timeVisible: true,
           secondsVisible: true,
-          tickMarkFormatter: mskTickMarkFormatter,
-        },
-        localization: {
-          timeFormatter: mskTimeFormatter,
+          rightOffset: 5,
         },
         handleScroll: { mouseWheel: true, pressedMouseMove: true },
         handleScale:  { mouseWheel: true, pinch: true },
@@ -212,12 +202,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       bandHighRef.current = bandHigh;
       bandLowRef.current  = bandLow;
 
-      // Начальные данные
+      // Начальные данные (видимый диапазон устанавливается родителем через setVisibleRange)
       const initialData = latestDataRef.current;
       if (initialData.length) {
-        applyData(series, bandHigh, bandLow, initialData);
+        applyData(series, bandHigh, bandLow, initialData, tzOffsetSecRef.current);
         updateDataRange(initialData);
-        chart.timeScale().fitContent();
       }
 
       // ── Подписка на viewport change ───────────────────────────────────
@@ -265,8 +254,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         let fromMs: number;
         let toMs: number;
         if (vr) {
-          fromMs = (vr.from as number) * 1000;
-          toMs   = (vr.to   as number) * 1000;
+          fromMs = fromChartTime(vr.from as number, tzOffsetSecRef.current);
+          toMs   = fromChartTime(vr.to   as number, tzOffsetSecRef.current);
           center = (fromMs + toMs) / 2;
         } else {
           // Нет видимых данных — оценим center через логический диапазон
@@ -351,13 +340,29 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         return;
       }
 
-      applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data);
+      applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
       updateDataRange(data);
 
-      if (!userTouchedRef.current) {
-        chartRef.current?.timeScale().fitContent();
+      // Применяем pendingRange СРАЗУ после setData — без таймаутов
+      if (pendingRange && pendingRange.key !== lastAppliedRangeKeyRef.current) {
+        lastAppliedRangeKeyRef.current = pendingRange.key;
+        userTouchedRef.current = false;
+        prevSpanRef.current    = null;
+        suppressRef.current    = true;
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        const fromSec = toChartTime(pendingRange.from, tzOffsetSecRef.current);
+        const toSec   = toChartTime(pendingRange.to,   tzOffsetSecRef.current);
+        const spanH   = (toSec - fromSec) / 3600;
+        console.log(`[HistoryChart] setVisibleRange: ${new Date(pendingRange.from).toISOString()} → ${new Date(pendingRange.to).toISOString()} (${spanH.toFixed(1)}ч)`);
+        chartRef.current!.timeScale().setVisibleRange({
+          from: fromSec as Time,
+          to:   toSec   as Time,
+        });
+        debounceRef.current = setTimeout(() => {
+          suppressRef.current = false;
+        }, FIT_SUPPRESS_MS);
       }
-    }, [data]);
+    }, [data, pendingRange]);
 
     // ── Обновляем цвет ──────────────────────────────────────────────────────
     useEffect(() => {
@@ -402,11 +407,12 @@ function applyData(
   bandHigh: ISeriesApi<"Line">,
   bandLow: ISeriesApi<"Line">,
   data: ChartPoint[],
+  tzOffsetSec: number,
 ) {
   const sorted = [...data].sort((a, b) => a.ts - b.ts);
 
   series.setData(
-    sorted.map((p) => ({ time: (p.ts / 1000) as Time, value: p.value }))
+    sorted.map((p) => ({ time: toChartTime(p.ts, tzOffsetSec) as Time, value: p.value }))
   );
 
   const hasBand = sorted.some(
@@ -415,10 +421,10 @@ function applyData(
 
   if (hasBand) {
     bandHigh.setData(
-      sorted.map((p) => ({ time: (p.ts / 1000) as Time, value: p.max_value ?? p.value }))
+      sorted.map((p) => ({ time: toChartTime(p.ts, tzOffsetSec) as Time, value: p.max_value ?? p.value }))
     );
     bandLow.setData(
-      sorted.map((p) => ({ time: (p.ts / 1000) as Time, value: p.min_value ?? p.value }))
+      sorted.map((p) => ({ time: toChartTime(p.ts, tzOffsetSec) as Time, value: p.min_value ?? p.value }))
     );
   } else {
     bandHigh.setData([]);

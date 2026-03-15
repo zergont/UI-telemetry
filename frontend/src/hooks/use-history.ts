@@ -17,10 +17,11 @@ export function useHistory(
   addr: number,
   start: string,
   end: string,
+  points?: number,
   enabled: boolean = true,
 ) {
   return useQuery({
-    queryKey: ["history", routerSn, equipType, panelId, addr, start, end],
+    queryKey: ["history", routerSn, equipType, panelId, addr, start, end, points],
     queryFn: () => {
       const params = new URLSearchParams({
         router_sn: routerSn,
@@ -30,6 +31,7 @@ export function useHistory(
         start,
         end,
       });
+      if (points) params.set("points", String(points));
       return apiFetch<HistoryPoint[]>(`/api/history?${params}`);
     },
     enabled: enabled && !!routerSn && !!equipType,
