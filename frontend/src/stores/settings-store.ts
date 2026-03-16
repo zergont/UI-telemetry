@@ -23,6 +23,9 @@ export const TZ_OPTIONS: TzOption[] = [
 interface SettingsState {
   tzOffsetHours: number;
   setTzOffsetHours: (v: number) => void;
+  /** Минимум пропущенных точек подряд, чтобы считать разрывом (красная зона) */
+  minGapPoints: number;
+  setMinGapPoints: (v: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -30,6 +33,8 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       tzOffsetHours: 3,
       setTzOffsetHours: (v) => set({ tzOffsetHours: v }),
+      minGapPoints: 3,
+      setMinGapPoints: (v) => set({ minGapPoints: v }),
     }),
     { name: "app-settings" },
   ),

@@ -12,6 +12,7 @@ import {
   Tag,
   Clock,
   ExternalLink,
+  Activity,
 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -54,7 +55,7 @@ const STATE_LABELS: Record<string, string> = {
 
 export default function SystemPage() {
   const isAdmin = useIsAdmin();
-  const { tzOffsetHours, setTzOffsetHours } = useSettingsStore();
+  const { tzOffsetHours, setTzOffsetHours, minGapPoints, setMinGapPoints } = useSettingsStore();
   const adminPanelUrl = `${window.location.protocol}//${window.location.hostname}:9443/admin/`;
   const [polling, setPolling] = useState(false);
   const [restarting, setRestarting] = useState(false);
@@ -191,6 +192,35 @@ export default function SystemPage() {
               </option>
             ))}
           </select>
+        </CardContent>
+      </Card>
+
+      {/* Chart settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            Параметры графика
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            Минимальное количество пропущенных точек подряд для отметки разрыва
+            данных (красная зона). 1–2 пропуска — норма, не считаются потерей.
+          </p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={minGapPoints}
+              onChange={(e) =>
+                setMinGapPoints(Math.max(1, Math.min(20, Number(e.target.value))))
+              }
+              className="w-20 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <span className="text-sm text-muted-foreground">точек (1–20)</span>
+          </div>
         </CardContent>
       </Card>
 

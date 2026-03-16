@@ -148,11 +148,13 @@ class ZonesPrimitive implements ISeriesPrimitive<Time> {
         if (rawX1 !== null) {
           x1 = rawX1;
         } else if (toSec <= dataMaxSec) {
-          // Timestamp в пределах (или до) данных, но timeToCoordinate вернул null:
-          // это значит точка вне видимой области (слева) или попала между баров
-          // (on-the-fly агрегация → exact-ts не совпадает с бакетом).
-          // В обоих случаях зона кончается левее экрана → пропускаем.
-          continue;
+          // rawX1 = null, но timestamp в пределах данных или до них.
+          // Причина: first_data_at — сырой raw-ts, не кратный бакету агрегации.
+          // LW-Charts v5 возвращает null для не-bar timestamps.
+          // Используем первый бар (dataMinSec) как приближение правой границы зоны.
+          const approxX1 = ts.timeToCoordinate(dataMinSec as Time);
+          if (approxX1 === null || approxX1 <= x0) continue;
+          x1 = approxX1;
         } else {
           // Timestamp правее последних данных (будущее) → прижимаем к правому краю
           x1 = W;

@@ -501,9 +501,9 @@ const LIVE_INTERVAL_MS: Record<string, number> = {
  * и если он отличается от текущего — перезапрашиваем.
  */
 function spanToRange(spanMs: number): string {
-  if (spanMs <= 3_600_000)      return "1h";
-  if (spanMs <= 86_400_000)     return "24h";
-  if (spanMs <= 7 * 86_400_000) return "7d";
+  if (spanMs <= RANGE_MS["1h"])  return "1h";   // ≤ 4h (RANGE_MS["1h"] = 4 * 3600s)
+  if (spanMs <= RANGE_MS["24h"]) return "24h";
+  if (spanMs <= RANGE_MS["7d"])  return "7d";
   return "30d";
 }
 
