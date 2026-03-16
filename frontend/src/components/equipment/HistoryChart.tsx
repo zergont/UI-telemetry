@@ -12,6 +12,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import {
   createChart,
+  createSeriesMarkers,
   ColorType,
   CrosshairMode,
   AreaSeries,
@@ -20,6 +21,7 @@ import {
 import type {
   IChartApi,
   ISeriesApi,
+  ISeriesMarkersPluginApi,
   Time,
   AutoscaleInfo,
   ISeriesPrimitive,
@@ -279,7 +281,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     /** Последний применённый pendingRange.key — чтобы не применять повторно */
     const lastAppliedRangeKeyRef = useRef(-1);
 
-    const zonePrimitiveRef = useRef<ZonesPrimitive | null>(null);
+    const zonePrimitiveRef  = useRef<ZonesPrimitive | null>(null);
+    const markersApiRef     = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
@@ -297,8 +300,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
     /** Обновляет маркеры серии (читает только рефы → вызывается из любого эффекта) */
     function updateMarkers() {
-      const series = seriesRef.current;
-      if (!series) return;
+      const api = markersApiRef.current;
+      if (!api) return;
       if (showMarkersRef.current && rawTimestampsRef.current.size > 0) {
         const tz    = tzOffsetSecRef.current;
         const color = latestColorRef.current;
@@ -311,9 +314,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
             color,
             size: 0.5,
           }));
-        series.setMarkers(markers);
+        api.setMarkers(markers);
       } else {
-        series.setMarkers([]);
+        api.setMarkers([]);
       }
     }
 
@@ -411,6 +414,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       const zones = new ZonesPrimitive(tzOffsetSecRef);
       series.attachPrimitive(zones);
       zonePrimitiveRef.current = zones;
+
+      // Markers API (v5: createSeriesMarkers вместо series.setMarkers)
+      markersApiRef.current = createSeriesMarkers(series, []);
 
       chartRef.current    = chart;
       seriesRef.current   = series;
@@ -543,11 +549,12 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         if (debounceRef.current) clearTimeout(debounceRef.current);
         ro.disconnect();
         chart.remove(); // примитив detach-ится автоматически
-        chartRef.current       = null;
-        seriesRef.current      = null;
-        bandHighRef.current    = null;
-        bandLowRef.current     = null;
+        chartRef.current         = null;
+        seriesRef.current        = null;
+        bandHighRef.current      = null;
+        bandLowRef.current       = null;
         zonePrimitiveRef.current = null;
+        markersApiRef.current    = null;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
