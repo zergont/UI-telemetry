@@ -24,6 +24,7 @@ import type {
   AutoscaleInfo,
   ISeriesPrimitive,
   SeriesAttachedParameter,
+  SeriesMarker,
 } from "lightweight-charts";
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -241,6 +242,8 @@ interface HistoryChartProps {
   firstDataAt?: number | null;
   /** Разрывы данных от backend (epoch ms) — красные зоны */
   gaps?: Array<{ fromMs: number; toMs: number }>;
+  /** Timestamps реальных RAW-точек (epoch ms) — маркеры при глубоком зуме */
+  rawTimestamps?: Set<number>;
 }
 
 const CHART_HEIGHT = 380;
@@ -254,7 +257,7 @@ const ZOOM_THRESHOLD   = 0.15;
 const EDGE_THRESHOLD   = 0.3;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
-  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps }, ref) {
+  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps, rawTimestamps }, ref) {
     const tzOffsetHours   = useSettingsStore((s) => s.tzOffsetHours);
     const tzOffsetSec     = tzOffsetHours * 3600;
     const tzOffsetSecRef  = useRef(tzOffsetSec);
@@ -284,6 +287,35 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     latestColorRef.current = color;
     const onNeedDataRef = useRef(onNeedData);
     onNeedDataRef.current = onNeedData;
+
+    const rawTimestampsRef   = useRef<Set<number>>(new Set());
+    rawTimestampsRef.current = rawTimestamps ?? new Set();
+    const showMarkersRef     = useRef(false);
+
+    /** Порог: при span < 30 мин показываем маркеры реальных точек */
+    const MARKER_SPAN_THRESHOLD = 30 * 60 * 1_000;
+
+    /** Обновляет маркеры серии (читает только рефы → вызывается из любого эффекта) */
+    function updateMarkers() {
+      const series = seriesRef.current;
+      if (!series) return;
+      if (showMarkersRef.current && rawTimestampsRef.current.size > 0) {
+        const tz    = tzOffsetSecRef.current;
+        const color = latestColorRef.current;
+        const markers: SeriesMarker<Time>[] = [...rawTimestampsRef.current]
+          .sort((a, b) => a - b)
+          .map((ts) => ({
+            time:     toChartTime(ts, tz) as Time,
+            position: "inBar"   as const,
+            shape:    "circle"  as const,
+            color,
+            size: 0.5,
+          }));
+        series.setMarkers(markers);
+      } else {
+        series.setMarkers([]);
+      }
+    }
 
     // ── Императивный хэндл ───────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -478,6 +510,13 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
         prevSpanRef.current = logicalSpan;
 
+        // Маркеры raw-точек: включаем при глубоком зуме
+        const shouldShowMarkers = estimatedViewportSpanMs < MARKER_SPAN_THRESHOLD;
+        if (shouldShowMarkers !== showMarkersRef.current) {
+          showMarkersRef.current = shouldShowMarkers;
+          updateMarkers();
+        }
+
         if (needFetch) {
           const cb = onNeedDataRef.current;
           if (cb) {
@@ -527,6 +566,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
       applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
       updateDataRange(data);
+      // После setData маркеры сбрасываются — переприменяем если активны
+      if (showMarkersRef.current) updateMarkers();
 
       // Применяем pendingRange СРАЗУ после setData — без таймаутов
       if (pendingRange && pendingRange.key !== lastAppliedRangeKeyRef.current) {
@@ -559,6 +600,12 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       prim.setDataRange(dr?.min ?? null, dr?.max ?? null);
       prim.updateZones(buildZones(firstDataAt, gaps, dr?.max ?? null));
     }, [data, firstDataAt, gaps]);
+
+    // При смене rawTimestamps обновляем маркеры (если они активны)
+    useEffect(() => {
+      if (showMarkersRef.current) updateMarkers();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rawTimestamps]);
 
     // При смене часового пояса перерисовываем зоны (tz учитывается в draw)
     useEffect(() => {

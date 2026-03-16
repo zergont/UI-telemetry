@@ -487,6 +487,53 @@ const RANGE_MS: Record<string, number> = {
   "30d": 30 * 86_400_000,
 };
 
+const GRID_MS = 2_000;          // шаг интерполяции: 2 сек
+const RAW_THRESHOLD_MS = 60_000; // медиана ≤ 60с → raw-данные → интерполируем
+
+/**
+ * Заполняет пробелы между RAW-точками линейной интерполяцией с шагом GRID_MS.
+ * Через gap-зоны (красные) не заполняем.
+ * Для агрегированных данных (медиана > 60с) — возвращает как есть.
+ */
+function interpolateToGrid(
+  rawPoints: ChartPoint[],
+  gapZones: Array<{ fromMs: number; toMs: number }>,
+): { interpolated: ChartPoint[]; rawTimestamps: Set<number> } {
+  const rawTimestamps = new Set<number>(rawPoints.map((p) => p.ts));
+  if (rawPoints.length < 2) return { interpolated: rawPoints, rawTimestamps };
+
+  // Медианный интервал
+  const intervals: number[] = [];
+  for (let i = 1; i < rawPoints.length; i++)
+    intervals.push(rawPoints[i].ts - rawPoints[i - 1].ts);
+  intervals.sort((a, b) => a - b);
+  const median = intervals[Math.floor(intervals.length / 2)];
+
+  // Агрегированные данные — не трогаем
+  if (median > RAW_THRESHOLD_MS) return { interpolated: rawPoints, rawTimestamps };
+
+  const result: ChartPoint[] = [];
+  for (let i = 0; i < rawPoints.length; i++) {
+    result.push(rawPoints[i]);
+    if (i < rawPoints.length - 1) {
+      const p0 = rawPoints[i];
+      const p1 = rawPoints[i + 1];
+      const gapMs = p1.ts - p0.ts;
+      // Не заполняем через gap-зоны (красные зоны от backend)
+      const isGap = gapZones.some((g) => g.fromMs < p1.ts && g.toMs > p0.ts);
+      if (!isGap && gapMs > GRID_MS) {
+        const steps = Math.floor(gapMs / GRID_MS);
+        for (let j = 1; j < steps; j++) {
+          const t = p0.ts + j * GRID_MS;
+          const ratio = (t - p0.ts) / gapMs;
+          result.push({ ts: t, value: p0.value + ratio * (p1.value - p0.value) });
+        }
+      }
+    }
+  }
+  return { interpolated: result, rawTimestamps };
+}
+
 /** Интервалы live-обновлений (подгрузка новых точек справа) */
 const LIVE_INTERVAL_MS: Record<string, number> = {
   "1h":  15_000,
@@ -532,6 +579,7 @@ function HistoryTab({
 
   // Накопленные данные при zoom/pan — не теряем уже загруженное
   const [accumulatedData, setAccumulatedData] = useState<ChartPoint[]>([]);
+  const [rawTimestamps, setRawTimestamps]      = useState<Set<number>>(new Set());
   const zoomOverrideRef = useRef<{ spanMs: number; centerMs: number } | null>(null);
   // Счётчик нажатий кнопки — гарантирует вызов setVisibleRange при повторном клике
   const [rangeKey, setRangeKey] = useState(0);
@@ -656,15 +704,23 @@ function HistoryTab({
     [historyResp?.gaps],
   );
 
-  // Накапливаем данные при zoom/pan, сбрасываем при live-обновлениях
+  // Накапливаем данные при zoom/pan, сбрасываем при live-обновлениях.
+  // Применяем интерполяцию 2с-сетки для raw-данных.
   useEffect(() => {
     if (rawChartData.length === 0) return;
+    const { interpolated, rawTimestamps: newRawTs } = interpolateToGrid(rawChartData, chartGaps);
     if (zoomOverrideRef.current) {
-      setAccumulatedData((prev) => mergeChartData(prev, rawChartData));
+      setRawTimestamps((prev) => {
+        const merged = new Set(prev);
+        for (const ts of newRawTs) merged.add(ts);
+        return merged;
+      });
+      setAccumulatedData((prev) => mergeChartData(prev, interpolated));
     } else {
-      setAccumulatedData(rawChartData);
+      setRawTimestamps(newRawTs);
+      setAccumulatedData(interpolated);
     }
-  }, [rawChartData]);
+  }, [rawChartData, chartGaps]);
 
   // Желаемый видимый диапазон — пересчитывается при каждом клике кнопки.
   // Правый край сдвигаем чуть в будущее (5% диапазона, макс 2ч) — иначе синяя
@@ -746,6 +802,7 @@ function HistoryTab({
           pendingRange={zoomOverride ? null : pendingRange}
           firstDataAt={firstDataAt}
           gaps={chartGaps}
+          rawTimestamps={rawTimestamps}
         />
       )}
     </div>
