@@ -481,10 +481,18 @@ const REGISTER_OPTIONS = [
 
 // Видимый диапазон на экране при нажатии кнопки
 const RANGE_MS: Record<string, number> = {
-  "1h":  4 * 3_600_000,       // кнопка «1ч» → видно ~4 часа
-  "24h": 86_400_000,           // кнопка «24ч» → видно 24 часа
-  "7d":  7  * 86_400_000,
-  "30d": 30 * 86_400_000,
+  "1h":  4 * 3_600_000,       // кнопка «1ч»  → видно 4ч
+  "24h": 86_400_000,           // кнопка «24ч» → видно 24ч
+  "7d":  7  * 86_400_000,      // 7д
+  "30d": 30 * 86_400_000,      // 30д
+};
+
+// Буфер «будущего» справа — синяя зона всегда видна
+const FUTURE_BUFFER_MS: Record<string, number> = {
+  "1h":  15 * 60_000,          // 15 мин → итого ~4ч15мин
+  "24h": 2  * 3_600_000,       // 2ч    → итого 26ч
+  "7d":  86_400_000,           // 1д    → итого 8д
+  "30d": 86_400_000,           // 1д    → итого 31д
 };
 
 const GRID_MS = 2_000;          // шаг интерполяции: 2 сек
@@ -544,13 +552,27 @@ const LIVE_INTERVAL_MS: Record<string, number> = {
 
 /**
  * Пороги для определения уровня детализации по видимому span.
- * При zoom определяем, в какой «уровень» попадает видимый диапазон,
- * и если он отличается от текущего — перезапрашиваем.
+ * Гистерезис (×1.3) при zoom-out предотвращает «прыжки» между уровнями:
+ *  — zoom-in: переход в более детальный уровень при уменьшении span
+ *  — zoom-out: переход в более грубый уровень только при span × 1.3 от границы
  */
-function spanToRange(spanMs: number): string {
-  if (spanMs <= RANGE_MS["1h"])  return "1h";   // ≤ 4h (RANGE_MS["1h"] = 4 * 3600s)
-  if (spanMs <= RANGE_MS["24h"]) return "24h";
-  if (spanMs <= RANGE_MS["7d"])  return "7d";
+const HYSTERESIS = 1.3;
+function spanToRange(spanMs: number, currentRange: string): string {
+  if (currentRange === "1h") {
+    return spanMs > RANGE_MS["1h"] * HYSTERESIS ? "24h" : "1h";  // > 5.2h → 24h
+  }
+  if (currentRange === "24h") {
+    if (spanMs <= RANGE_MS["1h"])               return "1h";      // ≤ 4h
+    if (spanMs > RANGE_MS["24h"] * HYSTERESIS)  return "7d";      // > 31.2h
+    return "24h";
+  }
+  if (currentRange === "7d") {
+    if (spanMs <= RANGE_MS["24h"])              return "24h";     // ≤ 24h
+    if (spanMs > RANGE_MS["7d"] * HYSTERESIS)   return "30d";     // > 9.1д
+    return "7d";
+  }
+  // "30d"
+  if (spanMs <= RANGE_MS["7d"]) return "7d";                      // ≤ 7д
   return "30d";
 }
 
@@ -580,7 +602,11 @@ function HistoryTab({
   // Накопленные данные при zoom/pan — не теряем уже загруженное
   const [accumulatedData, setAccumulatedData] = useState<ChartPoint[]>([]);
   const [rawTimestamps, setRawTimestamps]      = useState<Set<number>>(new Set());
-  const zoomOverrideRef = useRef<{ spanMs: number; centerMs: number } | null>(null);
+  const zoomOverrideRef    = useRef<{ spanMs: number; centerMs: number } | null>(null);
+  const rangeRef           = useRef(range);
+  rangeRef.current         = range;
+  /** true = уровень детализации сменился → следующий fetch заменяет, не мёржит */
+  const levelChangedRef    = useRef(false);
   // Счётчик нажатий кнопки — гарантирует вызов setVisibleRange при повторном клике
   const [rangeKey, setRangeKey] = useState(0);
 
@@ -616,10 +642,15 @@ function HistoryTab({
   // Callback из графика: zoom изменил масштаб, или pan достиг края данных
   const handleNeedData = useCallback((visibleSpanMs: number, centerMs: number) => {
     const now = Date.now();
-    const newRange = spanToRange(visibleSpanMs);
+    const currentRange = rangeRef.current;
+    const newRange = spanToRange(visibleSpanMs, currentRange);
     const halfRange = RANGE_MS[newRange] / 2;
     // Ограничиваем center: не дальше now - halfRange (чтобы не запрашивать будущее)
     const clampedCenter = Math.min(centerMs, now - halfRange);
+    // При смене уровня (raw↔min↔hour) следующий fetch заменяет данные, не мёржит
+    if (newRange !== currentRange) {
+      levelChangedRef.current = true;
+    }
     setZoomOverride({ spanMs: RANGE_MS[newRange], centerMs: clampedCenter });
     setRange(newRange);
   }, []);
@@ -706,10 +737,12 @@ function HistoryTab({
 
   // Накапливаем данные при zoom/pan, сбрасываем при live-обновлениях.
   // Применяем интерполяцию 2с-сетки для raw-данных.
+  // При смене уровня детализации (raw↔1min↔1hour) — заменяем, не мёржим.
   useEffect(() => {
     if (rawChartData.length === 0) return;
     const { interpolated, rawTimestamps: newRawTs } = interpolateToGrid(rawChartData, chartGaps);
-    if (zoomOverrideRef.current) {
+    const shouldMerge = zoomOverrideRef.current && !levelChangedRef.current;
+    if (shouldMerge) {
       setRawTimestamps((prev) => {
         const merged = new Set(prev);
         for (const ts of newRawTs) merged.add(ts);
@@ -717,18 +750,18 @@ function HistoryTab({
       });
       setAccumulatedData((prev) => mergeChartData(prev, interpolated));
     } else {
+      levelChangedRef.current = false;
       setRawTimestamps(newRawTs);
       setAccumulatedData(interpolated);
     }
   }, [rawChartData, chartGaps]);
 
   // Желаемый видимый диапазон — пересчитывается при каждом клике кнопки.
-  // Правый край сдвигаем чуть в будущее (5% диапазона, макс 2ч) — иначе синяя
-  // зона «будущего» занимает <1px (последний бар за несколько секунд до now).
+  // Правый край сдвигаем в будущее (FUTURE_BUFFER_MS) — синяя зона всегда видна.
   const pendingRange = useMemo(() => {
-    const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
+    const rangeMs      = RANGE_MS[range]         ?? RANGE_MS["24h"];
+    const futureBuffer = FUTURE_BUFFER_MS[range] ?? 2 * 3_600_000;
     const now = Date.now();
-    const futureBuffer = Math.min(rangeMs * 0.05, 2 * 3_600_000);
     return { from: now - rangeMs, to: now + futureBuffer, key: rangeKey };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey]);

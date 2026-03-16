@@ -249,14 +249,13 @@ interface HistoryChartProps {
 }
 
 const CHART_HEIGHT = 380;
-const DEBOUNCE_MS      = 400;
+const DEBOUNCE_MS      = 600;
 const FIT_SUPPRESS_MS  = 600;
 /** Минимальное изменение span чтобы считать zoom, а не pan */
 const ZOOM_THRESHOLD   = 0.15;
 /** Доля видимой области за краем данных, при которой запрашиваем подгрузку.
- *  0.3 = когда 30%+ видимой области за краем данных → подгрузка начинается рано,
- *  пользователь не видит пустых зон. */
-const EDGE_THRESHOLD   = 0.3;
+ *  0.6 = тригер за 60% до края → данные грузятся заранее, нет пустых зон. */
+const EDGE_THRESHOLD   = 0.6;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
   function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps, rawTimestamps }, ref) {
@@ -493,8 +492,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         }
 
         // Если ушли СЛИШКОМ далеко в будущее — пропускаем
-        // (порог 3ч: учитываем futureBuffer до 2ч + небольшой запас)
-        if (toMs > nowMs + 3 * 3_600_000) {
+        // (порог 26ч: учитываем futureBuffer до 1д для 7d/30d + запас)
+        if (toMs > nowMs + 26 * 3_600_000) {
           return;
         }
 
