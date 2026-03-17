@@ -570,6 +570,13 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         return;
       }
 
+      // Сохраняем вьюпорт ДО замены данных — только если пользователь уже
+      // взаимодействовал. При глубоком зуме setData меняет logical→time маппинг,
+      // и без явного setVisibleRange chart "улетает" в сторону.
+      const savedRange = userTouchedRef.current
+        ? chartRef.current?.timeScale().getVisibleRange() ?? null
+        : null;
+
       applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
       updateDataRange(data);
       // После setData маркеры сбрасываются — переприменяем если активны
@@ -577,6 +584,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
       // Применяем pendingRange СРАЗУ после setData — без таймаутов
       if (pendingRange && pendingRange.key !== lastAppliedRangeKeyRef.current) {
+        // Новый pendingRange от нажатия кнопки — применяем его
         lastAppliedRangeKeyRef.current = pendingRange.key;
         userTouchedRef.current = false;
         prevSpanRef.current    = null;
@@ -590,6 +598,14 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           from: fromSec as Time,
           to:   toSec   as Time,
         });
+        debounceRef.current = setTimeout(() => {
+          suppressRef.current = false;
+        }, FIT_SUPPRESS_MS);
+      } else if (savedRange) {
+        // Подгрузка по zoom/pan — восстанавливаем позицию, которую видел пользователь
+        suppressRef.current = true;
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        chartRef.current!.timeScale().setVisibleRange(savedRange);
         debounceRef.current = setTimeout(() => {
           suppressRef.current = false;
         }, FIT_SUPPRESS_MS);
