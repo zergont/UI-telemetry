@@ -332,9 +332,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       const lp     = livePointRef.current;
       const series = seriesRef.current;
       if (!lp || !series) return;
-      // Добавляем только если live-точка новее последней DB-точки
       const dr = dataRangeRef.current;
-      if (dr && lp.ts <= dr.max) return;
+      // Требуем, чтобы DB-данные уже были загружены: update() на пустой серии
+      // роняет lw-charts с "Value is null" при следующем рендере.
+      // Также пропускаем если live-точка не новее последней DB-точки.
+      if (!dr || !isFinite(lp.ts) || lp.ts <= dr.max) return;
       try {
         series.update({ time: toChartTime(lp.ts, tzOffsetSecRef.current) as Time, value: lp.value });
       } catch {
