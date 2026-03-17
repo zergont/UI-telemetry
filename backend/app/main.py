@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import APP_VERSION, get_settings
-from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
@@ -29,13 +28,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting %s v%s", settings.app.name, settings.app.version)
 
-    # 1. Run DB migrations (create cg_ui user, add equipment.name)
-    try:
-        await run_migrations(settings.database)
-    except Exception as exc:
-        logger.error("Migration failed: %s (continuing without migration)", exc)
-
-    # 2. Create asyncpg pool (cg_ui credentials)
+    # 1. Create asyncpg pool (cg_ui credentials)
     try:
         pool = await create_pool(settings.database)
         app.state.db_pool = pool
@@ -44,19 +37,19 @@ async def lifespan(app: FastAPI):
         logger.error("Database connection failed: %s", exc)
         app.state.db_pool = None
 
-    # 3. Create telemetry hub
+    # 2. Create telemetry hub
     hub = TelemetryHub()
     app.state.hub = hub
 
-    # 4. Start MQTT listener
+    # 3. Start MQTT listener
     mqtt_task = asyncio.create_task(mqtt_listener(settings.mqtt, hub))
 
-    # 5. Start offline tracker
+    # 4. Start offline tracker
     offline_task = asyncio.create_task(
         offline_tracker(hub, settings.telemetry.offline_timeout_sec)
     )
 
-    # 6. Check nginx availability
+    # 5. Check nginx availability
     log_nginx_status(settings.access.public_base_url)
 
     logger.info("Backend ready on %s:%s", settings.backend.host, settings.backend.port)

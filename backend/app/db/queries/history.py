@@ -5,24 +5,25 @@ from typing import Any
 
 import asyncpg
 
-# ---------------------------------------------------------------------------
-# Выбор таблицы по ширине диапазона (когда агрегатные таблицы уже созданы)
-# ---------------------------------------------------------------------------
-# span ≤ 7 дней  → history (raw, ~2-5 сек)     retention: 7 дней
-# span ≤ 30 дней → history_1min (1 мин)          retention: 30 дней
-# span > 30 дней → history_1hour (1 час)          retention: 1 год
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Выбор источника данных по ширине диапазона
+#
+# v2.0.0 (TimescaleDB):
+#   span ≤ 30 дней → history (raw hypertable, time_bucket on-the-fly)
+#   span ≤ 90 дней → history_1min  (CA, 1 минута)
+#   span >  90 дней → history_1hour (CA, 1 час)
+# ─────────────────────────────────────────────────────────────────────────────
 
-_7D  = 7  * 86_400
 _30D = 30 * 86_400
+_90D = 90 * 86_400
 
-TARGET_POINTS = 2_000   # желаемое кол-во точек на графике
+TARGET_POINTS = 2_000   # желаемое количество точек на графике
 
 
 def _choose_table(span_seconds: float) -> str:
-    if span_seconds <= _7D:
+    if span_seconds <= _30D:
         return "history"
-    elif span_seconds <= _30D:
+    elif span_seconds <= _90D:
         return "history_1min"
     else:
         return "history_1hour"
@@ -39,16 +40,23 @@ async def _query_aggregated(
     end: datetime,
     limit: int,
 ) -> list:
-    """Читает из pre-aggregated таблицы (history_1min / history_1hour)."""
+    """Читает из Continuous Aggregate (history_1min / history_1hour).
+
+    Возвращает avg/min/max/open/close/sample_count.
+    sample_count = NULL означает gap (бакет пустой, заполнен locf).
+    """
     return await conn.fetch(
         f"""
         SELECT
             ts,
-            avg_value  AS value,
+            avg_value                        AS value,
             min_value,
             max_value,
-            NULL::text AS text,
-            NULL::text AS reason
+            open_value,
+            close_value,
+            sample_count,
+            NULL::text                       AS text,
+            NULL::text                       AS reason
         FROM {table}
         WHERE router_sn = $1
           AND equip_type = $2
@@ -73,10 +81,10 @@ async def _query_raw(
     span_seconds: float,
     limit: int,
 ) -> list:
-    """
-    Читает из raw-таблицы history.
-    Для коротких диапазонов — возвращает сырые точки.
-    Для длинных — агрегирует on-the-fly через SQL time-bucket.
+    """Читает из raw hypertable history.
+
+    Для коротких диапазонов возвращает сырые точки.
+    Для длинных — агрегирует on-the-fly через time_bucket (TimescaleDB).
     """
     bucket_secs = max(1, int(span_seconds / limit))
 
@@ -87,8 +95,11 @@ async def _query_raw(
             SELECT
                 ts,
                 value,
-                value   AS min_value,
-                value   AS max_value,
+                value                        AS min_value,
+                value                        AS max_value,
+                value                        AS open_value,
+                value                        AS close_value,
+                1::bigint                    AS sample_count,
                 text,
                 reason
             FROM history
@@ -103,18 +114,19 @@ async def _query_raw(
             router_sn, equip_type, panel_id, addr, start, end, limit * 5,
         )
     else:
-        # On-the-fly агрегация из raw по временным корзинам
+        # On-the-fly агрегация через TimescaleDB time_bucket
         return await conn.fetch(
             """
             SELECT
-                to_timestamp(
-                    floor(extract(epoch from ts) / $1) * $1
-                ) AT TIME ZONE 'UTC'            AS ts,
-                AVG(value)                      AS value,
-                MIN(value)                      AS min_value,
-                MAX(value)                      AS max_value,
-                NULL::text                      AS text,
-                NULL::text                      AS reason
+                time_bucket(make_interval(secs => $1::int), ts)  AS ts,
+                avg(value)                                        AS value,
+                min(value)                                        AS min_value,
+                max(value)                                        AS max_value,
+                first(value, ts)                                  AS open_value,
+                last(value, ts)                                   AS close_value,
+                count(*)::bigint                                  AS sample_count,
+                NULL::text                                        AS text,
+                NULL::text                                        AS reason
             FROM history
             WHERE router_sn = $2
               AND equip_type = $3
@@ -124,21 +136,19 @@ async def _query_raw(
             GROUP BY 1
             ORDER BY 1
             """,
-            float(bucket_secs),
+            bucket_secs,
             router_sn, equip_type, panel_id, addr, start, end,
         )
 
 
 def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
-    """
-    Находит разрывы (потери данных) между последовательными точками.
+    """Находит разрывы (потери данных) между последовательными точками.
 
-    expected_interval = Q1 всех интервалов между точками (устойчив к выбросам).
+    expected_interval = Q1 всех интервалов (устойчив к выбросам).
     threshold = (min_gap_points + 1) × expected_interval.
 
-    Правило нулевого моста:
-      если value до разрыва ≈ 0 И value после ≈ 0 — не считается потерей данных
-      (оборудование не работало, точки приходили редко).
+    Zero-bridge rule: если value до и после разрыва ≈ 0 — не считается потерей
+    (оборудование не работало, данные приходили редко).
     """
     if len(points) < 2:
         return []
@@ -151,8 +161,7 @@ def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     if not diffs:
         return []
 
-    # Q1 — базовый интервал, устойчивый к большим разрывам в данных
-    expected = max(diffs[len(diffs) // 4], 1.0)
+    expected  = max(diffs[len(diffs) // 4], 1.0)
     threshold = (min_gap_points + 1) * expected
 
     gaps = []
@@ -160,7 +169,6 @@ def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
         diff = (points[i + 1]["ts"] - points[i]["ts"]).total_seconds()
         if diff <= threshold:
             continue
-
         v0 = points[i].get("value")
         v1 = points[i + 1].get("value")
         zero_bridge = (
@@ -184,55 +192,107 @@ async def fetch_history(
     limit: int = TARGET_POINTS,
     min_gap_points: int = 3,
 ) -> dict[str, Any]:
-    """
-    Автоматически выбирает источник данных:
-      1. Pre-aggregated таблица (history_1min / history_1hour) — если существует.
-      2. Fallback на raw history с on-the-fly SQL-агрегацией — если таблицы нет.
+    """Выбирает данные из нужного источника, определяет gap'ы.
 
     Возвращает:
-      points        — список точек {ts, value, min_value, max_value, text, reason}
-      first_data_at — первая запись в raw-таблице history (для серой зоны)
-      gaps          — разрывы данных (красные зоны) [{from_ts, to_ts}]
+      points        — [{ts, value, min_value, max_value,
+                        open_value, close_value, sample_count, text, reason}]
+      first_data_at — первая запись в источнике (граница «данных нет»)
+      gaps          — [{from_ts, to_ts}] красные зоны (потери данных)
     """
-    span = (end - start).total_seconds()
+    span  = (end - start).total_seconds()
     table = _choose_table(span)
 
     async with pool.acquire() as conn:
-        actual_table = table  # таблица, из которой реально читаем данные
         if table == "history":
             rows = await _query_raw(
                 conn, router_sn, equip_type, panel_id, addr, start, end, span, limit
             )
         else:
-            try:
-                rows = await _query_aggregated(
-                    conn, table, router_sn, equip_type, panel_id, addr, start, end, limit
-                )
-            except asyncpg.UndefinedTableError:
-                # Агрегатная таблица ещё не создана → fallback на raw history
-                actual_table = "history"
-                rows = await _query_raw(
-                    conn, router_sn, equip_type, panel_id, addr, start, end, span, limit
-                )
+            rows = await _query_aggregated(
+                conn, table, router_sn, equip_type, panel_id, addr, start, end, limit
+            )
 
-        # Первая запись в той же таблице, что используется для данных
-        # (граница серой зоны «данных нет»)
         first_data_at = await conn.fetchval(
-            f"""
-            SELECT MIN(ts) FROM {actual_table}
-            WHERE router_sn = $1
-              AND equip_type = $2
-              AND panel_id   = $3
-              AND addr       = $4
-            """,
+            f"SELECT MIN(ts) FROM {table} "
+            "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4",
             router_sn, equip_type, panel_id, addr,
         )
 
     points = [dict(r) for r in rows]
-    gaps = _compute_gaps(points, min_gap_points)
+    gaps   = _compute_gaps(points, min_gap_points)
 
     return {
-        "points": points,
+        "points":        points,
         "first_data_at": first_data_at,
-        "gaps": gaps,
+        "gaps":          gaps,
+    }
+
+
+async def fetch_state_events(
+    pool: asyncpg.Pool,
+    router_sn: str,
+    equip_type: str,
+    panel_id: int,
+    addr: int,
+    start: datetime,
+    end: datetime,
+    heartbeat_sec: int = 900,
+) -> dict[str, Any]:
+    """Журнал изменений состояния (discrete/enum регистры) с детекцией gap'ов.
+
+    Gap = интервал между записями > heartbeat_sec * 2.
+    Gap означает потенциально пропущенные события (аварийный останов и т.п.).
+
+    Возвращает:
+      events  — [{ts, raw, text, write_reason, gap_after, gap_duration_sec}]
+      gaps    — [{from_ts, to_ts}] красные зоны
+    """
+    gap_threshold = heartbeat_sec * 2
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                ts,
+                raw,
+                text,
+                write_reason,
+                lead(ts) OVER (ORDER BY ts)          AS next_ts,
+                EXTRACT(EPOCH FROM (
+                    lead(ts) OVER (ORDER BY ts) - ts
+                ))::float                             AS interval_sec
+            FROM state_events
+            WHERE router_sn  = $1
+              AND equip_type = $2
+              AND panel_id   = $3
+              AND addr       = $4
+              AND ts BETWEEN $5 AND $6
+            ORDER BY ts ASC
+            """,
+            router_sn, equip_type, panel_id, addr, start, end,
+        )
+
+    events = []
+    gaps   = []
+
+    for r in rows:
+        interval_sec = r["interval_sec"]
+        gap_after    = interval_sec is not None and interval_sec > gap_threshold
+
+        events.append({
+            "ts":               r["ts"],
+            "raw":              r["raw"],
+            "text":             r["text"],
+            "write_reason":     r["write_reason"],
+            "gap_after":        gap_after,
+            "gap_duration_sec": round(interval_sec) if gap_after else None,
+        })
+
+        if gap_after:
+            gaps.append({"from_ts": r["ts"], "to_ts": r["next_ts"]})
+
+    return {
+        "events": events,
+        "gaps":   gaps,
     }
