@@ -10,6 +10,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          maplibre: ["maplibre-gl"],
+          charts: ["lightweight-charts"],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

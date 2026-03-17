@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ShieldX } from "lucide-react";
@@ -6,11 +7,12 @@ import PageTransition from "@/components/layout/PageTransition";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { AuthContext, useAuthQuery } from "@/hooks/use-auth";
 import { useWebSocket } from "@/hooks/use-websocket";
-import StartPage from "@/pages/StartPage";
-import ObjectPage from "@/pages/ObjectPage";
-import EquipmentPage from "@/pages/EquipmentPage";
-import ShareLinksPage from "@/pages/ShareLinksPage";
-import SystemPage from "@/pages/SystemPage";
+
+const StartPage = lazy(() => import("@/pages/StartPage"));
+const ObjectPage = lazy(() => import("@/pages/ObjectPage"));
+const EquipmentPage = lazy(() => import("@/pages/EquipmentPage"));
+const ShareLinksPage = lazy(() => import("@/pages/ShareLinksPage"));
+const SystemPage = lazy(() => import("@/pages/SystemPage"));
 
 function AppContent() {
   const location = useLocation();
@@ -20,6 +22,7 @@ function AppContent() {
     <div className="min-h-screen bg-background text-foreground font-sans antialiased">
       <Header />
       <main className="container mx-auto px-4 py-6">
+        <Suspense fallback={<div className="min-h-[60vh]" />}>
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             <Route
@@ -64,6 +67,7 @@ function AppContent() {
             />
           </Routes>
         </AnimatePresence>
+        </Suspense>
       </main>
     </div>
   );
