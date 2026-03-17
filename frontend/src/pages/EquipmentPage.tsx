@@ -600,6 +600,9 @@ function HistoryTab({
   const chartRef = useRef<HistoryChartHandle>(null);
   const minGapPoints = useSettingsStore((s) => s.minGapPoints);
 
+  const equipKey = makeEquipKey(routerSn, equipType, panelId);
+  const liveRegs = useTelemetryStore((s) => s.registers.get(equipKey));
+
   const [selectedAddr, setSelectedAddr] = useState(40034);
   const [range, setRange]               = useState("24h");
 
@@ -774,6 +777,17 @@ function HistoryTab({
 
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
 
+  // Live-точка из WebSocket: мост между последней DB-точкой и текущим моментом
+  const livePoint = useMemo<ChartPoint | null>(() => {
+    const reg = liveRegs?.get(selectedAddr);
+    if (!reg || reg.value == null) return null;
+    if (reg.raw === 65535 || reg.raw === 32767) return null;
+    if (reg.reason?.toUpperCase().includes("NA")) return null;
+    const tsStr = reg.ts ?? reg.receivedAt;
+    const ts = new Date(tsStr.endsWith("Z") ? tsStr : tsStr + "Z").getTime();
+    return { ts, value: reg.value };
+  }, [liveRegs, selectedAddr]);
+
   return (
     <div className="space-y-4">
       {/* Панель управления */}
@@ -840,6 +854,7 @@ function HistoryTab({
           firstDataAt={firstDataAt}
           gaps={chartGaps}
           rawTimestamps={rawTimestamps}
+          livePoint={livePoint}
         />
       )}
     </div>

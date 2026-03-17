@@ -246,6 +246,9 @@ interface HistoryChartProps {
   gaps?: Array<{ fromMs: number; toMs: number }>;
   /** Timestamps реальных RAW-точек (epoch ms) — маркеры при глубоком зуме */
   rawTimestamps?: Set<number>;
+  /** Текущее live-значение из WebSocket: накладывается поверх DB-данных,
+   *  закрывает разрыв между последней DB-точкой и реальным моментом. */
+  livePoint?: ChartPoint | null;
 }
 
 const CHART_HEIGHT = 380;
@@ -258,7 +261,7 @@ const ZOOM_THRESHOLD   = 0.15;
 const EDGE_THRESHOLD   = 0.6;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
-  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps, rawTimestamps }, ref) {
+  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps, rawTimestamps, livePoint }, ref) {
     const tzOffsetHours   = useSettingsStore((s) => s.tzOffsetHours);
     const tzOffsetSec     = tzOffsetHours * 3600;
     const tzOffsetSecRef  = useRef(tzOffsetSec);
@@ -294,6 +297,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     rawTimestampsRef.current = rawTimestamps ?? new Set();
     const showMarkersRef     = useRef(false);
 
+    const livePointRef = useRef<ChartPoint | null>(null);
+    livePointRef.current = livePoint ?? null;
+
     /** Порог: при span < 30 мин показываем маркеры реальных точек */
     const MARKER_SPAN_THRESHOLD = 30 * 60 * 1_000;
 
@@ -316,6 +322,23 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         api.setMarkers(markers);
       } else {
         api.setMarkers([]);
+      }
+    }
+
+    /** Накладывает live-точку поверх DB-данных через series.update().
+     *  Не вызывает полный перерисов (setData) — только добавляет/обновляет
+     *  последний бар, не меняя вьюпорт. */
+    function applyLivePoint() {
+      const lp     = livePointRef.current;
+      const series = seriesRef.current;
+      if (!lp || !series) return;
+      // Добавляем только если live-точка новее последней DB-точки
+      const dr = dataRangeRef.current;
+      if (dr && lp.ts <= dr.max) return;
+      try {
+        series.update({ time: toChartTime(lp.ts, tzOffsetSecRef.current) as Time, value: lp.value });
+      } catch {
+        // lw-charts бросает исключение если время идёт назад — игнорируем
       }
     }
 
@@ -610,7 +633,16 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           suppressRef.current = false;
         }, FIT_SUPPRESS_MS);
       }
+
+      // После setData live-точка сброшена — восстанавливаем
+      applyLivePoint();
     }, [data, pendingRange]);
+
+    // ── Live-точка из WS: обновляем между тиками перезапроса ────────────────
+    useEffect(() => {
+      applyLivePoint();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [livePoint]);
 
     // ── Обновление фоновых зон ───────────────────────────────────────────────
     // Зависимость от data гарантирует, что dataRangeRef уже обновлён
