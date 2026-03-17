@@ -29,7 +29,7 @@ export default function DguCard({ equipment: eq }: Props) {
   const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
 
   // Тик каждые 5 сек для обновления относительного времени и свежести
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(timer);

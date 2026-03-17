@@ -610,7 +610,6 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     // При смене rawTimestamps обновляем маркеры (если они активны)
     useEffect(() => {
       if (showMarkersRef.current) updateMarkers();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rawTimestamps]);
 
     // При смене часового пояса перерисовываем зоны (tz учитывается в draw)

@@ -93,7 +93,7 @@ export default function SystemPage() {
     if (status?.log?.length) {
       setUpdateLog(status.log);
     }
-  }, [status?.log?.length]);
+  }, [status?.log]);
 
   // Detect "done" state → backend is about to restart via SIGTERM
   useEffect(() => {

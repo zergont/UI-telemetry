@@ -29,6 +29,7 @@ import {
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
 import { HistoryChart, type ChartPoint, type HistoryChartHandle } from "@/components/equipment/HistoryChart";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -47,9 +48,9 @@ export default function EquipmentPage() {
   const wsConnected = useTelemetryStore((s) => s.connected);
 
   // Тик каждые 5 сек для обновления относительного времени
-  const [, setTick] = useState(0);
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 5_000);
+    const timer = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -167,7 +168,7 @@ export default function EquipmentPage() {
               {routerSn}
             </p>
             <div className="flex items-center gap-3 mt-1">
-              {lastUpdate && Date.now() - lastUpdate < 30_000 ? (
+              {lastUpdate && now - lastUpdate < 30_000 ? (
                 <span className="flex items-center gap-1 text-xs text-green-500">
                   <Wifi className="h-3 w-3" />
                   на связи
@@ -222,11 +223,13 @@ export default function EquipmentPage() {
 
         <TabsContent value="history" className="mt-4">
           {activeTab === "history" && (
-            <HistoryTab
-              routerSn={routerSn!}
-              equipType={equipType!}
-              panelId={panelId!}
-            />
+            <ErrorBoundary>
+              <HistoryTab
+                routerSn={routerSn!}
+                equipType={equipType!}
+                panelId={panelId!}
+              />
+            </ErrorBoundary>
           )}
         </TabsContent>
       </Tabs>
@@ -297,6 +300,7 @@ function FlashCell({
   useEffect(() => {
     if (prevRef.current !== value) {
       prevRef.current = value;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFlash(true);
       const timer = setTimeout(() => setFlash(false), 1200);
       return () => clearTimeout(timer);
@@ -689,7 +693,7 @@ function HistoryTab({
       queryStart: new Date(nowMs - rangeMs * fetchMultiplier).toISOString(),
       queryEnd:   new Date(nowMs).toISOString(),
     };
-  }, [range, nowTick, zoomOverride]);
+  }, [range, nowTick, zoomOverride, fetchMultiplier]);
 
   // Запрашиваем столько точек, чтобы покрыть 4 экрана по ширине.
   // Минимум 2000 (по умолчанию backend), максимум 20000 (ограничение API).

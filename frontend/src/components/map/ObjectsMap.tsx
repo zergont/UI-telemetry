@@ -11,46 +11,13 @@ import type { ObjectOut } from "@/hooks/use-objects";
 import { useTheme } from "@/hooks/use-theme";
 import DguMarker from "./DguMarker";
 import { Skeleton } from "@/components/ui/skeleton";
-
-// ---------------------------------------------------------------------------
-// Провайдеры карт
-// ---------------------------------------------------------------------------
-
-export type MapProvider = "carto" | "maptiler" | "openfreemap";
-
-const MAPTILER_KEY = "7rleXA0jqiQBKMYrXAs3";
-
-const MAP_STYLES: Record<MapProvider, Record<string, string>> = {
-  carto: {
-    dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-    light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-  },
-  maptiler: {
-    dark: `https://api.maptiler.com/maps/streets-v2-dark/style.json?key=${MAPTILER_KEY}`,
-    light: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
-  },
-  openfreemap: {
-    dark: "https://tiles.openfreemap.org/styles/positron",
-    light: "https://tiles.openfreemap.org/styles/liberty",
-  },
-};
-
-export const MAP_PROVIDER_LABELS: Record<MapProvider, string> = {
-  carto: "CartoDB",
-  maptiler: "MapTiler",
-  openfreemap: "OpenFreeMap",
-};
-
-/** Получить сохранённый провайдер карт из localStorage */
-export function getMapProvider(): MapProvider {
-  if (typeof window === "undefined") return "maptiler";
-  return (localStorage.getItem("cg-map-provider") as MapProvider) || "maptiler";
-}
-
-/** Сохранить провайдер карт */
-export function setMapProvider(p: MapProvider) {
-  localStorage.setItem("cg-map-provider", p);
-}
+import {
+  type MapProvider,
+  MAP_STYLES,
+  MAP_PROVIDER_LABELS,
+  getMapProvider,
+  setMapProvider,
+} from "./map-provider";
 
 // ---------------------------------------------------------------------------
 // Компонент карты
@@ -191,6 +158,7 @@ export default function ObjectsMap({
       zoom: 10,
       duration: 800,
     });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPopup(obj);
   }, [focusedSn, geoObjects]);
 
@@ -208,6 +176,7 @@ export default function ObjectsMap({
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsDiving(true);
     setPopup(null);
 

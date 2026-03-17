@@ -53,12 +53,13 @@ export default function ObjectsTable({
     try {
       await deleteMut.mutateAsync(deleteTarget.router_sn);
       setDeleteTarget(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Попытаемся вытащить detail из ответа
-      const body = err?.body ?? err?.message ?? "Ошибка удаления";
+      const e = err as Record<string, unknown>;
+      const body = String(e?.body ?? e?.message ?? "Ошибка удаления");
       try {
-        const parsed = JSON.parse(body);
-        setDeleteError(parsed.detail ?? body);
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        setDeleteError(String(parsed.detail ?? body));
       } catch {
         setDeleteError(body);
       }
