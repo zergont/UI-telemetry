@@ -315,6 +315,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
     const livePointRef = useRef<ChartPoint | null>(null);
     livePointRef.current = livePoint ?? null;
+    /** Фиксированный timestamp для live-бара (epoch ms).
+     *  Устанавливается один раз после каждого setData(), все последующие
+     *  update() используют этот же time → lw-charts обновляет один бар,
+     *  а не добавляет новые. Сбрасывается при каждом setData(). */
+    const liveSlotTimeRef = useRef<number | null>(null);
 
     /** Порог: при span < 30 мин показываем маркеры реальных точек */
     const MARKER_SPAN_THRESHOLD = 30 * 60 * 1_000;
@@ -342,8 +347,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     }
 
     /** Накладывает live-точку поверх DB-данных через series.update().
-     *  Не вызывает полный перерисов (setData) — только добавляет/обновляет
-     *  последний бар, не меняя вьюпорт. */
+     *  Использует фиксированный timestamp (liveSlotTimeRef) — все WS тики
+     *  обновляют один и тот же бар, не накапливая лишних точек. */
     function applyLivePoint() {
       const lp     = livePointRef.current;
       const series = seriesRef.current;
@@ -351,10 +356,18 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       const dr = dataRangeRef.current;
       // Требуем, чтобы DB-данные уже были загружены: update() на пустой серии
       // роняет lw-charts с "Value is null" при следующем рендере.
-      // Также пропускаем если live-точка старее последней DB-точки.
-      if (!dr || !isFinite(lp.ts) || lp.ts < dr.max) return;
+      if (!dr || !isFinite(lp.ts)) return;
+      // Фиксируем слот: первый вызов после setData() запоминает timestamp,
+      // все последующие update() идут с тем же time → один бар.
+      if (liveSlotTimeRef.current === null) {
+        // dr.max + 1с — чтобы не затирать последний DB-бар
+        liveSlotTimeRef.current = dr.max + 1000;
+      }
       try {
-        series.update({ time: toChartTime(lp.ts, tzOffsetSecRef.current) as Time, value: lp.value });
+        series.update({
+          time:  toChartTime(liveSlotTimeRef.current, tzOffsetSecRef.current) as Time,
+          value: lp.value,
+        });
       } catch {
         // lw-charts бросает исключение если время идёт назад — игнорируем
       }
@@ -621,6 +634,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
       applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
       updateDataRange(data);
+      // setData() сбросил все бары — обнуляем слот, следующий applyLivePoint
+      // зафиксирует новый timestamp.
+      liveSlotTimeRef.current = null;
       // После setData маркеры сбрасываются — переприменяем если активны
       if (showMarkersRef.current) updateMarkers();
 
@@ -697,6 +713,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
       applyData(series, bHigh, bLow, latestDataRef.current, tzOffsetSec);
+      liveSlotTimeRef.current = null;
       if (showMarkersRef.current) updateMarkers();
       applyLivePoint();
 
