@@ -25,12 +25,12 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   DELAY: {
     label: "ЗАДЕРЖКА",
     className:
-      "bg-amber-500/15 text-amber-500 border-amber-500/20 hover:bg-amber-500/25",
+      "bg-violet-500/15 text-violet-500 border-violet-500/20 hover:bg-violet-500/25",
   },
   OFFLINE: {
     label: "НЕТ СВЯЗИ",
     className:
-      "bg-red-500/15 text-red-400 border-red-500/20 hover:bg-red-500/25",
+      "bg-slate-500/15 text-slate-400 border-slate-500/20 hover:bg-slate-500/25",
   },
 };
 

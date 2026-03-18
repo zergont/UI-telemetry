@@ -260,8 +260,8 @@ export default function ObjectsMap({
                     </div>
                     <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
                       isOnline
-                        ? "bg-green-500/15 text-green-400"
-                        : "bg-zinc-500/15 text-zinc-500"
+                        ? "bg-blue-500/15 text-blue-400"
+                        : "bg-slate-500/15 text-slate-400"
                     }`}>
                       {isOnline ? "онлайн" : "офлайн"}
                     </span>

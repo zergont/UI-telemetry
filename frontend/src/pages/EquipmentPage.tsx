@@ -169,12 +169,12 @@ export default function EquipmentPage() {
             </p>
             <div className="flex items-center gap-3 mt-1">
               {lastUpdate && now - lastUpdate < 30_000 ? (
-                <span className="flex items-center gap-1 text-xs text-green-500">
+                <span className="flex items-center gap-1 text-xs text-blue-500">
                   <Wifi className="h-3 w-3" />
                   на связи
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-xs text-red-400">
+                <span className="flex items-center gap-1 text-xs text-slate-400">
                   <WifiOff className="h-3 w-3" />
                   нет данных
                 </span>
@@ -401,9 +401,9 @@ function RegistersTab({
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {wsConnected ? (
-            <Wifi className="h-3.5 w-3.5 text-green-500" />
+            <Wifi className="h-3.5 w-3.5 text-blue-500" />
           ) : (
-            <WifiOff className="h-3.5 w-3.5 text-red-500" />
+            <WifiOff className="h-3.5 w-3.5 text-slate-400" />
           )}
           <span>
             {wsConnected ? "WS подключён" : "WS отключён"}

@@ -5,8 +5,8 @@ const STATUS_COLORS: Record<string, string> = {
   STOP: "#6b7280",
   ALARM: "#ef4444",
   ONLINE: "#3b82f6",
-  DELAY: "#f59e0b",
-  OFFLINE: "#ef4444",
+  DELAY: "#8b5cf6",
+  OFFLINE: "#64748b",
 };
 
 interface Props {
