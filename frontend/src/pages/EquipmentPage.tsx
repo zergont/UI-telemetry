@@ -546,13 +546,10 @@ function interpolateToGrid(
   return { interpolated: result, rawTimestamps };
 }
 
-/** Интервалы live-обновлений (подгрузка новых точек справа) */
-const LIVE_INTERVAL_MS: Record<string, number> = {
-  "1h":  15_000,
-  "24h": 2 * 60_000,
-  "7d":  2 * 60_000,
-  "30d": 2 * 60_000,
-};
+/** Интервал фоновой синхронизации с БД (без индикатора загрузки).
+ *  Живые данные приходят через WS → series.update(), REST нужен только
+ *  для «выравнивания» исторических данных каждые 5 минут. */
+const SILENT_SYNC_MS = 5 * 60_000;
 
 /**
  * Пороги для определения уровня детализации по видимому span.
@@ -626,23 +623,22 @@ function HistoryTab({
 
   zoomOverrideRef.current = zoomOverride;
 
-  // Live-тик: обновляет данные, только если нет zoom-override
-  const [nowTick, setNowTick] = useState(() => Date.now());
+  // Фоновая синхронизация: каждые 5 мин тихо обновляем DB-данные.
+  // Живые обновления идут через WS (livePoint → series.update()), REST
+  // нужен только для выравнивания исторических данных.
+  const [syncTick, setSyncTick] = useState(0);
   useEffect(() => {
-    if (zoomOverride) return;  // при ручном зуме — пауза live
-    const id = setInterval(
-      () => setNowTick(Date.now()),
-      LIVE_INTERVAL_MS[range] ?? LIVE_INTERVAL_MS["24h"],
-    );
+    if (zoomOverride) return;  // при ручном зуме — пауза sync
+    const id = setInterval(() => setSyncTick((k) => k + 1), SILENT_SYNC_MS);
     return () => clearInterval(id);
-  }, [range, zoomOverride]);
+  }, [zoomOverride]);
 
   // Смена диапазона кнопкой: показать только выбранный range, буфер — за кадром
   const handleRangeChange = useCallback((r: string) => {
     setRange(r);
     setZoomOverride(null);
     setAccumulatedData([]);
-    setNowTick(Date.now());
+    setSyncTick(0);
     setRangeKey((k) => k + 1);
   }, []);
 
@@ -690,13 +686,15 @@ function HistoryTab({
       };
     }
     // Стандартный range: загружаем fetchMultiplier × rangeMs влево
-    const nowMs = nowTick;
+    // syncTick в deps гарантирует пересчёт каждые 5 мин (фоновая синхронизация)
+    const nowMs = Date.now();
     const rangeMs = RANGE_MS[range] ?? RANGE_MS["24h"];
     return {
       queryStart: new Date(nowMs - rangeMs * fetchMultiplier).toISOString(),
       queryEnd:   new Date(nowMs).toISOString(),
     };
-  }, [range, nowTick, zoomOverride, fetchMultiplier]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, syncTick, zoomOverride, fetchMultiplier]);
 
   // Запрашиваем столько точек, чтобы покрыть 4 экрана по ширине.
   // Минимум 2000 (по умолчанию backend), максимум 20000 (ограничение API).
@@ -705,7 +703,7 @@ function HistoryTab({
     [],
   );
 
-  const { data: historyResp, isLoading, isFetching } = useHistory(
+  const { data: historyResp, isLoading } = useHistory(
     routerSn, equipType, panelId, selectedAddr, queryStart, queryEnd, targetPoints, true, minGapPoints,
   );
 
@@ -825,9 +823,7 @@ function HistoryTab({
           <span className={`h-2 w-2 rounded-full ${
             zoomOverride
               ? "bg-gray-400"                              // пауза live
-              : isFetching
-                ? "bg-amber-400"                           // загрузка
-                : "bg-emerald-500 animate-pulse"           // live
+              : "bg-emerald-500 animate-pulse"             // live (WS)
           }`} />
           {zoomOverride ? "Zoom" : "Live"}
         </span>
@@ -848,7 +844,7 @@ function HistoryTab({
           data={chartData}
           label={selectedReg?.label}
           color={selectedReg?.color ?? "#22c55e"}
-          isLoading={isFetching}
+          isLoading={isLoading}
           onNeedData={handleNeedData}
           pendingRange={zoomOverride ? null : pendingRange}
           firstDataAt={firstDataAt}
