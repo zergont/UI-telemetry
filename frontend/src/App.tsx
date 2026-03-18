@@ -69,6 +69,9 @@ function AppContent() {
         </AnimatePresence>
         </Suspense>
       </main>
+      <span className="fixed bottom-1.5 right-2.5 text-[10px] text-muted-foreground/30 select-none pointer-events-none">
+        v{__APP_VERSION__}
+      </span>
     </div>
   );
 }

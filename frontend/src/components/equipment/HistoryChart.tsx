@@ -45,7 +45,22 @@ function fromChartTime(chartSec: number, tzOffsetSec: number): number {
   return (chartSec - tzOffsetSec) * 1000;
 }
 
-// ── Фоновые зоны (Custom Primitive) ──────────────────────────────────────────
+/** #hex → rgba с заданной прозрачностью. Поддерживает #rgb, #rrggbb, #rrggbbaa. */
+function withAlpha(hex: string, alpha: number): string {
+  let r = 0, g = 0, b = 0;
+  if (hex.length === 4) {
+    r = parseInt(hex[1] + hex[1], 16);
+    g = parseInt(hex[2] + hex[2], 16);
+    b = parseInt(hex[3] + hex[3], 16);
+  } else if (hex.length >= 7) {
+    r = parseInt(hex.slice(1, 3), 16);
+    g = parseInt(hex.slice(3, 5), 16);
+    b = parseInt(hex.slice(5, 7), 16);
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ── Фоновые зоны (Custom Primitive)
 // Рисуем прямо на canvas через lightweight-charts v5 ISeriesPrimitive.
 // Зоны — статические прямоугольники на всю высоту панели:
 //   серый  — до первой записи в БД (нет исторических данных)
@@ -266,6 +281,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const tzOffsetSec     = tzOffsetHours * 3600;
     const tzOffsetSecRef  = useRef(tzOffsetSec);
     tzOffsetSecRef.current = tzOffsetSec;
+    const prevTzRef       = useRef(tzOffsetSec);
 
     const containerRef    = useRef<HTMLDivElement>(null);
     const chartRef        = useRef<IChartApi | null>(null);
@@ -335,8 +351,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       const dr = dataRangeRef.current;
       // Требуем, чтобы DB-данные уже были загружены: update() на пустой серии
       // роняет lw-charts с "Value is null" при следующем рендере.
-      // Также пропускаем если live-точка не новее последней DB-точки.
-      if (!dr || !isFinite(lp.ts) || lp.ts <= dr.max) return;
+      // Также пропускаем если live-точка старее последней DB-точки.
+      if (!dr || !isFinite(lp.ts) || lp.ts < dr.max) return;
       try {
         series.update({ time: toChartTime(lp.ts, tzOffsetSecRef.current) as Time, value: lp.value });
       } catch {
@@ -411,8 +427,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       const c = latestColorRef.current;
       const series = chart.addSeries(AreaSeries, {
         lineColor:   c,
-        topColor:    c + "33",
-        bottomColor: c + "00",
+        topColor:    withAlpha(c, 0.2),
+        bottomColor: withAlpha(c, 0),
         lineWidth: 1,
         priceFormat: { type: "price", precision: 1, minMove: 0.1 },
         autoscaleInfoProvider: (original: () => AutoscaleInfo | null): AutoscaleInfo | null => {
@@ -426,11 +442,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       });
 
       const bandHigh = chart.addSeries(LineSeries, {
-        color: c + "55", lineWidth: 1, lineStyle: 2,
+        color: withAlpha(c, 0.33), lineWidth: 1, lineStyle: 2,
         lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       });
       const bandLow = chart.addSeries(LineSeries, {
-        color: c + "55", lineWidth: 1, lineStyle: 2,
+        color: withAlpha(c, 0.33), lineWidth: 1, lineStyle: 2,
         lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       });
 
@@ -585,7 +601,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
     // ── Обновление данных ────────────────────────────────────────────────────
     useEffect(() => {
-      if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
+      const chart = chartRef.current;
+      if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current || !chart) return;
 
       if (!data.length) {
         seriesRef.current.setData([]);
@@ -599,7 +616,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       // взаимодействовал. При глубоком зуме setData меняет logical→time маппинг,
       // и без явного setVisibleRange chart "улетает" в сторону.
       const savedRange = userTouchedRef.current
-        ? chartRef.current?.timeScale().getVisibleRange() ?? null
+        ? chart.timeScale().getVisibleRange() ?? null
         : null;
 
       applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
@@ -617,9 +634,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         if (debounceRef.current) clearTimeout(debounceRef.current);
         const fromSec = toChartTime(pendingRange.from, tzOffsetSecRef.current);
         const toSec   = toChartTime(pendingRange.to,   tzOffsetSecRef.current);
-        const spanH   = (toSec - fromSec) / 3600;
-        console.log(`[HistoryChart] setVisibleRange: ${new Date(pendingRange.from).toISOString()} → ${new Date(pendingRange.to).toISOString()} (${spanH.toFixed(1)}ч)`);
-        chartRef.current!.timeScale().setVisibleRange({
+        chart.timeScale().setVisibleRange({
           from: fromSec as Time,
           to:   toSec   as Time,
         });
@@ -630,7 +645,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         // Подгрузка по zoom/pan — восстанавливаем позицию, которую видел пользователь
         suppressRef.current = true;
         if (debounceRef.current) clearTimeout(debounceRef.current);
-        chartRef.current!.timeScale().setVisibleRange(savedRange);
+        chart.timeScale().setVisibleRange(savedRange);
         debounceRef.current = setTimeout(() => {
           suppressRef.current = false;
         }, FIT_SUPPRESS_MS);
@@ -662,9 +677,43 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       if (showMarkersRef.current) updateMarkers();
     }, [rawTimestamps]);
 
-    // При смене часового пояса перерисовываем зоны (tz учитывается в draw)
+    // При смене часового пояса перерисовываем данные и зоны
     useEffect(() => {
+      const oldTz = prevTzRef.current;
+      prevTzRef.current = tzOffsetSec;
+      if (oldTz === tzOffsetSec) return;
+
       zonePrimitiveRef.current?.forceRedraw();
+
+      const series = seriesRef.current;
+      const bHigh  = bandHighRef.current;
+      const bLow   = bandLowRef.current;
+      const ch     = chartRef.current;
+      if (!series || !bHigh || !bLow || !ch || !latestDataRef.current.length) return;
+
+      const vr = ch.timeScale().getVisibleRange();
+
+      suppressRef.current = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+
+      applyData(series, bHigh, bLow, latestDataRef.current, tzOffsetSec);
+      if (showMarkersRef.current) updateMarkers();
+      applyLivePoint();
+
+      // Восстанавливаем viewport: old-TZ chart coords → UTC ms → new-TZ chart coords
+      if (vr) {
+        const fromMs = fromChartTime(vr.from as number, oldTz);
+        const toMs   = fromChartTime(vr.to   as number, oldTz);
+        ch.timeScale().setVisibleRange({
+          from: toChartTime(fromMs, tzOffsetSec) as Time,
+          to:   toChartTime(toMs,   tzOffsetSec) as Time,
+        });
+      }
+
+      debounceRef.current = setTimeout(() => {
+        suppressRef.current = false;
+      }, FIT_SUPPRESS_MS);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tzOffsetSec]);
 
     // ── Обновляем цвет ──────────────────────────────────────────────────────
@@ -672,11 +721,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       if (!seriesRef.current || !bandHighRef.current || !bandLowRef.current) return;
       seriesRef.current.applyOptions({
         lineColor:   color,
-        topColor:    color + "33",
-        bottomColor: color + "00",
+        topColor:    withAlpha(color, 0.2),
+        bottomColor: withAlpha(color, 0),
       });
-      bandHighRef.current.applyOptions({ color: color + "55" });
-      bandLowRef.current.applyOptions({ color: color + "55" });
+      bandHighRef.current.applyOptions({ color: withAlpha(color, 0.33) });
+      bandLowRef.current.applyOptions({ color: withAlpha(color, 0.33) });
     }, [color]);
 
     // ── Обновить границы загруженных данных ──────────────────────────────────
