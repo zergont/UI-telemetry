@@ -1,13 +1,5 @@
 import { motion } from "framer-motion";
-
-const STATUS_COLORS: Record<string, string> = {
-  RUN: "#22c55e",
-  STOP: "#6b7280",
-  ALARM: "#ef4444",
-  ONLINE: "#3b82f6",
-  DELAY: "#8b5cf6",
-  OFFLINE: "#64748b",
-};
+import { getStatusMeta } from "@/lib/status";
 
 interface Props {
   status: string;
@@ -15,7 +7,8 @@ interface Props {
 }
 
 export default function DguMarker({ status, onClick }: Props) {
-  const color = STATUS_COLORS[status] || STATUS_COLORS.OFFLINE;
+  const meta = getStatusMeta(status);
+  const color = meta.markerColor;
 
   return (
     <motion.div
@@ -25,7 +18,7 @@ export default function DguMarker({ status, onClick }: Props) {
       style={{ width: 32, height: 32 }}
     >
       <svg width="32" height="32" viewBox="0 0 32 32">
-        {(status === "RUN" || status === "ALARM" || status === "ONLINE") && (
+        {meta.markerPulse && (
           <circle cx="16" cy="16" r="14" fill={color} opacity="0.2">
             <animate
               attributeName="r"

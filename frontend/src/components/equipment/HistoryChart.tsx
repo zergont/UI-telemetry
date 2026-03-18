@@ -29,6 +29,7 @@ import type {
   SeriesMarker,
 } from "lightweight-charts";
 import { useSettingsStore } from "@/stores/settings-store";
+import type { ChartPoint } from "@/components/equipment/history/types";
 
 // ── Часовой пояс ──────────────────────────────────────────────────────────────
 // lightweight-charts позиционирует точки по UTC.
@@ -227,13 +228,6 @@ function buildZones(
 
 // ── Типы ─────────────────────────────────────────────────────────────────────
 
-export interface ChartPoint {
-  ts: number;       // epoch ms
-  value: number;
-  min_value?: number | null;
-  max_value?: number | null;
-}
-
 export interface HistoryChartHandle {
   /** Сбросить ручной зум/пан и вписать все данные */
   fitContent(): void;
@@ -274,13 +268,14 @@ const ZOOM_THRESHOLD   = 0.15;
 /** Доля видимой области за краем данных, при которой запрашиваем подгрузку.
  *  0.6 = тригер за 60% до края → данные грузятся заранее, нет пустых зон. */
 const EDGE_THRESHOLD   = 0.6;
+/** Порог: при span < 30 мин показываем маркеры реальных точек */
+const MARKER_SPAN_THRESHOLD = 30 * 60 * 1_000;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
   function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps, rawTimestamps, livePoint }, ref) {
     const tzOffsetHours   = useSettingsStore((s) => s.tzOffsetHours);
     const tzOffsetSec     = tzOffsetHours * 3600;
     const tzOffsetSecRef  = useRef(tzOffsetSec);
-    tzOffsetSecRef.current = tzOffsetSec;
     const prevTzRef       = useRef(tzOffsetSec);
 
     const containerRef    = useRef<HTMLDivElement>(null);
@@ -288,6 +283,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const seriesRef       = useRef<ISeriesApi<"Area"> | null>(null);
     const bandHighRef     = useRef<ISeriesApi<"Line"> | null>(null);
     const bandLowRef      = useRef<ISeriesApi<"Line"> | null>(null);
+    const liveSeriesRef   = useRef<ISeriesApi<"Line"> | null>(null);
     const debounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
     const suppressRef     = useRef(false);
     /** true = пользователь двигал/зумил; setData НЕ вызывает fitContent */
@@ -296,6 +292,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const prevSpanRef     = useRef<number | null>(null);
     /** Границы загруженных данных (epoch ms) */
     const dataRangeRef    = useRef<{ min: number; max: number } | null>(null);
+    /** Последняя подтверждённая точка из БД */
+    const lastBasePointRef = useRef<ChartPoint | null>(null);
     /** Последний применённый pendingRange.key — чтобы не применять повторно */
     const lastAppliedRangeKeyRef = useRef(-1);
 
@@ -304,25 +302,12 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
-    latestDataRef.current  = data;
-    latestColorRef.current = color;
     const onNeedDataRef = useRef(onNeedData);
-    onNeedDataRef.current = onNeedData;
 
     const rawTimestampsRef   = useRef<Set<number>>(new Set());
-    rawTimestampsRef.current = rawTimestamps ?? new Set();
     const showMarkersRef     = useRef(false);
 
     const livePointRef = useRef<ChartPoint | null>(null);
-    livePointRef.current = livePoint ?? null;
-    /** Фиксированный timestamp для live-бара (epoch ms).
-     *  Устанавливается один раз после каждого setData(), все последующие
-     *  update() используют этот же time → lw-charts обновляет один бар,
-     *  а не добавляет новые. Сбрасывается при каждом setData(). */
-    const liveSlotTimeRef = useRef<number | null>(null);
-
-    /** Порог: при span < 30 мин показываем маркеры реальных точек */
-    const MARKER_SPAN_THRESHOLD = 30 * 60 * 1_000;
 
     /** Обновляет маркеры серии (читает только рефы → вызывается из любого эффекта) */
     function updateMarkers() {
@@ -346,32 +331,78 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       }
     }
 
-    /** Накладывает live-точку поверх DB-данных через series.update().
-     *  Использует фиксированный timestamp (liveSlotTimeRef) — все WS тики
-     *  обновляют один и тот же бар, не накапливая лишних точек. */
-    function applyLivePoint() {
-      const lp     = livePointRef.current;
-      const series = seriesRef.current;
-      if (!lp || !series) return;
-      const dr = dataRangeRef.current;
-      // Требуем, чтобы DB-данные уже были загружены: update() на пустой серии
-      // роняет lw-charts с "Value is null" при следующем рендере.
-      if (!dr || !isFinite(lp.ts)) return;
-      // Фиксируем слот: первый вызов после setData() запоминает timestamp,
-      // все последующие update() идут с тем же time → один бар.
-      if (liveSlotTimeRef.current === null) {
-        // dr.max + 1с — чтобы не затирать последний DB-бар
-        liveSlotTimeRef.current = dr.max + 1000;
+    /** Рисует online-хвост отдельной серией, не мутируя исторические DB-данные. */
+    function applyLiveOverlay() {
+      const lp = livePointRef.current;
+      const liveSeries = liveSeriesRef.current;
+      const lastBasePoint = lastBasePointRef.current;
+      if (!liveSeries) return;
+      if (!lp || !lastBasePoint || !isFinite(lp.ts) || lp.ts <= lastBasePoint.ts) {
+        liveSeries.setData([]);
+        return;
       }
-      try {
-        series.update({
-          time:  toChartTime(liveSlotTimeRef.current, tzOffsetSecRef.current) as Time,
+
+      liveSeries.setData([
+        {
+          time: toChartTime(lastBasePoint.ts, tzOffsetSecRef.current) as Time,
+          value: lastBasePoint.value,
+        },
+        {
+          time: toChartTime(lp.ts, tzOffsetSecRef.current) as Time,
           value: lp.value,
-        });
-      } catch {
-        // lw-charts бросает исключение если время идёт назад — игнорируем
-      }
+        },
+      ]);
     }
+
+    function updateDataRange(pts: ChartPoint[]) {
+      if (!pts.length) {
+        dataRangeRef.current = null;
+        return;
+      }
+      let min = pts[0].ts;
+      let max = pts[0].ts;
+      for (const point of pts) {
+        if (point.ts < min) min = point.ts;
+        if (point.ts > max) max = point.ts;
+      }
+      dataRangeRef.current = { min, max };
+    }
+
+    function updateLastBasePoint(pts: ChartPoint[]) {
+      if (!pts.length) {
+        lastBasePointRef.current = null;
+        return;
+      }
+      let last = pts[0];
+      for (const point of pts) {
+        if (point.ts > last.ts) last = point;
+      }
+      lastBasePointRef.current = last;
+    }
+
+    useEffect(() => {
+      tzOffsetSecRef.current = tzOffsetSec;
+    }, [tzOffsetSec]);
+
+    useEffect(() => {
+      latestDataRef.current = data;
+    }, [data]);
+
+    useEffect(() => {
+      latestColorRef.current = color;
+    }, [color]);
+
+    useEffect(() => {
+      onNeedDataRef.current = onNeedData;
+    }, [onNeedData]);
+
+    useEffect(() => {
+      rawTimestampsRef.current = rawTimestamps ?? new Set();
+    }, [rawTimestamps]);
+
+    useEffect(() => {
+      livePointRef.current = livePoint ?? null;
+    }, [livePoint]);
 
     // ── Императивный хэндл ───────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -462,6 +493,13 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         color: withAlpha(c, 0.33), lineWidth: 1, lineStyle: 2,
         lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       });
+      const liveSeries = chart.addSeries(LineSeries, {
+        color: c,
+        lineWidth: 2,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        pointMarkersVisible: true,
+      });
 
       // Примитив фоновых зон — аттачим к основной серии
       const zones = new ZonesPrimitive(tzOffsetSecRef);
@@ -475,12 +513,15 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       seriesRef.current   = series;
       bandHighRef.current = bandHigh;
       bandLowRef.current  = bandLow;
+      liveSeriesRef.current = liveSeries;
 
       // Начальные данные (видимый диапазон устанавливается родителем через setVisibleRange)
       const initialData = latestDataRef.current;
       if (initialData.length) {
         applyData(series, bandHigh, bandLow, initialData, tzOffsetSecRef.current);
         updateDataRange(initialData);
+        updateLastBasePoint(initialData);
+        applyLiveOverlay();
       }
 
       // ── Подписка на viewport change ───────────────────────────────────
@@ -606,10 +647,10 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         seriesRef.current        = null;
         bandHighRef.current      = null;
         bandLowRef.current       = null;
+        liveSeriesRef.current    = null;
         zonePrimitiveRef.current = null;
         markersApiRef.current    = null;
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── Обновление данных ────────────────────────────────────────────────────
@@ -621,7 +662,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         seriesRef.current.setData([]);
         bandHighRef.current.setData([]);
         bandLowRef.current.setData([]);
+        liveSeriesRef.current?.setData([]);
         dataRangeRef.current = null;
+        lastBasePointRef.current = null;
         return;
       }
 
@@ -634,9 +677,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
       applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
       updateDataRange(data);
-      // setData() сбросил все бары — обнуляем слот, следующий applyLivePoint
-      // зафиксирует новый timestamp.
-      liveSlotTimeRef.current = null;
+      updateLastBasePoint(data);
       // После setData маркеры сбрасываются — переприменяем если активны
       if (showMarkersRef.current) updateMarkers();
 
@@ -667,14 +708,12 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         }, FIT_SUPPRESS_MS);
       }
 
-      // После setData live-точка сброшена — восстанавливаем
-      applyLivePoint();
+      applyLiveOverlay();
     }, [data, pendingRange]);
 
     // ── Live-точка из WS: обновляем между тиками перезапроса ────────────────
     useEffect(() => {
-      applyLivePoint();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      applyLiveOverlay();
     }, [livePoint]);
 
     // ── Обновление фоновых зон ───────────────────────────────────────────────
@@ -713,9 +752,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
       applyData(series, bHigh, bLow, latestDataRef.current, tzOffsetSec);
-      liveSlotTimeRef.current = null;
+      updateLastBasePoint(latestDataRef.current);
       if (showMarkersRef.current) updateMarkers();
-      applyLivePoint();
+      applyLiveOverlay();
 
       // Восстанавливаем viewport: old-TZ chart coords → UTC ms → new-TZ chart coords
       if (vr) {
@@ -730,7 +769,6 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       debounceRef.current = setTimeout(() => {
         suppressRef.current = false;
       }, FIT_SUPPRESS_MS);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tzOffsetSec]);
 
     // ── Обновляем цвет ──────────────────────────────────────────────────────
@@ -743,18 +781,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       });
       bandHighRef.current.applyOptions({ color: withAlpha(color, 0.33) });
       bandLowRef.current.applyOptions({ color: withAlpha(color, 0.33) });
+      liveSeriesRef.current?.applyOptions({ color });
     }, [color]);
-
-    // ── Обновить границы загруженных данных ──────────────────────────────────
-    function updateDataRange(pts: ChartPoint[]) {
-      if (!pts.length) { dataRangeRef.current = null; return; }
-      let min = pts[0].ts, max = pts[0].ts;
-      for (const p of pts) {
-        if (p.ts < min) min = p.ts;
-        if (p.ts > max) max = p.ts;
-      }
-      dataRangeRef.current = { min, max };
-    }
 
     return (
       <div className="relative rounded-xl overflow-hidden border border-border">

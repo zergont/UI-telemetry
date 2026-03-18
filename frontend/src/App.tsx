@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, useLocation } from "react-router-dom";
+import { matchPath, Route, Routes, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ShieldX } from "lucide-react";
 import Header from "@/components/layout/Header";
@@ -16,7 +16,14 @@ const SystemPage = lazy(() => import("@/pages/SystemPage"));
 
 function AppContent() {
   const location = useLocation();
-  useWebSocket();
+  const objectMatch = matchPath("/objects/:routerSn", location.pathname);
+  const equipmentMatch = matchPath(
+    "/objects/:routerSn/equipment/:equipType/:panelId",
+    location.pathname,
+  );
+  const subscribe = equipmentMatch?.params.routerSn ?? objectMatch?.params.routerSn;
+
+  useWebSocket(subscribe);
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans antialiased">

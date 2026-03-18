@@ -7,6 +7,7 @@ import Map, {
 } from "react-map-gl/maplibre";
 import type { MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+import "./objects-map.css";
 import type { ObjectOut } from "@/hooks/use-objects";
 import { useTheme } from "@/hooks/use-theme";
 import DguMarker from "./DguMarker";
@@ -14,10 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   type MapProvider,
   MAP_STYLES,
-  MAP_PROVIDER_LABELS,
   getMapProvider,
   setMapProvider,
 } from "./map-provider";
+import ObjectsMapPopup from "./ObjectsMapPopup";
+import MapProviderSwitcher from "./MapProviderSwitcher";
+import DiveOverlay from "./DiveOverlay";
 
 // ---------------------------------------------------------------------------
 // Компонент карты
@@ -47,6 +50,19 @@ export default function ObjectsMap({
   const fittedRef = useRef(false);
   const mapLoadedRef = useRef(false);
   const [provider, setProvider] = useState<MapProvider>(getMapProvider);
+  const [isDiving, setIsDiving] = useState(false);
+
+  const closePopup = useCallback(() => {
+    setPopup(null);
+    onFocusChange?.(null);
+  }, [onFocusChange]);
+
+  const navigateToObject = useCallback(
+    (routerSn: string) => {
+      navigate(`/objects/${routerSn}`);
+    },
+    [navigate],
+  );
 
   const handleMarkerClick = useCallback(
     (obj: ObjectOut) => {
@@ -158,13 +174,11 @@ export default function ObjectsMap({
       zoom: 10,
       duration: 800,
     });
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPopup(obj);
+    const frame = requestAnimationFrame(() => setPopup(obj));
+    return () => cancelAnimationFrame(frame);
   }, [focusedSn, geoObjects]);
 
   // "Ныряние" в объект — zoom до максимума, потом навигация
-  const [isDiving, setIsDiving] = useState(false);
-
   useEffect(() => {
     if (!divingSn || !mapLoadedRef.current) return;
     const map = mapRef.current;
@@ -172,13 +186,14 @@ export default function ObjectsMap({
 
     const obj = geoObjects.find((o) => o.router_sn === divingSn);
     if (!obj || obj.lat == null || obj.lon == null) {
-      navigate(`/objects/${divingSn}`);
+      navigateToObject(divingSn);
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsDiving(true);
-    setPopup(null);
+    const frame = requestAnimationFrame(() => {
+      setIsDiving(true);
+      setPopup(null);
+    });
 
     // Закрываем popup и летим с максимальным зумом
     const DIVE_MS = 800;
@@ -194,13 +209,14 @@ export default function ObjectsMap({
     });
 
     const timer = setTimeout(() => {
-      navigate(`/objects/${divingSn}`);
+      navigateToObject(divingSn);
     }, NAV_AT);
 
     return () => {
+      cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
-  }, [divingSn, geoObjects, navigate]);
+  }, [divingSn, geoObjects, navigateToObject]);
 
   if (isLoading) {
     return <Skeleton className="h-full w-full rounded-xl" />;
@@ -226,166 +242,26 @@ export default function ObjectsMap({
           <Popup
             longitude={popup.lon}
             latitude={popup.lat}
-            onClose={() => { setPopup(null); onFocusChange?.(null); }}
+            onClose={closePopup}
             closeButton={false}
             closeOnClick={false}
             anchor="bottom"
             offset={20}
             className="cg-popup"
           >
-            {(() => {
-              const loadPct =
-                popup.total_installed_power_kw != null &&
-                popup.total_installed_power_kw > 0 &&
-                popup.total_load_kw != null
-                  ? Math.round((popup.total_load_kw / popup.total_installed_power_kw) * 100)
-                  : null;
-              const isOnline = popup.status === "ONLINE";
-              return (
-                <div
-                  className="cursor-pointer select-none"
-                  onClick={() => onDive ? onDive(popup.router_sn) : navigate(`/objects/${popup.router_sn}`)}
-                >
-                  {/* Header */}
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-sm leading-tight truncate">
-                        {popup.name || popup.router_sn}
-                      </p>
-                      {popup.name && (
-                        <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
-                          {popup.router_sn}
-                        </p>
-                      )}
-                    </div>
-                    <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                      isOnline
-                        ? "bg-blue-500/15 text-blue-400"
-                        : "bg-slate-500/15 text-slate-400"
-                    }`}>
-                      {isOnline ? "онлайн" : "офлайн"}
-                    </span>
-                    <button
-                      className="shrink-0 mt-0.5 text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={(e) => { e.stopPropagation(); setPopup(null); onFocusChange?.(null); }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                        <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Power stats — показываем вместе с разделителем только если есть данные */}
-                  {popup.total_installed_power_kw != null ? (
-                  <><div className="h-px bg-border mb-2" />
-                    <div className="mb-2">
-                      {/* Строка: лейбл слева, процент справа */}
-                      <div className="flex justify-between items-baseline mb-1">
-                        <span className="text-[11px] text-muted-foreground">Нагрузка</span>
-                        {loadPct != null && (
-                          <span className={`text-[11px] font-semibold tabular-nums ${
-                            loadPct > 85 ? "text-red-400" :
-                            loadPct > 65 ? "text-amber-400" :
-                            "text-foreground"
-                          }`}>{loadPct}%</span>
-                        )}
-                      </div>
-                      {/* Прогресс-бар */}
-                      {loadPct != null && (
-                        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden mb-1.5">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              loadPct > 85 ? "bg-red-500" :
-                              loadPct > 65 ? "bg-amber-400" :
-                              "bg-blue-500"
-                            }`}
-                            style={{ width: `${Math.min(loadPct, 100)}%` }}
-                          />
-                        </div>
-                      )}
-                      {/* Значения кВт под баром */}
-                      <div className="text-right tabular-nums">
-                        <span className="text-[11px] font-medium">
-                          {popup.total_load_kw != null ? popup.total_load_kw.toFixed(0) : "—"}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {" / "}{Math.round(popup.total_installed_power_kw)} кВт
-                        </span>
-                      </div>
-                    </div>
-                  </>) : null}
-
-                  {/* Footer */}
-                  <div className="flex justify-between items-center mt-2">
-                    <span className="text-[11px] text-muted-foreground">
-                      {popup.equipment_count} {popup.equipment_count === 1 ? "установка" : "установки"}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                      Открыть
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 5h6M5 2l3 3-3 3"/>
-                      </svg>
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
+            <ObjectsMapPopup
+              object={popup}
+              onDive={onDive}
+              onNavigate={navigateToObject}
+              onClose={closePopup}
+            />
           </Popup>
         )}
       </Map>
 
-      {/* Эффект "ныряния" — затемнение с "туннельным" сужением */}
-      {isDiving && (
-        <div
-          className="absolute inset-0 z-10 pointer-events-none"
-          style={{
-            background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.95) 70%)",
-            animation: "dive-fade 0.8s ease-in forwards",
-          }}
-        />
-      )}
-      <style>{`
-        @keyframes dive-fade {
-          0%   { opacity: 0; }
-          5%   { opacity: 0.5; }
-          20%  { opacity: 0.85; }
-          45%  { opacity: 1; }
-          100% { opacity: 1; }
-        }
-        .cg-popup .maplibregl-popup-content {
-          background: var(--background) !important;
-          color: var(--foreground) !important;
-          border: 1px solid var(--border) !important;
-          border-radius: 10px !important;
-          padding: 12px 14px !important;
-          width: 240px !important;
-          box-sizing: content-box !important;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.25) !important;
-          font-family: inherit !important;
-          overflow: hidden !important;
-        }
-        .cg-popup .maplibregl-popup-tip {
-          border-top-color: var(--background) !important;
-          filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));
-        }
-      `}</style>
+      {isDiving && <DiveOverlay />}
 
-      {/* Переключатель провайдера карт */}
-      <div className="absolute bottom-2 left-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded-md border p-1 text-[10px]">
-        {(Object.keys(MAP_STYLES) as MapProvider[]).map((p) => (
-          <button
-            key={p}
-            onClick={() => handleProviderChange(p)}
-            className={`px-2 py-0.5 rounded transition-colors ${
-              provider === p
-                ? "bg-primary text-primary-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {MAP_PROVIDER_LABELS[p]}
-          </button>
-        ))}
-      </div>
+      <MapProviderSwitcher provider={provider} onChange={handleProviderChange} />
     </div>
   );
 }
