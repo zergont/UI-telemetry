@@ -294,6 +294,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
     const zonePrimitiveRef  = useRef<ZonesPrimitive | null>(null);
     const markersApiRef     = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+    const lastInteractionRef = useRef<"zoom" | "pan" | null>(null);
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
@@ -432,6 +433,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     useEffect(() => {
       if (!containerRef.current) return;
 
+      const container = containerRef.current;
       const chart = createChart(containerRef.current, {
         height: CHART_HEIGHT,
         layout: {
@@ -590,10 +592,11 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           return;
         }
 
-        const interaction =
+        const inferredInteraction =
           prev !== null && prev > 0 && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD
             ? "zoom"
             : "pan";
+        const interaction = lastInteractionRef.current ?? inferredInteraction;
 
         prevSpanRef.current = logicalSpan;
 
@@ -617,10 +620,20 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
               interaction,
               hasFutureZone: dr ? toMs >= dr.max : false,
             });
+            lastInteractionRef.current = null;
           }, DEBOUNCE_MS);
         }
       };
 
+      const handleWheel = () => {
+        lastInteractionRef.current = "zoom";
+      };
+      const handlePointerDown = () => {
+        lastInteractionRef.current = "pan";
+      };
+
+      container.addEventListener("wheel", handleWheel, { passive: true });
+      container.addEventListener("pointerdown", handlePointerDown, { passive: true });
       timeScale.subscribeVisibleTimeRangeChange(handler);
 
       const ro = new ResizeObserver(() => {
@@ -631,6 +644,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       ro.observe(containerRef.current);
 
       return () => {
+        container.removeEventListener("wheel", handleWheel);
+        container.removeEventListener("pointerdown", handlePointerDown);
         timeScale.unsubscribeVisibleTimeRangeChange(handler);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         ro.disconnect();

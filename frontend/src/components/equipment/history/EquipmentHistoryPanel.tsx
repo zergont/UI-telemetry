@@ -64,6 +64,7 @@ export default function EquipmentHistoryPanel({
   const [nowMs, setNowMs] = useState(initialNowMs);
   const [cameraMode, setCameraMode] = useState<CameraMode>("live");
   const [viewport, setViewport] = useState<ViewportRange>(initialViewport);
+  const [fetchViewport, setFetchViewport] = useState<ViewportRange>(initialViewport);
   const [pendingRange, setPendingRange] = useState<ViewportCommand>({
     ...initialViewport,
     key: 0,
@@ -99,7 +100,7 @@ export default function EquipmentHistoryPanel({
   }, [viewport]);
 
   const queryBounds = useMemo(() => {
-    const safeViewport = sanitizeViewportRange(viewport, initialViewport);
+    const safeViewport = sanitizeViewportRange(fetchViewport, initialViewport);
     const safeSpanMs = clampVisibleSpan(safeViewport.to - safeViewport.from, null);
     const safeNowMs = isFiniteNumber(nowMs) ? nowMs : initialNowMs;
     const marginMs = safeSpanMs * QUERY_MARGIN_RATIO;
@@ -113,7 +114,7 @@ export default function EquipmentHistoryPanel({
       queryStart: new Date(startMs).toISOString(),
       queryEnd: new Date(bucketedEndMs).toISOString(),
     };
-  }, [initialNowMs, initialViewport, nowMs, viewport]);
+  }, [fetchViewport, initialNowMs, initialViewport, nowMs]);
 
   const targetPoints = useMemo(
     () => Math.min(20000, Math.max(2000, window.innerWidth * 4)),
@@ -175,6 +176,13 @@ export default function EquipmentHistoryPanel({
   }, [chartGaps, historyPoints]);
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setFetchViewport(viewport);
+    }, cameraMode === "live" ? 120 : 350);
+    return () => window.clearTimeout(timeoutId);
+  }, [cameraMode, viewport]);
+
+  useEffect(() => {
     if (cameraMode !== "live") return;
     const syncLiveViewport = () => {
       const nextNowMs = livePoint ? Math.max(Date.now(), livePoint.ts) : Date.now();
@@ -227,11 +235,15 @@ export default function EquipmentHistoryPanel({
     (preset: HistoryRangeKey) => {
       const nextNowMs = Date.now();
       const targetSpan = clampVisibleSpan(RANGE_MS[preset], maxVisibleSpanMs);
+      const nextViewport = alignViewportToLive(
+        targetSpan,
+        nextNowMs,
+        getFutureBufferMs(RANGE_MS[preset]),
+      );
       setNowMs(nextNowMs);
       setCameraMode("live");
-      issueViewportCommand(
-        alignViewportToLive(targetSpan, nextNowMs, getFutureBufferMs(RANGE_MS[preset])),
-      );
+      setFetchViewport(nextViewport);
+      issueViewportCommand(nextViewport);
     },
     [issueViewportCommand, maxVisibleSpanMs],
   );
@@ -267,10 +279,11 @@ export default function EquipmentHistoryPanel({
       const wasClamped = Math.abs(clampedSpanMs - event.spanMs) > 1;
       setViewport(nextViewport);
       if (wasClamped) {
+        setFetchViewport(nextViewport);
         issueViewportCommand(nextViewport);
       }
     },
-    [cameraMode, firstDataAt, issueViewportCommand, maxVisibleSpanMs, viewport],
+    [firstDataAt, issueViewportCommand, viewport],
   );
 
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
