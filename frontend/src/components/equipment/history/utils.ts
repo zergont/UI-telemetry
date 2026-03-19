@@ -1,10 +1,15 @@
 import {
+  FULL_HISTORY_LEFT_PAD_MIN_MS,
+  FULL_HISTORY_LEFT_PAD_RATIO,
+  FUTURE_BUFFER_MS,
   GRID_MS,
-  HYSTERESIS,
+  MAX_FUTURE_BUFFER_MS,
+  MIN_VISIBLE_SPAN_MS,
+  PRESET_MATCH_TOLERANCE,
   RANGE_MS,
   RAW_THRESHOLD_MS,
 } from "./constants";
-import type { ChartPoint, GapZone, HistoryRangeKey } from "./types";
+import type { ChartPoint, GapZone, HistoryRangeKey, ViewportRange } from "./types";
 
 export function interpolateToGrid(
   rawPoints: ChartPoint[],
@@ -44,30 +49,60 @@ export function interpolateToGrid(
   return { interpolated: result, rawTimestamps };
 }
 
-export function spanToRange(
-  spanMs: number,
-  currentRange: HistoryRangeKey,
-): HistoryRangeKey {
-  if (currentRange === "1h") {
-    return spanMs > RANGE_MS["1h"] * HYSTERESIS ? "24h" : "1h";
+export function getMatchingPreset(spanMs: number): HistoryRangeKey | null {
+  for (const key of Object.keys(RANGE_MS) as HistoryRangeKey[]) {
+    const presetSpan = RANGE_MS[key];
+    if (Math.abs(spanMs - presetSpan) / presetSpan <= PRESET_MATCH_TOLERANCE) {
+      return key;
+    }
   }
-  if (currentRange === "24h") {
-    if (spanMs <= RANGE_MS["1h"]) return "1h";
-    if (spanMs > RANGE_MS["24h"] * HYSTERESIS) return "7d";
-    return "24h";
-  }
-  if (currentRange === "7d") {
-    if (spanMs <= RANGE_MS["24h"]) return "24h";
-    if (spanMs > RANGE_MS["7d"] * HYSTERESIS) return "30d";
-    return "7d";
-  }
-  if (spanMs <= RANGE_MS["7d"]) return "7d";
-  return "30d";
+  return null;
 }
 
-export function mergeChartData(a: ChartPoint[], b: ChartPoint[]): ChartPoint[] {
-  const map = new Map<number, ChartPoint>();
-  for (const p of a) map.set(p.ts, p);
-  for (const p of b) map.set(p.ts, p);
-  return [...map.values()].sort((x, y) => x.ts - y.ts);
+export function getFutureBufferMs(spanMs: number): number {
+  let closest: HistoryRangeKey = "24h";
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const key of Object.keys(RANGE_MS) as HistoryRangeKey[]) {
+    const distance = Math.abs(Math.log(spanMs / RANGE_MS[key]));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      closest = key;
+    }
+  }
+
+  return FUTURE_BUFFER_MS[closest] ?? MAX_FUTURE_BUFFER_MS;
+}
+
+export function clampVisibleSpan(spanMs: number, maxSpanMs: number | null): number {
+  const clamped = Math.max(spanMs, MIN_VISIBLE_SPAN_MS);
+  if (maxSpanMs == null) return clamped;
+  return Math.min(clamped, maxSpanMs);
+}
+
+export function computeMaxVisibleSpan(firstDataAt: number | null, nowMs: number): number | null {
+  if (firstDataAt == null) return null;
+  const historySpan = Math.max(nowMs - firstDataAt, MIN_VISIBLE_SPAN_MS);
+  const leftPad = Math.max(FULL_HISTORY_LEFT_PAD_MIN_MS, historySpan * FULL_HISTORY_LEFT_PAD_RATIO);
+  const leftEdge = Math.max(0, firstDataAt - leftPad);
+  return nowMs + MAX_FUTURE_BUFFER_MS - leftEdge;
+}
+
+export function alignViewportToLive(
+  spanMs: number,
+  nowMs: number,
+  futureBufferMs: number,
+): ViewportRange {
+  const to = nowMs + futureBufferMs;
+  return {
+    from: to - spanMs,
+    to,
+  };
+}
+
+export function makeViewportFromCenter(centerMs: number, spanMs: number): ViewportRange {
+  return {
+    from: centerMs - spanMs / 2,
+    to: centerMs + spanMs / 2,
+  };
 }

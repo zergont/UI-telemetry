@@ -29,7 +29,11 @@ import type {
   SeriesMarker,
 } from "lightweight-charts";
 import { useSettingsStore } from "@/stores/settings-store";
-import type { ChartPoint } from "@/components/equipment/history/types";
+import type {
+  ChartPoint,
+  ViewportChangeEvent,
+  ViewportCommand,
+} from "@/components/equipment/history/types";
 
 // ── Часовой пояс ──────────────────────────────────────────────────────────────
 // lightweight-charts позиционирует точки по UTC.
@@ -240,15 +244,9 @@ interface HistoryChartProps {
   label?: string;
   color?: string;
   isLoading?: boolean;
-  /**
-   * Вызывается когда нужны новые данные:
-   *  • zoom изменил масштаб → другая детализация
-   *  • pan достиг края данных → нужна подгрузка
-   * visibleSpanMs — видимый диапазон, centerMs — центр видимой области.
-   */
-  onNeedData?: (visibleSpanMs: number, centerMs: number) => void;
+  onViewportChange?: (event: ViewportChangeEvent) => void;
   /** Желаемый видимый диапазон (epoch ms). Применяется СРАЗУ после setData. */
-  pendingRange?: { from: number; to: number; key: number } | null;
+  pendingRange?: ViewportCommand | null;
   /** Первая запись в БД для этого регистра (epoch ms) — граница серой зоны */
   firstDataAt?: number | null;
   /** Разрывы данных от backend (epoch ms) — красные зоны */
@@ -261,18 +259,15 @@ interface HistoryChartProps {
 }
 
 const CHART_HEIGHT = 380;
-const DEBOUNCE_MS      = 600;
+const DEBOUNCE_MS      = 180;
 const FIT_SUPPRESS_MS  = 600;
 /** Минимальное изменение span чтобы считать zoom, а не pan */
 const ZOOM_THRESHOLD   = 0.15;
-/** Доля видимой области за краем данных, при которой запрашиваем подгрузку.
- *  0.6 = тригер за 60% до края → данные грузятся заранее, нет пустых зон. */
-const EDGE_THRESHOLD   = 0.6;
 /** Порог: при span < 30 мин показываем маркеры реальных точек */
 const MARKER_SPAN_THRESHOLD = 30 * 60 * 1_000;
 
 export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
-  function HistoryChart({ data, color = "#22c55e", isLoading = false, onNeedData, pendingRange, firstDataAt, gaps, rawTimestamps, livePoint }, ref) {
+  function HistoryChart({ data, color = "#22c55e", isLoading = false, onViewportChange, pendingRange, firstDataAt, gaps, rawTimestamps, livePoint }, ref) {
     const tzOffsetHours   = useSettingsStore((s) => s.tzOffsetHours);
     const tzOffsetSec     = tzOffsetHours * 3600;
     const tzOffsetSecRef  = useRef(tzOffsetSec);
@@ -302,7 +297,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
-    const onNeedDataRef = useRef(onNeedData);
+    const onViewportChangeRef = useRef(onViewportChange);
 
     const rawTimestampsRef   = useRef<Set<number>>(new Set());
     const showMarkersRef     = useRef(false);
@@ -393,8 +388,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     }, [color]);
 
     useEffect(() => {
-      onNeedDataRef.current = onNeedData;
-    }, [onNeedData]);
+      onViewportChangeRef.current = onViewportChange;
+    }, [onViewportChange]);
 
     useEffect(() => {
       rawTimestampsRef.current = rawTimestamps ?? new Set();
@@ -592,21 +587,10 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           return;
         }
 
-        let needFetch = false;
-
-        // 1) Zoom: ЛОГИЧЕСКИЙ span изменился значительно
-        if (prev !== null && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD) {
-          needFetch = true;
-        }
-
-        // 2) Pan edge: используем estimated viewport span для корректного overlap
-        if (!needFetch && dr) {
-          const overlap = Math.max(0, Math.min(toMs, dr.max) - Math.max(fromMs, dr.min));
-          const overlapRatio = overlap / estimatedViewportSpanMs;
-          if (overlapRatio < (1 - EDGE_THRESHOLD)) {
-            needFetch = true;
-          }
-        }
+        const interaction =
+          prev !== null && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD
+            ? "zoom"
+            : "pan";
 
         prevSpanRef.current = logicalSpan;
 
@@ -617,15 +601,20 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           updateMarkers();
         }
 
-        if (needFetch) {
-          const cb = onNeedDataRef.current;
-          if (cb) {
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(() => {
-              if (suppressRef.current) return;
-              cb(estimatedViewportSpanMs, center);
-            }, DEBOUNCE_MS);
-          }
+        const cb = onViewportChangeRef.current;
+        if (cb) {
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current = setTimeout(() => {
+            if (suppressRef.current) return;
+            cb({
+              from: fromMs,
+              to: toMs,
+              spanMs: estimatedViewportSpanMs,
+              centerMs: center,
+              interaction,
+              hasFutureZone: dr ? toMs >= dr.max : false,
+            });
+          }, DEBOUNCE_MS);
         }
       };
 
