@@ -536,55 +536,39 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         const logicalSpan = lr.to - lr.from;
         if (!Number.isFinite(logicalSpan) || logicalSpan <= 0) return;
 
-        // TIME диапазон — для center расчёта
         const vr = timeScale.getVisibleRange();
 
         const nowMs  = Date.now();
         const prev   = prevSpanRef.current;
 
-        // Оценка реального viewport span через логический диапазон и плотность данных
-        // (getVisibleRange даёт TIME только для видимых данных — при пане за край
-        //  timeSpan сжимается, давая ложный edge detection)
+        // msPerBar — среднее время на один бар (логическую единицу).
+        // Используем для оценки viewport span и для вычисления from/to
+        // через логический диапазон (getVisibleRange обрезается при пане за край данных).
         const dr = dataRangeRef.current;
-        let estimatedViewportSpanMs: number;
-        if (dr && dr.max > dr.min) {
-          // Среднее время на 1 логическую единицу = (dataRange) / (totalDataBars)
-          // totalDataBars ≈ last logical index of data. Approximation: use lr.to when
-          // viewport is at default position, but simpler: data time / data logical range
-          const dataCount = latestDataRef.current.length;
-          if (dataCount > 1) {
-            const msPerBar = (dr.max - dr.min) / (dataCount - 1);
-            estimatedViewportSpanMs = logicalSpan * msPerBar;
-          } else {
-            estimatedViewportSpanMs = logicalSpan * 1000; // fallback 1s/bar
-          }
-        } else {
-          estimatedViewportSpanMs = logicalSpan * 1000;
-        }
+        const dataCount = latestDataRef.current.length;
+        const msPerBar = dr && dr.max > dr.min && dataCount > 1
+          ? (dr.max - dr.min) / (dataCount - 1)
+          : null;
+        const estimatedViewportSpanMs = msPerBar !== null
+          ? logicalSpan * msPerBar
+          : logicalSpan * 1000;
         if (!Number.isFinite(estimatedViewportSpanMs) || estimatedViewportSpanMs <= 0) return;
 
-        // Center: если есть видимые данные — используем их center,
-        // иначе оцениваем по логическому сдвигу
-        let center: number;
+        // Viewport bounds — вычисляем через логический диапазон + msPerBar.
+        // getVisibleRange() обрезается по краям данных при пане за пределы,
+        // что ломает from/to и вызывает ложный зум вместо подгрузки.
         let fromMs: number;
         let toMs: number;
-        if (vr) {
+        if (msPerBar !== null) {
+          fromMs = dr!.min + lr.from * msPerBar;
+          toMs   = dr!.min + lr.to   * msPerBar;
+        } else if (vr) {
           fromMs = fromChartTime(vr.from as number, tzOffsetSecRef.current);
           toMs   = fromChartTime(vr.to   as number, tzOffsetSecRef.current);
-          center = (fromMs + toMs) / 2;
         } else {
-          // Нет видимых данных — оценим center через логический диапазон
-          if (dr) {
-            const dataCount = latestDataRef.current.length;
-            const msPerBar = dataCount > 1 ? (dr.max - dr.min) / (dataCount - 1) : 1000;
-            const viewportCenterLogical = (lr.from + lr.to) / 2;
-            center = dr.min + viewportCenterLogical * msPerBar;
-          } else {
-            return;
-          }
-          fromMs = center - estimatedViewportSpanMs / 2;
-          toMs   = center + estimatedViewportSpanMs / 2;
+          return;
         }
+        const center = (fromMs + toMs) / 2;
         if (![fromMs, toMs, center].every(Number.isFinite)) return;
 
         // Если ушли СЛИШКОМ далеко в будущее — пропускаем
@@ -687,12 +671,27 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         return;
       }
 
-      // Сохраняем вьюпорт ДО замены данных — только если пользователь уже
-      // взаимодействовал. При глубоком зуме setData меняет logical→time маппинг,
-      // и без явного setVisibleRange chart "улетает" в сторону.
-      const savedRange = userTouchedRef.current
-        ? chart.timeScale().getVisibleRange() ?? null
-        : null;
+      // Сохраняем вьюпорт ДО замены данных через логический диапазон + msPerBar.
+      // getVisibleRange() обрезается при пане за край данных, и после setData
+      // восстановление обрезанного диапазона вызывает ложный зум.
+      let savedFromMs: number | null = null;
+      let savedToMs: number | null = null;
+      if (userTouchedRef.current) {
+        const lr = chart.timeScale().getVisibleLogicalRange();
+        const dr = dataRangeRef.current;
+        const currentData = latestDataRef.current;
+        if (lr && dr && currentData.length > 1) {
+          const msPerBar = (dr.max - dr.min) / (currentData.length - 1);
+          savedFromMs = dr.min + lr.from * msPerBar;
+          savedToMs   = dr.min + lr.to   * msPerBar;
+        } else {
+          const vr = chart.timeScale().getVisibleRange();
+          if (vr) {
+            savedFromMs = fromChartTime(vr.from as number, tzOffsetSecRef.current);
+            savedToMs   = fromChartTime(vr.to   as number, tzOffsetSecRef.current);
+          }
+        }
+      }
 
       applyData(seriesRef.current, bandHighRef.current, bandLowRef.current, data, tzOffsetSecRef.current);
       updateDataRange(data);
@@ -717,11 +716,14 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         debounceRef.current = setTimeout(() => {
           suppressRef.current = false;
         }, FIT_SUPPRESS_MS);
-      } else if (savedRange) {
+      } else if (savedFromMs !== null && savedToMs !== null) {
         // Подгрузка по zoom/pan — восстанавливаем позицию, которую видел пользователь
         suppressRef.current = true;
         if (debounceRef.current) clearTimeout(debounceRef.current);
-        chart.timeScale().setVisibleRange(savedRange);
+        chart.timeScale().setVisibleRange({
+          from: toChartTime(savedFromMs, tzOffsetSecRef.current) as Time,
+          to:   toChartTime(savedToMs,   tzOffsetSecRef.current) as Time,
+        });
         debounceRef.current = setTimeout(() => {
           suppressRef.current = false;
         }, FIT_SUPPRESS_MS);
