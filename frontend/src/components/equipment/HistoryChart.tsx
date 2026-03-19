@@ -295,6 +295,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
     const zonePrimitiveRef  = useRef<ZonesPrimitive | null>(null);
     const markersApiRef     = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
     const lastInteractionRef = useRef<"zoom" | "pan" | null>(null);
+    const dragActiveRef      = useRef(false);
 
     const latestDataRef   = useRef(data);
     const latestColorRef  = useRef(color);
@@ -596,7 +597,9 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           prev !== null && prev > 0 && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD
             ? "zoom"
             : "pan";
-        const interaction = lastInteractionRef.current ?? inferredInteraction;
+        const interaction = dragActiveRef.current
+          ? "pan"
+          : lastInteractionRef.current ?? inferredInteraction;
 
         prevSpanRef.current = logicalSpan;
 
@@ -626,14 +629,21 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       };
 
       const handleWheel = () => {
+        dragActiveRef.current = false;
         lastInteractionRef.current = "zoom";
       };
       const handlePointerDown = () => {
+        dragActiveRef.current = true;
         lastInteractionRef.current = "pan";
+      };
+      const handlePointerUp = () => {
+        dragActiveRef.current = false;
       };
 
       container.addEventListener("wheel", handleWheel, { passive: true });
       container.addEventListener("pointerdown", handlePointerDown, { passive: true });
+      window.addEventListener("pointerup", handlePointerUp, { passive: true });
+      window.addEventListener("pointercancel", handlePointerUp, { passive: true });
       timeScale.subscribeVisibleTimeRangeChange(handler);
 
       const ro = new ResizeObserver(() => {
@@ -646,6 +656,8 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
       return () => {
         container.removeEventListener("wheel", handleWheel);
         container.removeEventListener("pointerdown", handlePointerDown);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("pointercancel", handlePointerUp);
         timeScale.unsubscribeVisibleTimeRangeChange(handler);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         ro.disconnect();
