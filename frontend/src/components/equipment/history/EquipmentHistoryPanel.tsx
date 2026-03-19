@@ -80,10 +80,6 @@ export default function EquipmentHistoryPanel({
     () => getMatchingPreset(visibleSpanMs),
     [visibleSpanMs],
   );
-  const futureBufferMs = useMemo(
-    () => getFutureBufferMs(visibleSpanMs),
-    [visibleSpanMs],
-  );
 
   const livePoint = useMemo<ChartPoint | null>(() => {
     const reg = liveRegs?.get(selectedAddr);
