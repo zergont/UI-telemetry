@@ -18,8 +18,10 @@ import {
   computeMaxVisibleSpan,
   getFutureBufferMs,
   getMatchingPreset,
+  isFiniteNumber,
   interpolateToGrid,
   makeViewportFromCenter,
+  sanitizeViewportRange,
 } from "./utils";
 import type {
   CameraMode,
@@ -90,15 +92,19 @@ export default function EquipmentHistoryPanel({
   }, [liveRegs, selectedAddr]);
 
   const issueViewportCommand = useCallback((nextViewport: ViewportRange) => {
+    const safeViewport = sanitizeViewportRange(nextViewport, viewport);
     commandKeyRef.current += 1;
-    setViewport(nextViewport);
-    setPendingRange({ ...nextViewport, key: commandKeyRef.current });
-  }, []);
+    setViewport(safeViewport);
+    setPendingRange({ ...safeViewport, key: commandKeyRef.current });
+  }, [viewport]);
 
   const queryBounds = useMemo(() => {
-    const marginMs = visibleSpanMs * QUERY_MARGIN_RATIO;
-    const startMs = Math.max(0, viewport.from - marginMs);
-    const unclampedEndMs = Math.max(startMs + 1_000, Math.min(nowMs, viewport.to + marginMs));
+    const safeViewport = sanitizeViewportRange(viewport, initialViewport);
+    const safeSpanMs = clampVisibleSpan(safeViewport.to - safeViewport.from, null);
+    const safeNowMs = isFiniteNumber(nowMs) ? nowMs : initialNowMs;
+    const marginMs = safeSpanMs * QUERY_MARGIN_RATIO;
+    const startMs = Math.max(0, safeViewport.from - marginMs);
+    const unclampedEndMs = Math.max(startMs + 1_000, Math.min(safeNowMs, safeViewport.to + marginMs));
     const bucketedEndMs = Math.max(
       startMs + 1_000,
       Math.floor(unclampedEndMs / HISTORY_FETCH_BUCKET_MS) * HISTORY_FETCH_BUCKET_MS,
@@ -107,7 +113,7 @@ export default function EquipmentHistoryPanel({
       queryStart: new Date(startMs).toISOString(),
       queryEnd: new Date(bucketedEndMs).toISOString(),
     };
-  }, [nowMs, viewport.from, viewport.to, visibleSpanMs]);
+  }, [initialNowMs, initialViewport, nowMs, viewport]);
 
   const targetPoints = useMemo(
     () => Math.min(20000, Math.max(2000, window.innerWidth * 4)),
@@ -129,7 +135,8 @@ export default function EquipmentHistoryPanel({
   const firstDataAt = useMemo(() => {
     const raw = historyResp?.first_data_at;
     if (!raw) return null;
-    return new Date(raw.endsWith("Z") ? raw : `${raw}Z`).getTime();
+    const parsed = new Date(raw.endsWith("Z") ? raw : `${raw}Z`).getTime();
+    return isFiniteNumber(parsed) ? parsed : null;
   }, [historyResp?.first_data_at]);
 
   const maxVisibleSpanMs = useMemo(
@@ -142,7 +149,7 @@ export default function EquipmentHistoryPanel({
       (historyResp?.gaps ?? []).map((g) => ({
         fromMs: new Date(g.from_ts.endsWith("Z") ? g.from_ts : `${g.from_ts}Z`).getTime(),
         toMs: new Date(g.to_ts.endsWith("Z") ? g.to_ts : `${g.to_ts}Z`).getTime(),
-      })),
+      })).filter((g) => isFiniteNumber(g.fromMs) && isFiniteNumber(g.toMs) && g.toMs > g.fromMs),
     [historyResp?.gaps],
   );
 
@@ -155,7 +162,8 @@ export default function EquipmentHistoryPanel({
           value: p.value as number,
           min_value: p.min_value ?? null,
           max_value: p.max_value ?? null,
-        })),
+        }))
+        .filter((p) => isFiniteNumber(p.ts) && isFiniteNumber(p.value)),
     [historyResp],
   );
 
@@ -231,6 +239,14 @@ export default function EquipmentHistoryPanel({
 
   const handleViewportChange = useCallback(
     (event: ViewportChangeEvent) => {
+      if (
+        !isFiniteNumber(event.from) ||
+        !isFiniteNumber(event.to) ||
+        !isFiniteNumber(event.spanMs) ||
+        !isFiniteNumber(event.centerMs)
+      ) {
+        return;
+      }
       const nextNowMs = Date.now();
       const clampedSpanMs = clampVisibleSpan(
         event.spanMs,
@@ -256,12 +272,14 @@ export default function EquipmentHistoryPanel({
       }
 
       setCameraMode("manual");
-      const nextViewport =
+      const nextViewport = sanitizeViewportRange(
         event.interaction === "zoom"
           ? Math.abs(clampedSpanMs - event.spanMs) > 1
             ? makeViewportFromCenter(event.centerMs, clampedSpanMs)
             : { from: event.from, to: event.to }
-          : { from: event.from, to: event.to };
+          : { from: event.from, to: event.to },
+        viewport,
+      );
 
       const wasClamped = Math.abs(clampedSpanMs - event.spanMs) > 1;
       setViewport(nextViewport);
@@ -269,7 +287,7 @@ export default function EquipmentHistoryPanel({
         issueViewportCommand(nextViewport);
       }
     },
-    [cameraMode, firstDataAt, issueViewportCommand, maxVisibleSpanMs],
+    [cameraMode, firstDataAt, issueViewportCommand, maxVisibleSpanMs, viewport],
   );
 
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);

@@ -11,6 +11,10 @@ import {
 } from "./constants";
 import type { ChartPoint, GapZone, HistoryRangeKey, ViewportRange } from "./types";
 
+export function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 export function interpolateToGrid(
   rawPoints: ChartPoint[],
   gapZones: GapZone[],
@@ -50,6 +54,7 @@ export function interpolateToGrid(
 }
 
 export function getMatchingPreset(spanMs: number): HistoryRangeKey | null {
+  if (!isFiniteNumber(spanMs) || spanMs <= 0) return null;
   for (const key of Object.keys(RANGE_MS) as HistoryRangeKey[]) {
     const presetSpan = RANGE_MS[key];
     if (Math.abs(spanMs - presetSpan) / presetSpan <= PRESET_MATCH_TOLERANCE) {
@@ -60,6 +65,9 @@ export function getMatchingPreset(spanMs: number): HistoryRangeKey | null {
 }
 
 export function getFutureBufferMs(spanMs: number): number {
+  if (!isFiniteNumber(spanMs) || spanMs <= 0) {
+    return FUTURE_BUFFER_MS["24h"] ?? MAX_FUTURE_BUFFER_MS;
+  }
   let closest: HistoryRangeKey = "24h";
   let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -75,13 +83,14 @@ export function getFutureBufferMs(spanMs: number): number {
 }
 
 export function clampVisibleSpan(spanMs: number, maxSpanMs: number | null): number {
-  const clamped = Math.max(spanMs, MIN_VISIBLE_SPAN_MS);
+  const baseSpan = isFiniteNumber(spanMs) && spanMs > 0 ? spanMs : MIN_VISIBLE_SPAN_MS;
+  const clamped = Math.max(baseSpan, MIN_VISIBLE_SPAN_MS);
   if (maxSpanMs == null) return clamped;
   return Math.min(clamped, maxSpanMs);
 }
 
 export function computeMaxVisibleSpan(firstDataAt: number | null, nowMs: number): number | null {
-  if (firstDataAt == null) return null;
+  if (!isFiniteNumber(firstDataAt) || !isFiniteNumber(nowMs)) return null;
   const historySpan = Math.max(nowMs - firstDataAt, MIN_VISIBLE_SPAN_MS);
   const leftPad = Math.max(FULL_HISTORY_LEFT_PAD_MIN_MS, historySpan * FULL_HISTORY_LEFT_PAD_RATIO);
   const leftEdge = Math.max(0, firstDataAt - leftPad);
@@ -93,16 +102,33 @@ export function alignViewportToLive(
   nowMs: number,
   futureBufferMs: number,
 ): ViewportRange {
-  const to = nowMs + futureBufferMs;
+  const safeSpan = clampVisibleSpan(spanMs, null);
+  const safeNow = isFiniteNumber(nowMs) ? nowMs : Date.now();
+  const safeFutureBuffer = isFiniteNumber(futureBufferMs) ? futureBufferMs : getFutureBufferMs(safeSpan);
+  const to = safeNow + safeFutureBuffer;
   return {
-    from: to - spanMs,
+    from: to - safeSpan,
     to,
   };
 }
 
 export function makeViewportFromCenter(centerMs: number, spanMs: number): ViewportRange {
+  const safeSpan = clampVisibleSpan(spanMs, null);
+  const safeCenter = isFiniteNumber(centerMs) ? centerMs : Date.now();
   return {
-    from: centerMs - spanMs / 2,
-    to: centerMs + spanMs / 2,
+    from: safeCenter - safeSpan / 2,
+    to: safeCenter + safeSpan / 2,
   };
+}
+
+export function sanitizeViewportRange(
+  viewport: ViewportRange,
+  fallback: ViewportRange,
+): ViewportRange {
+  const from = isFiniteNumber(viewport.from) ? viewport.from : fallback.from;
+  const to = isFiniteNumber(viewport.to) ? viewport.to : fallback.to;
+  if (!isFiniteNumber(from) || !isFiniteNumber(to) || to <= from) {
+    return fallback;
+  }
+  return { from, to };
 }

@@ -531,6 +531,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         const lr = timeScale.getVisibleLogicalRange();
         if (!lr) return;
         const logicalSpan = lr.to - lr.from;
+        if (!Number.isFinite(logicalSpan) || logicalSpan <= 0) return;
 
         // TIME диапазон — для center расчёта
         const vr = timeScale.getVisibleRange();
@@ -557,6 +558,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         } else {
           estimatedViewportSpanMs = logicalSpan * 1000;
         }
+        if (!Number.isFinite(estimatedViewportSpanMs) || estimatedViewportSpanMs <= 0) return;
 
         // Center: если есть видимые данные — используем их center,
         // иначе оцениваем по логическому сдвигу
@@ -580,6 +582,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
           fromMs = center - estimatedViewportSpanMs / 2;
           toMs   = center + estimatedViewportSpanMs / 2;
         }
+        if (![fromMs, toMs, center].every(Number.isFinite)) return;
 
         // Если ушли СЛИШКОМ далеко в будущее — пропускаем
         // (порог 26ч: учитываем futureBuffer до 1д для 7d/30d + запас)
@@ -588,7 +591,7 @@ export const HistoryChart = forwardRef<HistoryChartHandle, HistoryChartProps>(
         }
 
         const interaction =
-          prev !== null && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD
+          prev !== null && prev > 0 && Math.abs(logicalSpan - prev) / prev > ZOOM_THRESHOLD
             ? "zoom"
             : "pan";
 
