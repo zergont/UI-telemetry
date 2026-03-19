@@ -216,7 +216,6 @@ export default function EquipmentHistoryPanel({
     if (maxVisibleSpanMs == null) return;
     if (visibleSpanMs <= maxVisibleSpanMs + 1) return;
     const timeoutId = window.setTimeout(() => {
-      setCameraMode("live");
       issueViewportCommand(
         alignViewportToLive(maxVisibleSpanMs, nowMs, getFutureBufferMs(maxVisibleSpanMs)),
       );
@@ -252,14 +251,14 @@ export default function EquipmentHistoryPanel({
         event.spanMs,
         computeMaxVisibleSpan(firstDataAt, nextNowMs),
       );
-      const shouldPinToLive =
-        (cameraMode === "live" && event.interaction === "zoom") ||
-        event.hasFutureZone ||
-        (maxVisibleSpanMs != null && clampedSpanMs >= maxVisibleSpanMs - 1);
+      const shouldEnterLiveByPan =
+        cameraMode === "manual" &&
+        event.interaction === "pan" &&
+        event.hasFutureZone;
 
       setNowMs(nextNowMs);
 
-      if (shouldPinToLive) {
+      if (shouldEnterLiveByPan) {
         setCameraMode("live");
         issueViewportCommand(
           alignViewportToLive(
