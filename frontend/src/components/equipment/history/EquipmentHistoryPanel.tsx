@@ -71,6 +71,9 @@ export default function EquipmentHistoryPanel({
   });
 
   const commandKeyRef = useRef(0);
+  const viewportRef = useRef(viewport);
+  const livePointRef = useRef<ChartPoint | null>(null);
+  const firstDataAtRef = useRef<number | null>(null);
 
   const visibleSpanMs = viewport.to - viewport.from;
   const activePreset = useMemo(
@@ -92,12 +95,15 @@ export default function EquipmentHistoryPanel({
     return { ts, value: reg.value };
   }, [liveRegs, selectedAddr]);
 
+  useEffect(() => { viewportRef.current = viewport; }, [viewport]);
+  useEffect(() => { livePointRef.current = livePoint; }, [livePoint]);
+
   const issueViewportCommand = useCallback((nextViewport: ViewportRange) => {
-    const safeViewport = sanitizeViewportRange(nextViewport, viewport);
+    const safeViewport = sanitizeViewportRange(nextViewport, viewportRef.current);
     commandKeyRef.current += 1;
     setViewport(safeViewport);
     setPendingRange({ ...safeViewport, key: commandKeyRef.current });
-  }, [viewport]);
+  }, []);
 
   const queryBounds = useMemo(() => {
     const safeViewport = sanitizeViewportRange(fetchViewport, initialViewport);
@@ -139,6 +145,8 @@ export default function EquipmentHistoryPanel({
     const parsed = new Date(raw.endsWith("Z") ? raw : `${raw}Z`).getTime();
     return isFiniteNumber(parsed) ? parsed : null;
   }, [historyResp?.first_data_at]);
+
+  useEffect(() => { firstDataAtRef.current = firstDataAt; }, [firstDataAt]);
 
   const maxVisibleSpanMs = useMemo(
     () => computeMaxVisibleSpan(firstDataAt, nowMs),
@@ -185,20 +193,22 @@ export default function EquipmentHistoryPanel({
   useEffect(() => {
     if (cameraMode !== "live") return;
     const syncLiveViewport = () => {
-      const nextNowMs = livePoint ? Math.max(Date.now(), livePoint.ts) : Date.now();
+      const vp = viewportRef.current;
+      const lp = livePointRef.current;
+      const currentSpanMs = vp.to - vp.from;
+      const nextNowMs = lp ? Math.max(Date.now(), lp.ts) : Date.now();
+      const currentMaxSpanMs = computeMaxVisibleSpan(firstDataAtRef.current, nextNowMs);
       const nextViewport = alignViewportToLive(
-        clampVisibleSpan(visibleSpanMs, maxVisibleSpanMs),
+        clampVisibleSpan(currentSpanMs, currentMaxSpanMs),
         nextNowMs,
-        futureBufferMs,
+        getFutureBufferMs(currentSpanMs),
       );
       const changed =
-        Math.abs(nextViewport.from - viewport.from) > 250 ||
-        Math.abs(nextViewport.to - viewport.to) > 250;
-      if (!changed && nextNowMs === nowMs) return;
+        Math.abs(nextViewport.from - vp.from) > 250 ||
+        Math.abs(nextViewport.to - vp.to) > 250;
+      if (!changed) return;
       setNowMs(nextNowMs);
-      if (changed) {
-        issueViewportCommand(nextViewport);
-      }
+      issueViewportCommand(nextViewport);
     };
 
     const kickoffId = window.setTimeout(syncLiveViewport, 0);
@@ -208,17 +218,7 @@ export default function EquipmentHistoryPanel({
       window.clearTimeout(kickoffId);
       window.clearInterval(intervalId);
     };
-  }, [
-    cameraMode,
-    futureBufferMs,
-    issueViewportCommand,
-    livePoint,
-    maxVisibleSpanMs,
-    nowMs,
-    visibleSpanMs,
-    viewport.from,
-    viewport.to,
-  ]);
+  }, [cameraMode, issueViewportCommand]);
 
   useEffect(() => {
     if (maxVisibleSpanMs == null) return;
@@ -234,7 +234,8 @@ export default function EquipmentHistoryPanel({
   const handlePresetClick = useCallback(
     (preset: HistoryRangeKey) => {
       const nextNowMs = Date.now();
-      const targetSpan = clampVisibleSpan(RANGE_MS[preset], maxVisibleSpanMs);
+      const currentMaxSpanMs = computeMaxVisibleSpan(firstDataAtRef.current, nextNowMs);
+      const targetSpan = clampVisibleSpan(RANGE_MS[preset], currentMaxSpanMs);
       const nextViewport = alignViewportToLive(
         targetSpan,
         nextNowMs,
@@ -245,7 +246,7 @@ export default function EquipmentHistoryPanel({
       setFetchViewport(nextViewport);
       issueViewportCommand(nextViewport);
     },
-    [issueViewportCommand, maxVisibleSpanMs],
+    [issueViewportCommand],
   );
 
   const handleViewportChange = useCallback(
@@ -261,7 +262,7 @@ export default function EquipmentHistoryPanel({
       const nextNowMs = Date.now();
       const clampedSpanMs = clampVisibleSpan(
         event.spanMs,
-        computeMaxVisibleSpan(firstDataAt, nextNowMs),
+        computeMaxVisibleSpan(firstDataAtRef.current, nextNowMs),
       );
 
       setNowMs(nextNowMs);
@@ -273,7 +274,7 @@ export default function EquipmentHistoryPanel({
             ? makeViewportFromCenter(event.centerMs, clampedSpanMs)
             : { from: event.from, to: event.to }
           : { from: event.from, to: event.to },
-        viewport,
+        viewportRef.current,
       );
 
       const wasClamped = Math.abs(clampedSpanMs - event.spanMs) > 1;
@@ -283,7 +284,7 @@ export default function EquipmentHistoryPanel({
         issueViewportCommand(nextViewport);
       }
     },
-    [firstDataAt, issueViewportCommand, viewport],
+    [issueViewportCommand],
   );
 
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr);
