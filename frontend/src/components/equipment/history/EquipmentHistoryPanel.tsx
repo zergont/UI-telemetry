@@ -251,24 +251,8 @@ export default function EquipmentHistoryPanel({
         event.spanMs,
         computeMaxVisibleSpan(firstDataAt, nextNowMs),
       );
-      const shouldEnterLiveByPan =
-        cameraMode === "manual" &&
-        event.interaction === "pan" &&
-        event.hasFutureZone;
 
       setNowMs(nextNowMs);
-
-      if (shouldEnterLiveByPan) {
-        setCameraMode("live");
-        issueViewportCommand(
-          alignViewportToLive(
-            clampedSpanMs,
-            nextNowMs,
-            getFutureBufferMs(clampedSpanMs),
-          ),
-        );
-        return;
-      }
 
       setCameraMode("manual");
       const nextViewport = sanitizeViewportRange(
