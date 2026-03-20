@@ -1,11 +1,13 @@
 import { useEffect, useRef, useCallback } from "react";
 import {
   createChart,
+  createSeriesMarkers,
   AreaSeries,
   ColorType,
   CrosshairMode,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type Time,
   type LineWidth,
 } from "lightweight-charts";
@@ -63,6 +65,9 @@ export function HistoryChart({
   const bandTopRef = useRef<ISeriesApi<any> | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bandBotRef = useRef<ISeriesApi<any> | null>(null);
+
+  // Плагин маркеров для raw точек
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
   /** true → игнорируем события visibleTimeRangeChange (мы сами двигаем viewport) */
   const suppressRef = useRef(true);
@@ -275,6 +280,8 @@ export function HistoryChart({
       el.removeEventListener("touchstart", enable);
       el.removeEventListener("wheel", onWheel);
       ro.disconnect();
+      markersRef.current?.detach();
+      markersRef.current = null;
       chart.remove();
       chartRef.current = null;
       mainRef.current = null;
@@ -359,17 +366,20 @@ export function HistoryChart({
 
     // Точки на raw данных — маркеры на каждой реальной точке
     if (isRaw && rawPoints.length <= 2000) {
-      main.setMarkers(
-        rawPoints.map((p) => ({
-          time: (p.ts / 1000) as Time,
-          position: "inBar" as const,
-          color: colorRef.current,
-          shape: "circle" as const,
-          size: 0.5,
-        })),
-      );
-    } else {
-      main.setMarkers([]);
+      const markers = rawPoints.map((p) => ({
+        time: (p.ts / 1000) as Time,
+        position: "inBar" as const,
+        color: colorRef.current,
+        shape: "circle" as const,
+        size: 0.5,
+      }));
+      if (markersRef.current) {
+        markersRef.current.setMarkers(markers);
+      } else {
+        markersRef.current = createSeriesMarkers(main, markers);
+      }
+    } else if (markersRef.current) {
+      markersRef.current.setMarkers([]);
     }
 
     // Восстановить viewport в следующем кадре (после layout LWC)
