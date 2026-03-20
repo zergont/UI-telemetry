@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import {
   createChart,
-  LineSeries,
   AreaSeries,
   ColorType,
   CrosshairMode,
@@ -35,6 +34,15 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+/** Начало UTC-суток (00:00) для timestamp в ms */
+function startOfDayUTC(ms: number): number {
+  const d = new Date(ms);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+const DAY_MS = 86_400_000;
+
 /* ── Component ──────────────────────────────────────────────────────────── */
 
 export function HistoryChart({
@@ -50,7 +58,7 @@ export function HistoryChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lineRef = useRef<ISeriesApi<any> | null>(null);
+  const mainRef = useRef<ISeriesApi<any> | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bandTopRef = useRef<ISeriesApi<any> | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,6 +69,9 @@ export function HistoryChart({
   const prevDataRef = useRef<ChartPoint[] | null>(null);
   const appliedVpRef = useRef<ViewportRange>(viewport);
 
+  // Источник последнего изменения viewport: "pan" | "programmatic"
+  const vpSourceRef = useRef<"pan" | "programmatic">("programmatic");
+
   // Refs для колбэков — чтобы chart init effect не пересоздавался
   const onZoomRef = useRef(onZoom);
   const onPanRef = useRef(onPan);
@@ -69,6 +80,66 @@ export function HistoryChart({
 
   // Для голубой полоски «будущее»
   const futureRef = useRef<HTMLDivElement>(null);
+  // Для canvas суточных полос
+  const dayBandsRef = useRef<HTMLCanvasElement>(null);
+  // Таймер debounce пана
+  const panTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  /* ── Рисование суточных полос ────────────────────────────────────────── */
+  const drawDayBands = useCallback(() => {
+    const chart = chartRef.current;
+    const canvas = dayBandsRef.current;
+    const container = containerRef.current;
+    if (!chart || !canvas || !container) return;
+
+    const W = container.clientWidth;
+    // Высота chart area (без timeScale ~28px)
+    const H = container.clientHeight - 28;
+    canvas.width = W;
+    canvas.height = H;
+    canvas.style.width = `${W}px`;
+    canvas.style.height = `${H}px`;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, W, H);
+
+    const ts = chart.timeScale();
+    const range = ts.getVisibleRange();
+    if (!range) return;
+
+    const fromMs = (range.from as number) * 1000;
+    const toMs = (range.to as number) * 1000;
+
+    // Находим начало первого видимого дня
+    let dayStart = startOfDayUTC(fromMs);
+    let dayIndex = 0;
+
+    // Определяем чётность первого дня (по кол-ву дней от epoch)
+    const epochDayNum = Math.floor(dayStart / DAY_MS);
+
+    while (dayStart < toMs) {
+      const dayEnd = dayStart + DAY_MS;
+      const isOdd = (epochDayNum + dayIndex) % 2 === 1;
+
+      if (isOdd) {
+        const x1 = ts.timeToCoordinate((dayStart / 1000) as Time);
+        const x2 = ts.timeToCoordinate((dayEnd / 1000) as Time);
+
+        if (x1 != null && x2 != null) {
+          const left = Math.max(0, x1);
+          const right = Math.min(W, x2);
+          if (right > left) {
+            ctx.fillStyle = "rgba(148, 163, 184, 0.03)";
+            ctx.fillRect(left, 0, right - left, H);
+          }
+        }
+      }
+
+      dayStart = dayEnd;
+      dayIndex++;
+    }
+  }, []);
 
   /* ── Создание графика (один раз) ───────────────────────────────────────── */
   useEffect(() => {
@@ -96,7 +167,7 @@ export function HistoryChart({
         secondsVisible: true,
         lockVisibleTimeRangeOnResize: true,
       },
-      // Pan встроенный, zoom — наш кастомный
+      // Pan встроенный (LWC делает плавно), zoom — наш кастомный
       handleScroll: true,
       handleScale: false,
     });
@@ -105,7 +176,7 @@ export function HistoryChart({
     const bandTop = chart.addSeries(AreaSeries, {
       lineWidth: 1 as LineWidth,
       lineColor: "transparent",
-      topColor: hexToRgba("#22c55e", 0.10),
+      topColor: hexToRgba("#22c55e", 0.08),
       bottomColor: "transparent",
       priceLineVisible: false,
       lastValueVisible: false,
@@ -123,10 +194,12 @@ export function HistoryChart({
       crosshairMarkerVisible: false,
     });
 
-    // ── Main line (avg) ────────────────────────────────────────────
-    const line = chart.addSeries(LineSeries, {
-      color: "#22c55e",
+    // ── Main area (avg + зелёная тень под графиком) ──────────────
+    const main = chart.addSeries(AreaSeries, {
+      lineColor: "#22c55e",
       lineWidth: 2,
+      topColor: hexToRgba("#22c55e", 0.18),
+      bottomColor: hexToRgba("#22c55e", 0.02),
       priceLineVisible: true,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
@@ -135,18 +208,32 @@ export function HistoryChart({
     });
 
     chartRef.current = chart;
-    lineRef.current = line;
+    mainRef.current = main;
     bandTopRef.current = bandTop;
     bandBotRef.current = bandBot;
 
     // ── Pan detection (от встроенного drag LWC) ────────────────────
+    // Не боремся с LWC — он двигает график плавно сам.
+    // Мы только отслеживаем куда пользователь ушёл для подгрузки данных.
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       if (suppressRef.current || !range) return;
       const from = (range.from as number) * 1000;
       const to = (range.to as number) * 1000;
       if (to - from < MIN_SPAN_MS) return;
       appliedVpRef.current = { from, to };
-      onPanRef.current({ from, to });
+
+      // Debounce: не дёргаем React state на каждый кадр пана.
+      // LWC сам рендерит плавно, а мы обновляем state только при паузе —
+      // это триггерит подгрузку данных, но не мешает анимации.
+      clearTimeout(panTimerRef.current);
+      panTimerRef.current = setTimeout(() => {
+        vpSourceRef.current = "pan";
+        onPanRef.current({ from, to });
+      }, 80);
+
+      // Перерисовать оверлеи синхронно с паном
+      drawDayBands();
+      updateFutureStripe();
     });
 
     // При mousedown/touchstart — перестаём подавлять события
@@ -166,24 +253,29 @@ export function HistoryChart({
       const cursorMs = (cursorTime as number) * 1000;
       const zoomIn = e.deltaY < 0;
       suppressRef.current = true;
+      vpSourceRef.current = "programmatic";
       onZoomRef.current(cursorMs, zoomIn);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
 
     // ── ResizeObserver ──────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
-      if (el) chart.applyOptions({ width: el.clientWidth });
+      if (el) {
+        chart.applyOptions({ width: el.clientWidth });
+        drawDayBands();
+      }
     });
     ro.observe(el);
 
     return () => {
+      clearTimeout(panTimerRef.current);
       el.removeEventListener("mousedown", enable);
       el.removeEventListener("touchstart", enable);
       el.removeEventListener("wheel", onWheel);
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
-      lineRef.current = null;
+      mainRef.current = null;
       bandTopRef.current = null;
       bandBotRef.current = null;
     };
@@ -192,21 +284,25 @@ export function HistoryChart({
 
   /* ── Обновление цвета серий ────────────────────────────────────────────── */
   useEffect(() => {
-    lineRef.current?.applyOptions({ color });
-    bandTopRef.current?.applyOptions({ topColor: hexToRgba(color, 0.10) });
+    mainRef.current?.applyOptions({
+      lineColor: color,
+      topColor: hexToRgba(color, 0.18),
+      bottomColor: hexToRgba(color, 0.02),
+    });
+    bandTopRef.current?.applyOptions({ topColor: hexToRgba(color, 0.08) });
   }, [color]);
 
   /* ── Загрузка / обновление данных ──────────────────────────────────────── */
   useEffect(() => {
     const chart = chartRef.current;
-    const line = lineRef.current;
+    const main = mainRef.current;
     const bandTop = bandTopRef.current;
     const bandBot = bandBotRef.current;
-    if (!chart || !line || data === prevDataRef.current) return;
+    if (!chart || !main || data === prevDataRef.current) return;
     prevDataRef.current = data;
 
-    // Main line
-    const lwLine = data.map((p) =>
+    // Main area (avg)
+    const lwMain = data.map((p) =>
       p.value === null
         ? { time: (p.ts / 1000) as Time }
         : { time: (p.ts / 1000) as Time, value: p.value },
@@ -249,7 +345,7 @@ export function HistoryChart({
 
     // Применяем данные и восстанавливаем viewport без мерцания
     suppressRef.current = true;
-    line.setData(lwLine);
+    main.setData(lwMain);
     bandTop?.setData(topData);
     bandBot?.setData(botData);
 
@@ -264,16 +360,25 @@ export function HistoryChart({
           to: (vp.to / 1000) as Time,
         });
       } catch { /* timeScale not ready */ }
-      // Задержка перед снятием suppress — ждём пока LWC отработает
       requestAnimationFrame(() => {
         suppressRef.current = false;
+        drawDayBands();
+        updateFutureStripe();
       });
     });
-  }, [data]);
+  }, [data, drawDayBands]);
 
   /* ── Viewport из engine (zoom, refresh, начальная загрузка) ─────────────── */
   useEffect(() => {
     appliedVpRef.current = viewport;
+
+    // Если viewport обновился от пана — НЕ трогаем chart, LWC уже показывает
+    // правильную позицию. Дёргать setVisibleRange во время drag = рывки.
+    if (vpSourceRef.current === "pan") {
+      vpSourceRef.current = "programmatic"; // сбрасываем флаг
+      return;
+    }
+
     const chart = chartRef.current;
     if (!chart) return;
 
@@ -288,6 +393,7 @@ export function HistoryChart({
       } catch { /* not ready */ }
       requestAnimationFrame(() => {
         suppressRef.current = false;
+        drawDayBands();
         updateFutureStripe();
       });
     });
@@ -295,6 +401,7 @@ export function HistoryChart({
   }, [viewport]);
 
   /* ── Голубая полоска «будущее» ──────────────────────────────────────────── */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const updateFutureStripe = useCallback(() => {
     const chart = chartRef.current;
     const el = futureRef.current;
@@ -316,15 +423,6 @@ export function HistoryChart({
     }
   }, []);
 
-  // Обновлять полоску при скролле
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    const handler = () => updateFutureStripe();
-    chart.timeScale().subscribeVisibleTimeRangeChange(handler);
-    return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(handler);
-  }, [updateFutureStripe]);
-
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div className="relative w-full">
@@ -342,15 +440,21 @@ export function HistoryChart({
 
       {/* Chart container */}
       <div className="relative">
+        {/* Canvas для суточных полос — за графиком */}
+        <canvas
+          ref={dayBandsRef}
+          className="absolute top-0 left-0 pointer-events-none z-0"
+        />
+
         <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
 
         {/* Голубая полоска «будущее» */}
         <div
           ref={futureRef}
-          className="absolute top-0 pointer-events-none"
+          className="absolute top-0 pointer-events-none z-10"
           style={{
             display: "none",
-            bottom: "23px", // высота timeScale LWC
+            bottom: "28px",
             background: "rgba(59, 130, 246, 0.06)",
             borderLeft: "1px dashed rgba(59, 130, 246, 0.25)",
           }}
