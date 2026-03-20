@@ -1,37 +1,39 @@
+/* ── Chart types ─────────────────────────────────────────────────────────── */
+
+export interface ViewportRange {
+  from: number; // Unix ms
+  to: number;   // Unix ms
+}
+
 export interface ChartPoint {
-  ts: number;
-  value: number;
-  min_value?: number | null;
-  max_value?: number | null;
+  ts: number;           // Unix ms
+  value: number | null;
+  minValue?: number | null;
+  maxValue?: number | null;
+  sampleCount?: number;
+}
+
+/* ── API types ──────────────────────────────────────────────────────────── */
+
+export interface HistoryPoint {
+  ts: string | null;
+  value: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  open_value: number | null;
+  close_value: number | null;
+  sample_count: number | null;
+  text: string | null;
+  reason: string | null;
 }
 
 export interface GapZone {
-  fromMs: number;
-  toMs: number;
+  from_ts: string;
+  to_ts: string;
 }
 
-export type HistoryRangeKey = "1h" | "24h" | "7d" | "30d";
-
-export type CameraMode = "live" | "manual";
-
-export interface ViewportRange {
-  from: number;
-  to: number;
-}
-
-export interface ViewportCommand extends ViewportRange {
-  key: number;
-}
-
-export interface ViewportChangeEvent extends ViewportRange {
-  spanMs: number;
-  centerMs: number;
-  interaction: "zoom" | "pan";
-  hasFutureZone: boolean;
-}
-
-export interface RegisterOption {
-  addr: number;
-  label: string;
-  color: string;
+export interface HistoryResponse {
+  points: HistoryPoint[];
+  first_data_at: string | null;
+  gaps: GapZone[];
 }

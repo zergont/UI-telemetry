@@ -1,34 +1,32 @@
-import type { HistoryRangeKey, RegisterOption } from "./types";
+/* ── Chart configuration ─────────────────────────────────────────────────── */
 
-export const REGISTER_OPTIONS: RegisterOption[] = [
-  { addr: 40034, label: "Нагрузка (кВт)", color: "#22c55e" },
-  { addr: 40070, label: "Наработка (сек)", color: "#3b82f6" },
-  { addr: 40063, label: "Температура масла", color: "#f97316" },
-  { addr: 40062, label: "Давление масла", color: "#a855f7" },
-  { addr: 40290, label: "ControllerOn Time", color: "#06b6d4" },
-];
+/** Дефолтный видимый диапазон при первой загрузке — 4 часа */
+export const DEFAULT_SPAN_MS = 4 * 3_600_000;
 
-export const RANGE_MS: Record<HistoryRangeKey, number> = {
-  "1h": 3_600_000,
-  "24h": 86_400_000,
-  "7d": 7 * 86_400_000,
-  "30d": 30 * 86_400_000,
-};
+/** Минимальный видимый диапазон (5 сек — raw-точки каждые ~2 сек) */
+export const MIN_SPAN_MS = 5_000;
 
-export const FUTURE_BUFFER_MS: Record<HistoryRangeKey, number> = {
-  "1h": 5 * 60_000,
-  "24h": 60 * 60_000,
-  "7d": 6 * 3_600_000,
-  "30d": 12 * 3_600_000,
-};
+/** Сколько «экранов» загружаем за один запрос (1 видимый + по бокам) */
+export const PREFETCH_SCREENS = 3;
 
-export const GRID_MS = 2_000;
-export const RAW_THRESHOLD_MS = 60_000;
-export const LIVE_TICK_MS = 5_000;
-export const HISTORY_FETCH_BUCKET_MS = 60_000;
-export const MIN_VISIBLE_SPAN_MS = 30_000;
-export const PRESET_MATCH_TOLERANCE = 0.1;
-export const QUERY_MARGIN_RATIO = 0.15;
-export const FULL_HISTORY_LEFT_PAD_RATIO = 0.05;
-export const FULL_HISTORY_LEFT_PAD_MIN_MS = 5 * 60_000;
-export const MAX_FUTURE_BUFFER_MS = FUTURE_BUFFER_MS["30d"];
+/** Порог подгрузки: если невидимый буфер < 0.5 экрана — грузим ещё */
+export const LOAD_TRIGGER = 0.5;
+
+/** Дебаунс перед запросом данных при навигации (мс) */
+export const FETCH_DEBOUNCE_MS = 200;
+
+/** Скорость зума за один «тик» колёсика (20%) */
+export const ZOOM_SPEED = 0.2;
+
+/** Ширина голубой полоски «будущего» справа от now (мс) */
+export const FUTURE_PAD_MS = 2 * 60_000;
+
+/** Регистры, доступные для выбора */
+export const REGISTER_OPTIONS = [
+  { addr: 40034, label: "Нагрузка",   unit: "кВт", color: "#22c55e" },
+  { addr: 40035, label: "Ток",        unit: "А",   color: "#3b82f6" },
+  { addr: 40038, label: "Напряжение", unit: "В",   color: "#f59e0b" },
+  { addr: 40063, label: "t масла",    unit: "°C",  color: "#ef4444" },
+  { addr: 40062, label: "P масла",    unit: "кПа", color: "#8b5cf6" },
+  { addr: 40070, label: "Моточасы",   unit: "с",   color: "#06b6d4" },
+] as const;

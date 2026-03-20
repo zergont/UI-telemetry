@@ -127,3 +127,9 @@
 .tv-lightweight-charts a {
   display: none !important;
 }
+
+/* Loading bar animation for chart */
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

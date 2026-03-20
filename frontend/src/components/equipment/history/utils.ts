@@ -1,134 +1,136 @@
-import {
-  FULL_HISTORY_LEFT_PAD_MIN_MS,
-  FULL_HISTORY_LEFT_PAD_RATIO,
-  FUTURE_BUFFER_MS,
-  GRID_MS,
-  MAX_FUTURE_BUFFER_MS,
-  MIN_VISIBLE_SPAN_MS,
-  PRESET_MATCH_TOLERANCE,
-  RANGE_MS,
-  RAW_THRESHOLD_MS,
-} from "./constants";
-import type { ChartPoint, GapZone, HistoryRangeKey, ViewportRange } from "./types";
+import type { ChartPoint, GapZone, HistoryPoint } from "./types";
 
-export function isFiniteNumber(value: number | null | undefined): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+/* ── Примитивы ──────────────────────────────────────────────────────────── */
+
+export function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
 }
 
-export function interpolateToGrid(
-  rawPoints: ChartPoint[],
-  gapZones: GapZone[],
-): { interpolated: ChartPoint[]; rawTimestamps: Set<number> } {
-  const rawTimestamps = new Set<number>(rawPoints.map((p) => p.ts));
-  if (rawPoints.length < 2) return { interpolated: rawPoints, rawTimestamps };
+export function parseIsoToMs(iso: string): number {
+  return new Date(iso.endsWith("Z") ? iso : `${iso}Z`).getTime();
+}
 
-  const intervals: number[] = [];
-  for (let i = 1; i < rawPoints.length; i++) {
-    intervals.push(rawPoints[i].ts - rawPoints[i - 1].ts);
-  }
-  intervals.sort((a, b) => a - b);
-  const median = intervals[Math.floor(intervals.length / 2)];
+export function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
 
-  if (median > RAW_THRESHOLD_MS) return { interpolated: rawPoints, rawTimestamps };
+/* ── Target points ──────────────────────────────────────────────────────── */
+
+/**
+ * Оптимальное количество точек для запроса.
+ * При глубоком зуме → больше точек (до raw), при обзоре → меньше.
+ */
+export function calcTargetPoints(spanMs: number): number {
+  const screenW = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const ONE_HOUR = 3_600_000;
+  const ONE_DAY = 86_400_000;
+  let density: number;
+  if (spanMs <= ONE_HOUR) density = 4;
+  else if (spanMs <= ONE_DAY) density = 2;
+  else density = 1;
+  return clamp(Math.round(screenW * density), 500, 20_000);
+}
+
+/**
+ * «Корзина» уровня зума — меняется только при значимом изменении масштаба.
+ * Используется как ключ для инвалидации кэша данных.
+ */
+export function zoomBucket(spanMs: number): number {
+  return Math.floor(Math.log2(Math.max(spanMs, 5000) / 60_000));
+}
+
+/* ── Конвертация API → ChartPoint[] ─────────────────────────────────────── */
+
+export function buildChartData(
+  points: HistoryPoint[],
+  gaps: GapZone[],
+): ChartPoint[] {
+  const valid = points.filter(
+    (p) =>
+      p.ts != null &&
+      p.value != null &&
+      p.reason?.toUpperCase().includes("NA") !== true,
+  );
+
+  const converted: ChartPoint[] = valid
+    .map((p) => ({
+      ts: parseIsoToMs(p.ts!),
+      value: p.value!,
+      minValue: p.min_value,
+      maxValue: p.max_value,
+      sampleCount: p.sample_count ?? 1,
+    }))
+    .filter((p) => isFiniteNumber(p.ts) && isFiniteNumber(p.value as number))
+    .sort((a, b) => a.ts - b.ts);
+
+  if (converted.length === 0) return [];
+
+  // Null-bridge для гэпов
+  const gapMs = gaps
+    .map((g) => ({ from: parseIsoToMs(g.from_ts), to: parseIsoToMs(g.to_ts) }))
+    .filter((g) => isFiniteNumber(g.from) && isFiniteNumber(g.to) && g.to > g.from);
+
+  if (gapMs.length === 0) return converted;
 
   const result: ChartPoint[] = [];
-  for (let i = 0; i < rawPoints.length; i++) {
-    result.push(rawPoints[i]);
-    if (i < rawPoints.length - 1) {
-      const p0 = rawPoints[i];
-      const p1 = rawPoints[i + 1];
-      const gapMs = p1.ts - p0.ts;
-      const isGap = gapZones.some((g) => g.fromMs < p1.ts && g.toMs > p0.ts);
-      if (!isGap && gapMs > GRID_MS) {
-        const steps = Math.floor(gapMs / GRID_MS);
-        for (let j = 1; j < steps; j++) {
-          const t = p0.ts + j * GRID_MS;
-          const ratio = (t - p0.ts) / gapMs;
-          result.push({ ts: t, value: p0.value + ratio * (p1.value - p0.value) });
-        }
+  for (const pt of converted) {
+    for (const g of gapMs) {
+      if (Math.abs(pt.ts - g.to) < 1000) {
+        result.push({ ts: g.from, value: null });
+        result.push({ ts: g.to, value: null });
       }
     }
+    result.push(pt);
   }
 
-  return { interpolated: result, rawTimestamps };
+  const seen = new Set<number>();
+  return result
+    .filter((p) => {
+      if (seen.has(p.ts)) return false;
+      seen.add(p.ts);
+      return true;
+    })
+    .sort((a, b) => a.ts - b.ts);
 }
 
-export function getMatchingPreset(spanMs: number): HistoryRangeKey | null {
-  if (!isFiniteNumber(spanMs) || spanMs <= 0) return null;
-  for (const key of Object.keys(RANGE_MS) as HistoryRangeKey[]) {
-    const presetSpan = RANGE_MS[key];
-    if (Math.abs(spanMs - presetSpan) / presetSpan <= PRESET_MATCH_TOLERANCE) {
-      return key;
+/* ── Merge двух отсортированных массивов точек ──────────────────────────── */
+
+/**
+ * Объединяет два отсортированных по ts массива ChartPoint[].
+ * При дубликатах по ts: если один из них null-bridge — оставляем оба (нужны для gap).
+ * Иначе берём точку с большим sampleCount (более актуальная агрегация).
+ */
+export function mergePoints(a: ChartPoint[], b: ChartPoint[]): ChartPoint[] {
+  const result: ChartPoint[] = [];
+  let i = 0;
+  let j = 0;
+
+  while (i < a.length && j < b.length) {
+    const pa = a[i];
+    const pb = b[j];
+
+    if (pa.ts < pb.ts) {
+      result.push(pa);
+      i++;
+    } else if (pa.ts > pb.ts) {
+      result.push(pb);
+      j++;
+    } else {
+      // Одинаковый ts — одну из них null-bridge?
+      if (pa.value === null || pb.value === null) {
+        result.push(pa);
+        if (pb.value !== pa.value) result.push(pb);
+      } else {
+        // Берём более «свежую» (от последнего запроса = b)
+        result.push(pb);
+      }
+      i++;
+      j++;
     }
   }
-  return null;
-}
 
-export function getFutureBufferMs(spanMs: number): number {
-  if (!isFiniteNumber(spanMs) || spanMs <= 0) {
-    return FUTURE_BUFFER_MS["24h"] ?? MAX_FUTURE_BUFFER_MS;
-  }
-  let closest: HistoryRangeKey = "24h";
-  let bestDistance = Number.POSITIVE_INFINITY;
+  while (i < a.length) result.push(a[i++]);
+  while (j < b.length) result.push(b[j++]);
 
-  for (const key of Object.keys(RANGE_MS) as HistoryRangeKey[]) {
-    const distance = Math.abs(Math.log(spanMs / RANGE_MS[key]));
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      closest = key;
-    }
-  }
-
-  return FUTURE_BUFFER_MS[closest] ?? MAX_FUTURE_BUFFER_MS;
-}
-
-export function clampVisibleSpan(spanMs: number, maxSpanMs: number | null): number {
-  const baseSpan = isFiniteNumber(spanMs) && spanMs > 0 ? spanMs : MIN_VISIBLE_SPAN_MS;
-  const clamped = Math.max(baseSpan, MIN_VISIBLE_SPAN_MS);
-  if (maxSpanMs == null) return clamped;
-  return Math.min(clamped, maxSpanMs);
-}
-
-export function computeMaxVisibleSpan(firstDataAt: number | null, nowMs: number): number | null {
-  if (!isFiniteNumber(firstDataAt) || !isFiniteNumber(nowMs)) return null;
-  const historySpan = Math.max(nowMs - firstDataAt, MIN_VISIBLE_SPAN_MS);
-  const leftPad = Math.max(FULL_HISTORY_LEFT_PAD_MIN_MS, historySpan * FULL_HISTORY_LEFT_PAD_RATIO);
-  const leftEdge = Math.max(0, firstDataAt - leftPad);
-  return nowMs + MAX_FUTURE_BUFFER_MS - leftEdge;
-}
-
-export function alignViewportToLive(
-  spanMs: number,
-  nowMs: number,
-  futureBufferMs: number,
-): ViewportRange {
-  const safeSpan = clampVisibleSpan(spanMs, null);
-  const safeNow = isFiniteNumber(nowMs) ? nowMs : Date.now();
-  const safeFutureBuffer = isFiniteNumber(futureBufferMs) ? futureBufferMs : getFutureBufferMs(safeSpan);
-  const to = safeNow + safeFutureBuffer;
-  return {
-    from: to - safeSpan,
-    to,
-  };
-}
-
-export function makeViewportFromCenter(centerMs: number, spanMs: number): ViewportRange {
-  const safeSpan = clampVisibleSpan(spanMs, null);
-  const safeCenter = isFiniteNumber(centerMs) ? centerMs : Date.now();
-  return {
-    from: safeCenter - safeSpan / 2,
-    to: safeCenter + safeSpan / 2,
-  };
-}
-
-export function sanitizeViewportRange(
-  viewport: ViewportRange,
-  fallback: ViewportRange,
-): ViewportRange {
-  const from = isFiniteNumber(viewport.from) ? viewport.from : fallback.from;
-  const to = isFiniteNumber(viewport.to) ? viewport.to : fallback.to;
-  if (!isFiniteNumber(from) || !isFiniteNumber(to) || to <= from) {
-    return fallback;
-  }
-  return { from, to };
+  return result;
 }
