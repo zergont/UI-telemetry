@@ -116,7 +116,7 @@ export function useChartEngine({
   const [isLoading, setIsLoading] = useState(true);
 
   const cacheRef = useRef<DataCache | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const viewportRef = useRef(viewport);
   const firstDataAtRef = useRef(firstDataAt);
