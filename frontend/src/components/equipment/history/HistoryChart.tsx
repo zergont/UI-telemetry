@@ -75,8 +75,10 @@ export function HistoryChart({
   // Refs для колбэков — чтобы chart init effect не пересоздавался
   const onZoomRef = useRef(onZoom);
   const onPanRef = useRef(onPan);
+  const colorRef = useRef(color);
   onZoomRef.current = onZoom;
   onPanRef.current = onPan;
+  colorRef.current = color;
 
   // Для голубой полоски «будущее»
   const futureRef = useRef<HTMLDivElement>(null);
@@ -343,11 +345,32 @@ export function HistoryChart({
           }))
       : [];
 
+    // Определяем: raw данные? (sampleCount === 1 или отсутствует у большинства)
+    const rawPoints = data.filter(
+      (p) => p.value !== null && (p.sampleCount == null || p.sampleCount <= 1),
+    );
+    const isRaw = rawPoints.length > data.filter((p) => p.value !== null).length * 0.5;
+
     // Применяем данные и восстанавливаем viewport без мерцания
     suppressRef.current = true;
     main.setData(lwMain);
     bandTop?.setData(topData);
     bandBot?.setData(botData);
+
+    // Точки на raw данных — маркеры на каждой реальной точке
+    if (isRaw && rawPoints.length <= 2000) {
+      main.setMarkers(
+        rawPoints.map((p) => ({
+          time: (p.ts / 1000) as Time,
+          position: "inBar" as const,
+          color: colorRef.current,
+          shape: "circle" as const,
+          size: 0.5,
+        })),
+      );
+    } else {
+      main.setMarkers([]);
+    }
 
     // Восстановить viewport в следующем кадре (после layout LWC)
     const vp = appliedVpRef.current;

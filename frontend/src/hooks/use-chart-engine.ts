@@ -262,7 +262,19 @@ export function useChartEngine({
   /* ── setViewport (от drag/pan в LWC) ───────────────────────────────────── */
   const setViewport = useCallback((vp: ViewportRange) => {
     if (!isFiniteNumber(vp.from) || !isFiniteNumber(vp.to) || vp.to <= vp.from) return;
-    if (vp.to - vp.from < MIN_SPAN_MS) return;
+    const span = vp.to - vp.from;
+    if (span < MIN_SPAN_MS) return;
+
+    // Ограничение пана в прошлое: не дальше firstDataAt - 30% видимой области.
+    // Это создаёт «мёртвую зону» — пользователь видит пустоту и понимает, что данных больше нет.
+    const fda = firstDataAtRef.current;
+    if (fda != null) {
+      const minFrom = fda - span * 0.3;
+      if (vp.from < minFrom) {
+        vp = { from: minFrom, to: minFrom + span };
+      }
+    }
+
     setViewportRaw(vp);
   }, []);
 
