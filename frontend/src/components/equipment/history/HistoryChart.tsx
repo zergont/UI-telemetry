@@ -137,7 +137,7 @@ export function HistoryChart({
           const left = Math.max(0, x1);
           const right = Math.min(W, x2);
           if (right > left) {
-            ctx.fillStyle = "rgba(148, 163, 184, 0.03)";
+            ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
             ctx.fillRect(left, 0, right - left, H);
           }
         }
@@ -371,7 +371,7 @@ export function HistoryChart({
         position: "inBar" as const,
         color: colorRef.current,
         shape: "circle" as const,
-        size: 0.5,
+        size: 0.2,
       }));
       if (markersRef.current) {
         markersRef.current.setMarkers(markers);
@@ -473,13 +473,14 @@ export function HistoryChart({
 
       {/* Chart container */}
       <div className="relative">
-        {/* Canvas для суточных полос — за графиком */}
+        <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
+
+        {/* Canvas для суточных полос — поверх графика, но не блокирует клики */}
         <canvas
           ref={dayBandsRef}
-          className="absolute top-0 left-0 pointer-events-none z-0"
+          className="absolute top-0 left-0 pointer-events-none"
+          style={{ zIndex: 5 }}
         />
-
-        <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
 
         {/* Голубая полоска «будущее» */}
         <div
