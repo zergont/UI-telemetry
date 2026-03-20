@@ -16,7 +16,6 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
-import OverviewTab from "@/components/equipment/OverviewTab";
 import RegistersTab from "@/components/equipment/registers/RegistersTab";
 import HistoryTab from "@/components/equipment/history/HistoryTab";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -188,15 +187,20 @@ export default function EquipmentPage() {
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs defaultValue="history" className="w-full">
         <TabsList>
-          <TabsTrigger value="overview">Обзор</TabsTrigger>
-          <TabsTrigger value="registers">Регистры</TabsTrigger>
           <TabsTrigger value="history">История</TabsTrigger>
+          <TabsTrigger value="registers">Регистры</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="mt-4">
-          <OverviewTab status={status} installedPower={installedPower} currentLoad={currentLoad} />
+        <TabsContent value="history" className="mt-4">
+          <ErrorBoundary>
+            <HistoryTab
+              routerSn={routerSn!}
+              equipType={equipType!}
+              panelId={panelId!}
+            />
+          </ErrorBoundary>
         </TabsContent>
 
         <TabsContent value="registers" className="mt-4">
@@ -207,16 +211,6 @@ export default function EquipmentPage() {
             wsConnected={wsConnected}
             lastWsUpdate={lastUpdate}
           />
-        </TabsContent>
-
-        <TabsContent value="history" className="mt-4">
-          <ErrorBoundary>
-            <HistoryTab
-              routerSn={routerSn!}
-              equipType={equipType!}
-              panelId={panelId!}
-            />
-          </ErrorBoundary>
         </TabsContent>
       </Tabs>
     </div>
