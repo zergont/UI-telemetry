@@ -79,7 +79,7 @@ async function fetchRange(
     addr: String(addr),
     start: new Date(from).toISOString(),
     end: new Date(Math.min(to, Date.now() + FUTURE_PAD_MS)).toISOString(),
-    points: String(points),
+    points: String(Math.min(points, 20000)),
     min_gap_points: String(minGapPoints),
   });
 

@@ -137,7 +137,7 @@ export function HistoryChart({
           const left = Math.max(0, x1);
           const right = Math.min(W, x2);
           if (right > left) {
-            ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
+            ctx.fillStyle = "rgba(148, 163, 184, 0.10)";
             ctx.fillRect(left, 0, right - left, H);
           }
         }
@@ -371,7 +371,7 @@ export function HistoryChart({
         position: "inBar" as const,
         color: colorRef.current,
         shape: "circle" as const,
-        size: 0.2,
+        size: 0.1,
       }));
       if (markersRef.current) {
         markersRef.current.setMarkers(markers);
