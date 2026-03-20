@@ -13,7 +13,7 @@ interface HistoryTabProps {
 }
 
 export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabProps) {
-  const [selectedAddr, setSelectedAddr] = useState(REGISTER_OPTIONS[0].addr);
+  const [selectedAddr, setSelectedAddr] = useState<number>(REGISTER_OPTIONS[0].addr);
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr)!;
 
   const engine = useChartEngine({

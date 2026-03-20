@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import {
   createChart,
   LineSeries,
@@ -8,8 +8,9 @@ import {
   type IChartApi,
   type ISeriesApi,
   type Time,
+  type LineWidth,
 } from "lightweight-charts";
-import { FUTURE_PAD_MS, MIN_SPAN_MS } from "./constants";
+import { MIN_SPAN_MS } from "./constants";
 import type { ChartPoint, ViewportRange } from "./types";
 
 /* ── Props ──────────────────────────────────────────────────────────────── */
@@ -102,7 +103,7 @@ export function HistoryChart({
 
     // ── Band top (max) ─────────────────────────────────────────────
     const bandTop = chart.addSeries(AreaSeries, {
-      lineWidth: 0,
+      lineWidth: 1 as LineWidth,
       lineColor: "transparent",
       topColor: hexToRgba("#22c55e", 0.10),
       bottomColor: "transparent",
@@ -113,7 +114,7 @@ export function HistoryChart({
 
     // ── Band bottom (min) — перекрывает нижнюю часть bandTop ───────
     const bandBot = chart.addSeries(AreaSeries, {
-      lineWidth: 0,
+      lineWidth: 1 as LineWidth,
       lineColor: "transparent",
       topColor: "rgba(0,0,0,0)",
       bottomColor: "transparent",
@@ -319,10 +320,9 @@ export function HistoryChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const unsub = chart.timeScale().subscribeVisibleTimeRangeChange(() => {
-      updateFutureStripe();
-    });
-    return () => unsub();
+    const handler = () => updateFutureStripe();
+    chart.timeScale().subscribeVisibleTimeRangeChange(handler);
+    return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(handler);
   }, [updateFutureStripe]);
 
   /* ── Render ───────────────────────────────────────────────────────────── */

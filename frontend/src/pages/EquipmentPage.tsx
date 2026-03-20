@@ -16,10 +16,10 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
-import { ErrorBoundary } from "@/components/ui/error-boundary";
 import OverviewTab from "@/components/equipment/OverviewTab";
 import RegistersTab from "@/components/equipment/registers/RegistersTab";
-import EquipmentHistoryPanel from "@/components/equipment/history/EquipmentHistoryPanel";
+import HistoryTab from "@/components/equipment/history/HistoryTab";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -29,8 +29,6 @@ export default function EquipmentPage() {
   }>();
 
   const isAdmin = useIsAdmin();
-  const [activeTab, setActiveTab] = useState("history");
-
   const key = makeEquipKey(routerSn!, equipType!, panelId!);
   const liveRegs = useTelemetryStore((s) => s.registers.get(key));
   const liveStatus = useTelemetryStore((s) => s.statuses.get(key));
@@ -190,7 +188,7 @@ export default function EquipmentPage() {
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="history" className="w-full" onValueChange={setActiveTab}>
+      <Tabs defaultValue="overview" className="w-full">
         <TabsList>
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="registers">Регистры</TabsTrigger>
@@ -212,15 +210,13 @@ export default function EquipmentPage() {
         </TabsContent>
 
         <TabsContent value="history" className="mt-4">
-          {activeTab === "history" && (
-            <ErrorBoundary>
-              <EquipmentHistoryPanel
-                routerSn={routerSn!}
-                equipType={equipType!}
-                panelId={panelId!}
-              />
-            </ErrorBoundary>
-          )}
+          <ErrorBoundary>
+            <HistoryTab
+              routerSn={routerSn!}
+              equipType={equipType!}
+              panelId={panelId!}
+            />
+          </ErrorBoundary>
         </TabsContent>
       </Tabs>
     </div>
