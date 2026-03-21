@@ -181,6 +181,53 @@ def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     return gaps
 
 
+async def _fetch_boundary_points(
+    conn: asyncpg.Connection,
+    table: str,
+    router_sn: str,
+    equip_type: str,
+    panel_id: int,
+    addr: int,
+    start: datetime,
+    end: datetime,
+) -> tuple[dict | None, dict | None]:
+    """Ближайшая точка ДО start и ПОСЛЕ end.
+
+    Гарантирует, что LWC всегда имеет точки по краям viewport,
+    даже если в запрошенном диапазоне данных мало (редкие записи).
+    """
+    is_raw = table == "history"
+
+    if is_raw:
+        cols = """
+            ts, value,
+            value AS min_value, value AS max_value,
+            value AS open_value, value AS close_value,
+            1::bigint AS sample_count, text, reason
+        """
+    else:
+        cols = """
+            ts, avg_value AS value,
+            min_value, max_value, open_value, close_value,
+            sample_count, NULL::text AS text, NULL::text AS reason
+        """
+
+    before = await conn.fetchrow(
+        f"SELECT {cols} FROM {table} "
+        "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4 "
+        "  AND ts < $5 ORDER BY ts DESC LIMIT 1",
+        router_sn, equip_type, panel_id, addr, start,
+    )
+    after = await conn.fetchrow(
+        f"SELECT {cols} FROM {table} "
+        "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4 "
+        "  AND ts > $5 ORDER BY ts ASC LIMIT 1",
+        router_sn, equip_type, panel_id, addr, end,
+    )
+
+    return (dict(before) if before else None, dict(after) if after else None)
+
+
 async def fetch_history(
     pool: asyncpg.Pool,
     router_sn: str,
@@ -213,6 +260,13 @@ async def fetch_history(
                 conn, table, router_sn, equip_type, panel_id, addr, start, end, limit
             )
 
+        # Граничные точки: ближайшая ДО start и ПОСЛЕ end.
+        # Гарантируют, что график имеет данные по краям viewport,
+        # даже если в диапазоне точек мало (редкие записи при простое).
+        before, after = await _fetch_boundary_points(
+            conn, table, router_sn, equip_type, panel_id, addr, start, end,
+        )
+
         first_data_at = await conn.fetchval(
             f"SELECT MIN(ts) FROM {table} "
             "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4",
@@ -220,7 +274,15 @@ async def fetch_history(
         )
 
     points = [dict(r) for r in rows]
-    gaps   = _compute_gaps(points, min_gap_points)
+
+    # Добавляем граничные точки (если их ts ещё нет в результате)
+    existing_ts = {p["ts"] for p in points}
+    if before and before["ts"] not in existing_ts:
+        points.insert(0, before)
+    if after and after["ts"] not in existing_ts:
+        points.append(after)
+
+    gaps = _compute_gaps(points, min_gap_points)
 
     return {
         "points":        points,
