@@ -263,7 +263,7 @@ export function useChartEngine({
   const setViewport = useCallback((vp: ViewportRange) => {
     if (!isFiniteNumber(vp.from) || !isFiniteNumber(vp.to) || vp.to <= vp.from) return;
     const span = vp.to - vp.from;
-    if (span < MIN_SPAN_MS) return;
+    if (span < MIN_SPAN_MS * 0.8) return;
 
     // Ограничение пана в будущее: правый край не дальше now + FUTURE_PAD_MS
     const maxTo = Date.now() + FUTURE_PAD_MS;

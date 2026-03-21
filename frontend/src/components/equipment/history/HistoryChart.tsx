@@ -346,7 +346,7 @@ export function HistoryChart({
       // LWC секунды → UTC ms (вычитаем tz offset)
       const from = ((range.from as number) - tzOffRef.current) * 1000;
       const to = ((range.to as number) - tzOffRef.current) * 1000;
-      if (to - from < MIN_SPAN_MS) return;
+      if (to - from < MIN_SPAN_MS * 0.8) return;
       appliedVpRef.current = { from, to };
 
       // Debounce: не дёргаем React state на каждый кадр пана.
@@ -371,6 +371,16 @@ export function HistoryChart({
     };
     const onPointerUp = () => {
       isDraggingRef.current = false;
+
+      // Flush pending pan timer so engine viewport is up-to-date
+      // before drift correction runs.
+      const hadPendingPan = panTimerRef.current !== undefined;
+      if (hadPendingPan) {
+        clearTimeout(panTimerRef.current);
+        panTimerRef.current = undefined;
+        onPanRef.current(appliedVpRef.current);
+      }
+
       // Применяем данные, которые пришли во время drag
       const pending = pendingDataRef.current;
       if (pending) {
@@ -380,26 +390,30 @@ export function HistoryChart({
 
       // Коррекция: если engine зажал viewport (clamp будущего/прошлого),
       // то LWC показывает не ту позицию. Возвращаем график на место.
-      const engineVp = viewportPropRef.current;
-      const lwcVp = appliedVpRef.current;
-      const drift = Math.abs(engineVp.from - lwcVp.from) + Math.abs(engineVp.to - lwcVp.to);
-      if (drift > 500) {
-        appliedVpRef.current = engineVp;
-        suppressRef.current = true;
-        requestAnimationFrame(() => {
-          if (!chartRef.current) return;
-          try {
-            chartRef.current.timeScale().setVisibleRange({
-              from: ((engineVp.from / 1000) + tzOffRef.current) as Time,
-              to: ((engineVp.to / 1000) + tzOffRef.current) as Time,
-            });
-          } catch { /* */ }
+      // Если мы только что flush'нули pan — engine скоро обновит viewport
+      // через React state, и viewport effect сам поставит chart на место.
+      if (!hadPendingPan) {
+        const engineVp = viewportPropRef.current;
+        const lwcVp = appliedVpRef.current;
+        const drift = Math.abs(engineVp.from - lwcVp.from) + Math.abs(engineVp.to - lwcVp.to);
+        if (drift > 500) {
+          appliedVpRef.current = engineVp;
+          suppressRef.current = true;
           requestAnimationFrame(() => {
-            suppressRef.current = false;
-            drawDayBands();
-            updateFutureStripe();
+            if (!chartRef.current) return;
+            try {
+              chartRef.current.timeScale().setVisibleRange({
+                from: ((engineVp.from / 1000) + tzOffRef.current) as Time,
+                to: ((engineVp.to / 1000) + tzOffRef.current) as Time,
+              });
+            } catch { /* */ }
+            requestAnimationFrame(() => {
+              suppressRef.current = false;
+              drawDayBands();
+              updateFutureStripe();
+            });
           });
-        });
+        }
       }
     };
 
