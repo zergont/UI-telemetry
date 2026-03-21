@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useChartEngine } from "@/hooks/use-chart-engine";
 import { HistoryChart } from "./HistoryChart";
-import { REGISTER_OPTIONS } from "./constants";
+import { MIN_SPAN_MS, REGISTER_OPTIONS } from "./constants";
 
 interface HistoryTabProps {
   routerSn: string;
@@ -24,6 +24,10 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
   });
 
   const hasData = engine.data.some((p) => p.value !== null);
+
+  // Уровень зума: 0 = максимальное приближение (MIN_SPAN_MS), +1 за каждый шаг отдаления
+  const span = engine.viewport.to - engine.viewport.from;
+  const zoomLevel = Math.max(0, Math.round(Math.log(span / MIN_SPAN_MS) / Math.log(1.25)));
 
   return (
     <div className="space-y-4">
@@ -48,6 +52,10 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
           <RefreshCw className={`h-3.5 w-3.5 ${engine.isLoading ? "animate-spin" : ""}`} />
           Обновить
         </button>
+
+        <span className="ml-auto text-xs text-muted-foreground/50 tabular-nums">
+          z{zoomLevel}
+        </span>
       </div>
 
       {/* График */}
