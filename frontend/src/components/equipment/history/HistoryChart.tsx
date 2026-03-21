@@ -78,8 +78,9 @@ export function HistoryChart({
   const prevDataRef = useRef<ChartPoint[] | null>(null);
   const appliedVpRef = useRef<ViewportRange>(viewport);
 
-  // Источник последнего изменения viewport: "pan" | "programmatic"
-  const vpSourceRef = useRef<"pan" | "programmatic">("programmatic");
+  // Ref для viewport prop — нужен в mouseup чтобы скорректировать позицию после clamping
+  const viewportPropRef = useRef(viewport);
+  viewportPropRef.current = viewport;
 
   // Refs для колбэков — чтобы chart init effect не пересоздавался
   const onZoomRef = useRef(onZoom);
@@ -353,7 +354,6 @@ export function HistoryChart({
       // это триггерит подгрузку данных, но не мешает анимации.
       clearTimeout(panTimerRef.current);
       panTimerRef.current = setTimeout(() => {
-        vpSourceRef.current = "pan";
         onPanRef.current({ from, to });
       }, 80);
 
@@ -377,6 +377,30 @@ export function HistoryChart({
         pendingDataRef.current = null;
         applyDataToChart(pending);
       }
+
+      // Коррекция: если engine зажал viewport (clamp будущего/прошлого),
+      // то LWC показывает не ту позицию. Возвращаем график на место.
+      const engineVp = viewportPropRef.current;
+      const lwcVp = appliedVpRef.current;
+      const drift = Math.abs(engineVp.from - lwcVp.from) + Math.abs(engineVp.to - lwcVp.to);
+      if (drift > 500) {
+        appliedVpRef.current = engineVp;
+        suppressRef.current = true;
+        requestAnimationFrame(() => {
+          if (!chartRef.current) return;
+          try {
+            chartRef.current.timeScale().setVisibleRange({
+              from: ((engineVp.from / 1000) + tzOffRef.current) as Time,
+              to: ((engineVp.to / 1000) + tzOffRef.current) as Time,
+            });
+          } catch { /* */ }
+          requestAnimationFrame(() => {
+            suppressRef.current = false;
+            drawDayBands();
+            updateFutureStripe();
+          });
+        });
+      }
     };
 
     el.addEventListener("mousedown", onPointerDown);
@@ -395,7 +419,6 @@ export function HistoryChart({
       const cursorMs = ((cursorTime as number) - tzOffRef.current) * 1000;
       const zoomIn = e.deltaY < 0;
       suppressRef.current = true;
-      vpSourceRef.current = "programmatic";
       onZoomRef.current(cursorMs, zoomIn);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -456,12 +479,9 @@ export function HistoryChart({
   useEffect(() => {
     appliedVpRef.current = viewport;
 
-    // Если viewport обновился от пана — НЕ трогаем chart, LWC уже показывает
-    // правильную позицию. Дёргать setVisibleRange во время drag = рывки.
-    if (vpSourceRef.current === "pan") {
-      vpSourceRef.current = "programmatic"; // сбрасываем флаг
-      return;
-    }
+    // Во время активного drag LWC сам двигает график.
+    // Дёргать setVisibleRange в это время = рывки.
+    if (isDraggingRef.current) return;
 
     const chart = chartRef.current;
     if (!chart) return;
