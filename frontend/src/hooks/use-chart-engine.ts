@@ -265,6 +265,12 @@ export function useChartEngine({
     const span = vp.to - vp.from;
     if (span < MIN_SPAN_MS) return;
 
+    // Ограничение пана в будущее: правый край не дальше now + FUTURE_PAD_MS
+    const maxTo = Date.now() + FUTURE_PAD_MS;
+    if (vp.to > maxTo) {
+      vp = { from: maxTo - span, to: maxTo };
+    }
+
     // Ограничение пана в прошлое: не дальше firstDataAt - 30% видимой области.
     // Это создаёт «мёртвую зону» — пользователь видит пустоту и понимает, что данных больше нет.
     const fda = firstDataAtRef.current;

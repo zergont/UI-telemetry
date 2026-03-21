@@ -2,6 +2,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useChartEngine } from "@/hooks/use-chart-engine";
 import { HistoryChart } from "./HistoryChart";
 import { MIN_SPAN_MS, REGISTER_OPTIONS } from "./constants";
@@ -13,6 +14,7 @@ interface HistoryTabProps {
 }
 
 export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabProps) {
+  const tzOffsetHours = useSettingsStore((s) => s.tzOffsetHours);
   const [selectedAddr, setSelectedAddr] = useState<number>(REGISTER_OPTIONS[0].addr);
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr)!;
 
@@ -75,6 +77,7 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
           color={selectedReg.color}
           viewport={engine.viewport}
           isLoading={engine.isLoading}
+          tzOffsetHours={tzOffsetHours}
           onZoom={engine.zoomAtCursor}
           onPan={engine.setViewport}
         />

@@ -23,6 +23,8 @@ interface HistoryChartProps {
   color: string;
   viewport: ViewportRange;
   isLoading: boolean;
+  /** Смещение часового пояса в часах от UTC (для отображения на оси) */
+  tzOffsetHours: number;
   onZoom: (cursorTimeMs: number, zoomIn: boolean) => void;
   onPan: (vp: ViewportRange) => void;
 }
@@ -36,9 +38,10 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Начало UTC-суток (00:00) для timestamp в ms */
-function startOfDayUTC(ms: number): number {
-  const d = new Date(ms);
+/** Начало суток (00:00) для LWC-timestamp в ms (уже со сдвигом tz) */
+function startOfDayShifted(shiftedMs: number): number {
+  // shiftedMs уже содержит tz offset, поэтому UTC-midnight по сдвинутому = полночь в нужном tz
+  const d = new Date(shiftedMs);
   d.setUTCHours(0, 0, 0, 0);
   return d.getTime();
 }
@@ -54,6 +57,7 @@ export function HistoryChart({
   color,
   viewport,
   isLoading,
+  tzOffsetHours,
   onZoom,
   onPan,
 }: HistoryChartProps) {
@@ -85,6 +89,13 @@ export function HistoryChart({
   onPanRef.current = onPan;
   colorRef.current = color;
 
+  // Timezone offset: UTC ms → LWC "визуальные" секунды и обратно.
+  // LWC не поддерживает timezone — фейкаем, сдвигая timestamps.
+  // Timezone offset в секундах. LWC не поддерживает timezone нативно —
+  // мы сдвигаем timestamps на offset, чтобы ось X показывала локальное время.
+  const tzOffRef = useRef(tzOffsetHours * 3600);
+  tzOffRef.current = tzOffsetHours * 3600;
+
   // Для голубой полоски «будущее»
   const futureRef = useRef<HTMLDivElement>(null);
   // Для canvas суточных полос
@@ -106,11 +117,12 @@ export function HistoryChart({
 
     prevDataRef.current = pts;
 
-    // Main area (avg)
+    // Main area (avg) — применяем timezone offset
+    const off = tzOffRef.current;
     const lwMain = pts.map((p) =>
       p.value === null
-        ? { time: (p.ts / 1000) as Time }
-        : { time: (p.ts / 1000) as Time, value: p.value },
+        ? { time: ((p.ts / 1000) + off) as Time }
+        : { time: ((p.ts / 1000) + off) as Time, value: p.value },
     );
 
     // Min/Max band (только для агрегированных данных)
@@ -128,7 +140,7 @@ export function HistoryChart({
       ? pts
           .filter((p) => p.value !== null)
           .map((p) => ({
-            time: (p.ts / 1000) as Time,
+            time: ((p.ts / 1000) + off) as Time,
             value:
               p.maxValue != null && p.sampleCount != null && p.sampleCount > 1
                 ? p.maxValue
@@ -140,7 +152,7 @@ export function HistoryChart({
       ? pts
           .filter((p) => p.value !== null)
           .map((p) => ({
-            time: (p.ts / 1000) as Time,
+            time: ((p.ts / 1000) + off) as Time,
             value:
               p.minValue != null && p.sampleCount != null && p.sampleCount > 1
                 ? p.minValue
@@ -163,7 +175,7 @@ export function HistoryChart({
     // Точки на raw данных
     if (isRaw && rawPoints.length <= 2000) {
       const markers = rawPoints.map((p) => ({
-        time: (p.ts / 1000) as Time,
+        time: ((p.ts / 1000) + off) as Time,
         position: "inBar" as const,
         color: colorRef.current,
         shape: "circle" as const,
@@ -178,15 +190,15 @@ export function HistoryChart({
       markersRef.current.setMarkers([]);
     }
 
-    // Восстановить viewport
+    // Восстановить viewport (с tz offset)
     const vp = appliedVpRef.current;
     requestAnimationFrame(() => {
       if (!chartRef.current) return;
       suppressRef.current = true;
       try {
         chartRef.current.timeScale().setVisibleRange({
-          from: (vp.from / 1000) as Time,
-          to: (vp.to / 1000) as Time,
+          from: ((vp.from / 1000) + tzOffRef.current) as Time,
+          to: ((vp.to / 1000) + tzOffRef.current) as Time,
         });
       } catch { /* timeScale not ready */ }
       requestAnimationFrame(() => {
@@ -224,8 +236,8 @@ export function HistoryChart({
     const fromMs = (range.from as number) * 1000;
     const toMs = (range.to as number) * 1000;
 
-    // Находим начало первого видимого дня
-    let dayStart = startOfDayUTC(fromMs);
+    // Находим начало первого видимого дня (fromMs/toMs уже в shifted координатах LWC)
+    let dayStart = startOfDayShifted(fromMs);
     let dayIndex = 0;
 
     // Определяем чётность первого дня (по кол-ву дней от epoch)
@@ -330,8 +342,9 @@ export function HistoryChart({
     // Мы только отслеживаем куда пользователь ушёл для подгрузки данных.
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       if (suppressRef.current || !range) return;
-      const from = (range.from as number) * 1000;
-      const to = (range.to as number) * 1000;
+      // LWC секунды → UTC ms (вычитаем tz offset)
+      const from = ((range.from as number) - tzOffRef.current) * 1000;
+      const to = ((range.to as number) - tzOffRef.current) * 1000;
       if (to - from < MIN_SPAN_MS) return;
       appliedVpRef.current = { from, to };
 
@@ -379,7 +392,7 @@ export function HistoryChart({
       const ts = chart.timeScale();
       const cursorTime = ts.coordinateToTime(x);
       if (cursorTime == null) return;
-      const cursorMs = (cursorTime as number) * 1000;
+      const cursorMs = ((cursorTime as number) - tzOffRef.current) * 1000;
       const zoomIn = e.deltaY < 0;
       suppressRef.current = true;
       vpSourceRef.current = "programmatic";
@@ -458,8 +471,8 @@ export function HistoryChart({
       suppressRef.current = true;
       try {
         chartRef.current.timeScale().setVisibleRange({
-          from: (viewport.from / 1000) as Time,
-          to: (viewport.to / 1000) as Time,
+          from: ((viewport.from / 1000) + tzOffRef.current) as Time,
+          to: ((viewport.to / 1000) + tzOffRef.current) as Time,
         });
       } catch { /* not ready */ }
       requestAnimationFrame(() => {
@@ -480,7 +493,7 @@ export function HistoryChart({
     if (!chart || !el || !container) return;
 
     const now = Date.now();
-    const nowSec = (now / 1000) as Time;
+    const nowSec = ((now / 1000) + tzOffRef.current) as Time;
     const coord = chart.timeScale().timeToCoordinate(nowSec);
     const containerW = container.clientWidth;
 
