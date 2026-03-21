@@ -92,6 +92,112 @@ export function HistoryChart({
   // Таймер debounce пана
   const panTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Отложенное применение данных: не вызываем setData() пока пользователь тянет мышку
+  const isDraggingRef = useRef(false);
+  const pendingDataRef = useRef<ChartPoint[] | null>(null);
+
+  /* ── Применение данных к графику (вынесено, чтобы вызывать и из effect, и из mouseup) */
+  const applyDataToChart = useCallback((pts: ChartPoint[]) => {
+    const chart = chartRef.current;
+    const main = mainRef.current;
+    const bandTop = bandTopRef.current;
+    const bandBot = bandBotRef.current;
+    if (!chart || !main) return;
+
+    prevDataRef.current = pts;
+
+    // Main area (avg)
+    const lwMain = pts.map((p) =>
+      p.value === null
+        ? { time: (p.ts / 1000) as Time }
+        : { time: (p.ts / 1000) as Time, value: p.value },
+    );
+
+    // Min/Max band (только для агрегированных данных)
+    const hasAgg = pts.some(
+      (p) =>
+        p.value !== null &&
+        p.sampleCount != null &&
+        p.sampleCount > 1 &&
+        p.minValue != null &&
+        p.maxValue != null &&
+        p.minValue !== p.maxValue,
+    );
+
+    const topData = hasAgg
+      ? pts
+          .filter((p) => p.value !== null)
+          .map((p) => ({
+            time: (p.ts / 1000) as Time,
+            value:
+              p.maxValue != null && p.sampleCount != null && p.sampleCount > 1
+                ? p.maxValue
+                : p.value!,
+          }))
+      : [];
+
+    const botData = hasAgg
+      ? pts
+          .filter((p) => p.value !== null)
+          .map((p) => ({
+            time: (p.ts / 1000) as Time,
+            value:
+              p.minValue != null && p.sampleCount != null && p.sampleCount > 1
+                ? p.minValue
+                : p.value!,
+          }))
+      : [];
+
+    // Определяем: raw данные?
+    const rawPoints = pts.filter(
+      (p) => p.value !== null && (p.sampleCount == null || p.sampleCount <= 1),
+    );
+    const isRaw = rawPoints.length > pts.filter((p) => p.value !== null).length * 0.5;
+
+    // Применяем данные и восстанавливаем viewport без мерцания
+    suppressRef.current = true;
+    main.setData(lwMain);
+    bandTop?.setData(topData);
+    bandBot?.setData(botData);
+
+    // Точки на raw данных
+    if (isRaw && rawPoints.length <= 2000) {
+      const markers = rawPoints.map((p) => ({
+        time: (p.ts / 1000) as Time,
+        position: "inBar" as const,
+        color: colorRef.current,
+        shape: "circle" as const,
+        size: 0.1,
+      }));
+      if (markersRef.current) {
+        markersRef.current.setMarkers(markers);
+      } else {
+        markersRef.current = createSeriesMarkers(main, markers);
+      }
+    } else if (markersRef.current) {
+      markersRef.current.setMarkers([]);
+    }
+
+    // Восстановить viewport
+    const vp = appliedVpRef.current;
+    requestAnimationFrame(() => {
+      if (!chartRef.current) return;
+      suppressRef.current = true;
+      try {
+        chartRef.current.timeScale().setVisibleRange({
+          from: (vp.from / 1000) as Time,
+          to: (vp.to / 1000) as Time,
+        });
+      } catch { /* timeScale not ready */ }
+      requestAnimationFrame(() => {
+        suppressRef.current = false;
+        drawDayBands();
+        updateFutureStripe();
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ── Рисование суточных полос ────────────────────────────────────────── */
   const drawDayBands = useCallback(() => {
     const chart = chartRef.current;
@@ -243,11 +349,27 @@ export function HistoryChart({
       updateFutureStripe();
     });
 
-    // При mousedown/touchstart — перестаём подавлять события
-    const enable = () => { suppressRef.current = false; };
+    // При mousedown/touchstart — перестаём подавлять события + трекаем drag
     const el = containerRef.current;
-    el.addEventListener("mousedown", enable);
-    el.addEventListener("touchstart", enable, { passive: true });
+
+    const onPointerDown = () => {
+      suppressRef.current = false;
+      isDraggingRef.current = true;
+    };
+    const onPointerUp = () => {
+      isDraggingRef.current = false;
+      // Применяем данные, которые пришли во время drag
+      const pending = pendingDataRef.current;
+      if (pending) {
+        pendingDataRef.current = null;
+        applyDataToChart(pending);
+      }
+    };
+
+    el.addEventListener("mousedown", onPointerDown);
+    el.addEventListener("touchstart", onPointerDown, { passive: true });
+    window.addEventListener("mouseup", onPointerUp);
+    window.addEventListener("touchend", onPointerUp);
 
     // ── Кастомный zoom (wheel → zoomAtCursor) ──────────────────────
     const onWheel = (e: WheelEvent) => {
@@ -276,8 +398,10 @@ export function HistoryChart({
 
     return () => {
       clearTimeout(panTimerRef.current);
-      el.removeEventListener("mousedown", enable);
-      el.removeEventListener("touchstart", enable);
+      el.removeEventListener("mousedown", onPointerDown);
+      el.removeEventListener("touchstart", onPointerDown);
+      window.removeEventListener("mouseup", onPointerUp);
+      window.removeEventListener("touchend", onPointerUp);
       el.removeEventListener("wheel", onWheel);
       ro.disconnect();
       markersRef.current?.detach();
@@ -303,103 +427,17 @@ export function HistoryChart({
 
   /* ── Загрузка / обновление данных ──────────────────────────────────────── */
   useEffect(() => {
-    const chart = chartRef.current;
-    const main = mainRef.current;
-    const bandTop = bandTopRef.current;
-    const bandBot = bandBotRef.current;
-    if (!chart || !main || data === prevDataRef.current) return;
-    prevDataRef.current = data;
+    if (!chartRef.current || !mainRef.current || data === prevDataRef.current) return;
 
-    // Main area (avg)
-    const lwMain = data.map((p) =>
-      p.value === null
-        ? { time: (p.ts / 1000) as Time }
-        : { time: (p.ts / 1000) as Time, value: p.value },
-    );
-
-    // Min/Max band (только для агрегированных данных)
-    const hasAgg = data.some(
-      (p) =>
-        p.value !== null &&
-        p.sampleCount != null &&
-        p.sampleCount > 1 &&
-        p.minValue != null &&
-        p.maxValue != null &&
-        p.minValue !== p.maxValue,
-    );
-
-    const topData = hasAgg
-      ? data
-          .filter((p) => p.value !== null)
-          .map((p) => ({
-            time: (p.ts / 1000) as Time,
-            value:
-              p.maxValue != null && p.sampleCount != null && p.sampleCount > 1
-                ? p.maxValue
-                : p.value!,
-          }))
-      : [];
-
-    const botData = hasAgg
-      ? data
-          .filter((p) => p.value !== null)
-          .map((p) => ({
-            time: (p.ts / 1000) as Time,
-            value:
-              p.minValue != null && p.sampleCount != null && p.sampleCount > 1
-                ? p.minValue
-                : p.value!,
-          }))
-      : [];
-
-    // Определяем: raw данные? (sampleCount === 1 или отсутствует у большинства)
-    const rawPoints = data.filter(
-      (p) => p.value !== null && (p.sampleCount == null || p.sampleCount <= 1),
-    );
-    const isRaw = rawPoints.length > data.filter((p) => p.value !== null).length * 0.5;
-
-    // Применяем данные и восстанавливаем viewport без мерцания
-    suppressRef.current = true;
-    main.setData(lwMain);
-    bandTop?.setData(topData);
-    bandBot?.setData(botData);
-
-    // Точки на raw данных — маркеры на каждой реальной точке
-    if (isRaw && rawPoints.length <= 2000) {
-      const markers = rawPoints.map((p) => ({
-        time: (p.ts / 1000) as Time,
-        position: "inBar" as const,
-        color: colorRef.current,
-        shape: "circle" as const,
-        size: 0.1,
-      }));
-      if (markersRef.current) {
-        markersRef.current.setMarkers(markers);
-      } else {
-        markersRef.current = createSeriesMarkers(main, markers);
-      }
-    } else if (markersRef.current) {
-      markersRef.current.setMarkers([]);
+    if (isDraggingRef.current) {
+      // Пользователь тянет мышку — откладываем setData() до mouseup,
+      // иначе LWC пересчитает бар/пиксель и drag превратится в зум.
+      pendingDataRef.current = data;
+      return;
     }
 
-    // Восстановить viewport в следующем кадре (после layout LWC)
-    const vp = appliedVpRef.current;
-    requestAnimationFrame(() => {
-      if (!chartRef.current) return;
-      suppressRef.current = true;
-      try {
-        chartRef.current.timeScale().setVisibleRange({
-          from: (vp.from / 1000) as Time,
-          to: (vp.to / 1000) as Time,
-        });
-      } catch { /* timeScale not ready */ }
-      requestAnimationFrame(() => {
-        suppressRef.current = false;
-        drawDayBands();
-        updateFutureStripe();
-      });
-    });
-  }, [data, drawDayBands]);
+    applyDataToChart(data);
+  }, [data, applyDataToChart]);
 
   /* ── Viewport из engine (zoom, refresh, начальная загрузка) ─────────────── */
   useEffect(() => {
