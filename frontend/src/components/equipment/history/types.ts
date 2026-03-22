@@ -11,6 +11,7 @@ export interface ChartPoint {
   minValue?: number | null;
   maxValue?: number | null;
   sampleCount?: number;
+  synthetic?: boolean;  // true = дозаполненная точка (hold last value)
 }
 
 /* ── API types ──────────────────────────────────────────────────────────── */
@@ -23,6 +24,7 @@ export interface HistoryPoint {
   open_value: number | null;
   close_value: number | null;
   sample_count: number | null;
+  synthetic: boolean | null;
   text: string | null;
   reason: string | null;
 }

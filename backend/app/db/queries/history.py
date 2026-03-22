@@ -141,6 +141,61 @@ async def _query_raw(
         )
 
 
+def _fill_synthetic(
+    points: list[dict],
+    span_seconds: float,
+) -> list[dict]:
+    """Дозаполняет промежутки между raw-точками синтетическими (hold last value).
+
+    Нужно для плавного пана в LWC при редких данных (генератор стоит,
+    данные приходят раз в несколько минут).
+    Синтетические точки помечены synthetic=True и не отображаются как маркеры.
+    """
+    if len(points) < 2:
+        return points
+
+    from datetime import timedelta
+
+    # Интервал заполнения: обеспечиваем ~10 точек на ширину viewport.
+    # viewport ≈ span / 3 (PREFETCH_SCREENS=3), значит fill = span / 30.
+    fill_interval = max(1.0, span_seconds / 30)
+    # Порог: заполняем только если промежуток > 3× fill_interval
+    min_gap = fill_interval * 3
+    max_synthetic_per_gap = 500
+
+    result: list[dict] = []
+    for i, pt in enumerate(points):
+        result.append(pt)
+        if i >= len(points) - 1:
+            continue
+        next_pt = points[i + 1]
+        gap = (next_pt["ts"] - pt["ts"]).total_seconds()
+        if gap <= min_gap or pt.get("value") is None:
+            continue
+
+        # Hold last value: заполняем промежуток синтетическими точками
+        val = pt["value"]
+        current = pt["ts"] + timedelta(seconds=fill_interval)
+        count = 0
+        while current < next_pt["ts"] and count < max_synthetic_per_gap:
+            result.append({
+                "ts": current,
+                "value": val,
+                "min_value": val,
+                "max_value": val,
+                "open_value": val,
+                "close_value": val,
+                "sample_count": 1,
+                "synthetic": True,
+                "text": None,
+                "reason": None,
+            })
+            current += timedelta(seconds=fill_interval)
+            count += 1
+
+    return result
+
+
 def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     """Находит разрывы (потери данных) между последовательными точками.
 
@@ -282,7 +337,16 @@ async def fetch_history(
     if after and after["ts"] not in existing_ts:
         points.append(after)
 
+    # Определяем gap'ы ДО synthetic fill (иначе они замаскируются)
     gaps = _compute_gaps(points, min_gap_points)
+
+    # Дозаполняем промежутки синтетическими точками для raw данных.
+    # Без этого при редких данных (генератор стоит) LWC не может
+    # нормально панить — в viewport может быть 0 точек.
+    if table == "history":
+        bucket_secs = max(1, int(span / limit))
+        if bucket_secs <= 5:
+            points = _fill_synthetic(points, span)
 
     return {
         "points":        points,

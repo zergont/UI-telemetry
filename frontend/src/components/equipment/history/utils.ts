@@ -59,6 +59,7 @@ export function buildChartData(
       minValue: p.min_value,
       maxValue: p.max_value,
       sampleCount: p.sample_count ?? 1,
+      synthetic: p.synthetic ?? false,
     }))
     .filter((p) => isFiniteNumber(p.ts) && isFiniteNumber(p.value as number))
     .sort((a, b) => a.ts - b.ts);

@@ -161,11 +161,12 @@ export function HistoryChart({
           }))
       : [];
 
-    // Определяем: raw данные?
-    const rawPoints = pts.filter(
-      (p) => p.value !== null && (p.sampleCount == null || p.sampleCount <= 1),
+    // Определяем: raw данные? (считаем только реальные точки, без synthetic)
+    const realRawPoints = pts.filter(
+      (p) => p.value !== null && !p.synthetic && (p.sampleCount == null || p.sampleCount <= 1),
     );
-    const isRaw = rawPoints.length > pts.filter((p) => p.value !== null).length * 0.5;
+    const realNonNull = pts.filter((p) => p.value !== null && !p.synthetic);
+    const isRaw = realRawPoints.length > 0 && realRawPoints.length > realNonNull.length * 0.5;
 
     // Применяем данные и восстанавливаем viewport без мерцания
     suppressRef.current = true;
@@ -173,9 +174,9 @@ export function HistoryChart({
     bandTop?.setData(topData);
     bandBot?.setData(botData);
 
-    // Точки на raw данных
-    if (isRaw && rawPoints.length <= 2000) {
-      const markers = rawPoints.map((p) => ({
+    // Маркеры только на реальных raw точках (не synthetic, не агрегированных)
+    if (isRaw && realRawPoints.length <= 2000) {
+      const markers = realRawPoints.map((p) => ({
         time: ((p.ts / 1000) + off) as Time,
         position: "inBar" as const,
         color: colorRef.current,
