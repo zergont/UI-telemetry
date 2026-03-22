@@ -119,12 +119,15 @@ export function HistoryChart({
     prevDataRef.current = pts;
 
     // Main area (avg) — применяем timezone offset
+    // AreaSeries в LWC не поддерживает whitespace-точки (value=null) —
+    // фильтруем их, чтобы избежать "Value is null" при пане.
     const off = tzOffRef.current;
-    const lwMain = pts.map((p) =>
-      p.value === null
-        ? { time: ((p.ts / 1000) + off) as Time }
-        : { time: ((p.ts / 1000) + off) as Time, value: p.value },
-    );
+    const lwMain = pts
+      .filter((p) => p.value !== null)
+      .map((p) => ({
+        time: ((p.ts / 1000) + off) as Time,
+        value: p.value!,
+      }));
 
     // Min/Max band (только для агрегированных данных)
     const hasAgg = pts.some(
