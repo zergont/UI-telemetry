@@ -172,12 +172,14 @@ def _fill_synthetic(
         gap = (next_pt["ts"] - pt["ts"]).total_seconds()
         if gap <= min_gap:
             continue
-        val_a = pt.get("value")
-        val_b = next_pt.get("value")
-        if val_a is None or val_b is None:
+        raw_a = pt.get("value")
+        raw_b = next_pt.get("value")
+        if raw_a is None or raw_b is None:
             continue
 
         # Линейная интерполяция между двумя реальными точками
+        val_a = float(raw_a)
+        val_b = float(raw_b)
         ts_a = pt["ts"]
         total_gap = gap
         current = ts_a + timedelta(seconds=fill_interval)
