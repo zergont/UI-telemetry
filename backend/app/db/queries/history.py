@@ -172,10 +172,6 @@ def _fill_synthetic(
         gap = (next_pt["ts"] - pt["ts"]).total_seconds()
         if gap <= min_gap:
             continue
-        # Не интерполируем к/от boundary точек — они за пределами viewport
-        # и могут иметь совсем другие значения (рампы/скачки на краях).
-        if pt.get("boundary") or next_pt.get("boundary"):
-            continue
         raw_a = pt.get("value")
         raw_b = next_pt.get("value")
         if raw_a is None or raw_b is None:
@@ -344,18 +340,8 @@ async def fetch_history(
 
     points = [dict(r) for r in rows]
 
-    # Добавляем граничные точки (если их ts ещё нет в результате).
-    # Помечаем boundary=True чтобы _fill_synthetic не интерполировал к ним —
-    # иначе появляются рампы/скачки к значениям за пределами viewport.
-    existing_ts = {p["ts"] for p in points}
-    if before and before["ts"] not in existing_ts:
-        before["boundary"] = True
-        points.insert(0, before)
-    if after and after["ts"] not in existing_ts:
-        after["boundary"] = True
-        points.append(after)
-
-    # Определяем gap'ы ДО synthetic fill (иначе они замаскируются)
+    # Определяем gap'ы ДО synthetic fill и ДО boundary —
+    # иначе boundary создают ложные разрывы, а synthetic их маскирует.
     gaps = _compute_gaps(points, min_gap_points)
 
     # Дозаполняем промежутки синтетическими точками для raw данных.
@@ -365,6 +351,15 @@ async def fetch_history(
         bucket_secs = max(1, int(span / limit))
         if bucket_secs <= 5:
             points = _fill_synthetic(points, span)
+
+    # Boundary точки добавляются ПОСЛЕ gap-детекции и synthetic fill.
+    # Так LWC рисует линию от boundary до ближайшей реальной точки
+    # без ложных разрывов и без интерполяции к значениям за viewport.
+    existing_ts = {p["ts"] for p in points}
+    if before and before["ts"] not in existing_ts:
+        points.insert(0, before)
+    if after and after["ts"] not in existing_ts:
+        points.append(after)
 
     return {
         "points":        points,
