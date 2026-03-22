@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Minus, Plus, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -31,6 +31,20 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
   const span = engine.viewport.to - engine.viewport.from;
   const zoomLevel = Math.max(0, Math.round(Math.log(span / MIN_SPAN_MS) / Math.log(1.25)));
 
+  // Тип данных: raw (history) при span ≤ 30 дней, иначе агрегированные
+  const spanSec = span / 1000;
+  const dataSource = spanSec <= 30 * 86400
+    ? "raw"
+    : spanSec <= 90 * 86400
+      ? "1min"
+      : "1hour";
+
+  // Zoom +/- через центр viewport
+  const handleZoomBtn = (zoomIn: boolean) => {
+    const center = (engine.viewport.from + engine.viewport.to) / 2;
+    engine.zoomAtCursor(center, zoomIn);
+  };
+
   return (
     <div className="space-y-4">
       {/* Панель управления */}
@@ -55,9 +69,28 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
           Обновить
         </button>
 
-        <span className="ml-auto text-xs text-muted-foreground/50 tabular-nums">
-          z{zoomLevel}
-        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground/50">
+            {dataSource === "raw" ? "raw" : dataSource}
+          </span>
+          <button
+            onClick={() => handleZoomBtn(true)}
+            className="inline-flex h-6 w-6 items-center justify-center rounded border bg-card text-xs text-muted-foreground hover:bg-muted"
+            title="Приблизить"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+          <span className="text-xs text-muted-foreground/50 tabular-nums w-6 text-center">
+            z{zoomLevel}
+          </span>
+          <button
+            onClick={() => handleZoomBtn(false)}
+            className="inline-flex h-6 w-6 items-center justify-center rounded border bg-card text-xs text-muted-foreground hover:bg-muted"
+            title="Отдалить"
+          >
+            <Minus className="h-3 w-3" />
+          </button>
+        </div>
       </div>
 
       {/* График */}
