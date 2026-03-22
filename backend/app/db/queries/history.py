@@ -172,6 +172,10 @@ def _fill_synthetic(
         gap = (next_pt["ts"] - pt["ts"]).total_seconds()
         if gap <= min_gap:
             continue
+        # Не интерполируем к/от boundary точек — они за пределами viewport
+        # и могут иметь совсем другие значения (рампы/скачки на краях).
+        if pt.get("boundary") or next_pt.get("boundary"):
+            continue
         raw_a = pt.get("value")
         raw_b = next_pt.get("value")
         if raw_a is None or raw_b is None:
@@ -340,11 +344,15 @@ async def fetch_history(
 
     points = [dict(r) for r in rows]
 
-    # Добавляем граничные точки (если их ts ещё нет в результате)
+    # Добавляем граничные точки (если их ts ещё нет в результате).
+    # Помечаем boundary=True чтобы _fill_synthetic не интерполировал к ним —
+    # иначе появляются рампы/скачки к значениям за пределами viewport.
     existing_ts = {p["ts"] for p in points}
     if before and before["ts"] not in existing_ts:
+        before["boundary"] = True
         points.insert(0, before)
     if after and after["ts"] not in existing_ts:
+        after["boundary"] = True
         points.append(after)
 
     # Определяем gap'ы ДО synthetic fill (иначе они замаскируются)
