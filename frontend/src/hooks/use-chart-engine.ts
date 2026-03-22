@@ -262,26 +262,34 @@ export function useChartEngine({
   /* ── setViewport (от drag/pan в LWC) ───────────────────────────────────── */
   const setViewport = useCallback((vp: ViewportRange) => {
     if (!isFiniteNumber(vp.from) || !isFiniteNumber(vp.to) || vp.to <= vp.from) return;
-    const span = vp.to - vp.from;
-    if (span < MIN_SPAN_MS * 0.8) return;
 
-    // Ограничение пана в будущее: правый край не дальше now + FUTURE_PAD_MS
-    const maxTo = Date.now() + FUTURE_PAD_MS;
-    if (vp.to > maxTo) {
-      vp = { from: maxTo - span, to: maxTo };
-    }
+    setViewportRaw((prev) => {
+      // Пан НЕ меняет масштаб — сохраняем span предыдущего viewport.
+      // LWC может слегка менять span при пане (из-за распределения данных),
+      // что вызывает прыжки зума. Фиксируем span — меняется только позиция.
+      const prevSpan = prev.to - prev.from;
+      let newFrom = vp.from;
+      let newTo = newFrom + prevSpan;
 
-    // Ограничение пана в прошлое: не дальше firstDataAt - 30% видимой области.
-    // Это создаёт «мёртвую зону» — пользователь видит пустоту и понимает, что данных больше нет.
-    const fda = firstDataAtRef.current;
-    if (fda != null) {
-      const minFrom = fda - span * 0.3;
-      if (vp.from < minFrom) {
-        vp = { from: minFrom, to: minFrom + span };
+      // Ограничение пана в будущее: правый край не дальше now + FUTURE_PAD_MS
+      const maxTo = Date.now() + FUTURE_PAD_MS;
+      if (newTo > maxTo) {
+        newTo = maxTo;
+        newFrom = newTo - prevSpan;
       }
-    }
 
-    setViewportRaw(vp);
+      // Ограничение пана в прошлое: не дальше firstDataAt - 30% видимой области.
+      const fda = firstDataAtRef.current;
+      if (fda != null) {
+        const minFrom = fda - prevSpan * 0.3;
+        if (newFrom < minFrom) {
+          newFrom = minFrom;
+          newTo = newFrom + prevSpan;
+        }
+      }
+
+      return { from: newFrom, to: newTo };
+    });
   }, []);
 
   /* ── refresh / reset ───────────────────────────────────────────────────── */
