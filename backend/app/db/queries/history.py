@@ -145,7 +145,7 @@ def _fill_synthetic(
     points: list[dict],
     span_seconds: float,
 ) -> list[dict]:
-    """Дозаполняет промежутки между raw-точками синтетическими (hold last value).
+    """Дозаполняет промежутки между raw-точками синтетическими (линейная интерполяция).
 
     Нужно для плавного пана в LWC при редких данных (генератор стоит,
     данные приходят раз в несколько минут).
@@ -170,21 +170,29 @@ def _fill_synthetic(
             continue
         next_pt = points[i + 1]
         gap = (next_pt["ts"] - pt["ts"]).total_seconds()
-        if gap <= min_gap or pt.get("value") is None:
+        if gap <= min_gap:
+            continue
+        val_a = pt.get("value")
+        val_b = next_pt.get("value")
+        if val_a is None or val_b is None:
             continue
 
-        # Hold last value: заполняем промежуток синтетическими точками
-        val = pt["value"]
-        current = pt["ts"] + timedelta(seconds=fill_interval)
+        # Линейная интерполяция между двумя реальными точками
+        ts_a = pt["ts"]
+        total_gap = gap
+        current = ts_a + timedelta(seconds=fill_interval)
         count = 0
         while current < next_pt["ts"] and count < max_synthetic_per_gap:
+            # Доля пройденного расстояния от A к B
+            t = (current - ts_a).total_seconds() / total_gap
+            val = val_a + (val_b - val_a) * t
             result.append({
                 "ts": current,
-                "value": val,
-                "min_value": val,
-                "max_value": val,
-                "open_value": val,
-                "close_value": val,
+                "value": round(val, 4),
+                "min_value": round(val, 4),
+                "max_value": round(val, 4),
+                "open_value": round(val, 4),
+                "close_value": round(val, 4),
                 "sample_count": 1,
                 "synthetic": True,
                 "text": None,
