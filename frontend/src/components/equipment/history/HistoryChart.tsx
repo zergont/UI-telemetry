@@ -93,7 +93,6 @@ export function HistoryChart({
 
   const futureRef = useRef<HTMLDivElement>(null);
   const dayBandsRef = useRef<HTMLCanvasElement>(null);
-  const gapCanvasRef = useRef<HTMLCanvasElement>(null);
   const gapsRef = useRef<GapMs[]>(gaps);
   gapsRef.current = gaps;
 
@@ -157,60 +156,6 @@ export function HistoryChart({
     }
   }, []);
 
-  /* ── Красные зоны gap'ов ──────────────────────────────────────────────── */
-  const drawGapZones = useCallback(() => {
-    const u = chartRef.current;
-    const canvas = gapCanvasRef.current;
-    const container = containerRef.current;
-    if (!u || !canvas || !container) return;
-
-    const W = container.clientWidth;
-    const H = container.clientHeight - 30;
-    canvas.width = W;
-    canvas.height = H;
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, W, H);
-
-    const currentGaps = gapsRef.current;
-    if (!currentGaps.length) return;
-
-    const fromSec = u.scales.x.min;
-    const toSec = u.scales.x.max;
-    if (fromSec == null || toSec == null) return;
-
-    ctx.fillStyle = "rgba(239, 68, 68, 0.12)";  // red-500 с прозрачностью
-    const borderColor = "rgba(239, 68, 68, 0.35)";
-
-    for (const gap of currentGaps) {
-      const gapFromSec = gap.from / 1000 + tzOffRef.current;
-      const gapToSec = gap.to != null
-        ? gap.to / 1000 + tzOffRef.current
-        : toSec; // ongoing gap → до правого края
-
-      // Пропускаем если не пересекается с viewport
-      if (gapToSec < fromSec || gapFromSec > toSec) continue;
-
-      const x1 = Math.max(0, u.valToPos(gapFromSec, "x", true) ?? 0);
-      const x2 = Math.min(W, u.valToPos(gapToSec, "x", true) ?? W);
-
-      if (x2 > x1) {
-        // Заливка
-        ctx.fillRect(x1, 0, x2 - x1, H);
-        // Вертикальные границы
-        ctx.fillStyle = borderColor;
-        ctx.fillRect(x1, 0, 1, H);
-        if (gap.to != null) {
-          ctx.fillRect(x2 - 1, 0, 1, H);
-        }
-        ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
-      }
-    }
-  }, []);
-
   /* ── Голубая полоска «будущее» ──────────────────────────────────────────── */
   const updateFutureStripe = useCallback(() => {
     const u = chartRef.current;
@@ -255,10 +200,10 @@ export function HistoryChart({
         suppressRef.current = false;
         drawDayBands();
         updateFutureStripe();
-        drawGapZones();
+
       });
     },
-    [drawDayBands, updateFutureStripe, drawGapZones],
+    [drawDayBands, updateFutureStripe],
   );
 
   /* ── Создание графика (один раз) ───────────────────────────────────────── */
@@ -327,6 +272,49 @@ export function HistoryChart({
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    // Gap-зоны — рисуем прямо на uPlot canvas (синхронно с данными)
+    function drawGapZones(u: uPlot) {
+      const currentGaps = gapsRef.current;
+      if (!currentGaps.length) return;
+
+      const { ctx } = u;
+      const { left, top, width, height } = u.bbox;
+      const dpr = devicePixelRatio || 1;
+
+      const fromSec = u.scales.x.min;
+      const toSec = u.scales.x.max;
+      if (fromSec == null || toSec == null) return;
+
+      ctx.save();
+
+      for (const gap of currentGaps) {
+        const gapFromSec = gap.from / 1000 + tzOffRef.current;
+        const gapToSec = gap.to != null
+          ? gap.to / 1000 + tzOffRef.current
+          : toSec; // ongoing → до правого края
+
+        if (gapToSec < fromSec || gapFromSec > toSec) continue;
+
+        const x1 = Math.max(left, u.valToPos(gapFromSec, "x", false));
+        const x2 = Math.min(left + width, u.valToPos(gapToSec, "x", false));
+
+        if (x2 > x1) {
+          // Полупрозрачная красная заливка
+          ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
+          ctx.fillRect(x1, top, x2 - x1, height);
+
+          // Вертикальные границы
+          ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
+          ctx.fillRect(x1, top, dpr, height);
+          if (gap.to != null) {
+            ctx.fillRect(x2 - dpr, top, dpr, height);
+          }
+        }
       }
 
       ctx.restore();
@@ -435,6 +423,11 @@ export function HistoryChart({
         { series: [2, 3], fill: hexToRgba(colorRef.current, 0.08) },
       ],
       hooks: {
+        draw: [
+          (u: uPlot) => {
+            drawGapZones(u);
+          },
+        ],
         drawSeries: [
           (u: uPlot, sidx: number) => {
             if (sidx === 1) drawRawMarkers(u, sidx);
@@ -462,7 +455,7 @@ export function HistoryChart({
 
             drawDayBands();
             updateFutureStripe();
-        drawGapZones();
+
           },
         ],
         ready: [
@@ -470,7 +463,7 @@ export function HistoryChart({
             // Initial overlays
             drawDayBands();
             updateFutureStripe();
-        drawGapZones();
+
 
             // Custom pan via pointer events on the over element
             const over = u.over;
@@ -515,7 +508,7 @@ export function HistoryChart({
 
               drawDayBands();
               updateFutureStripe();
-        drawGapZones();
+
             });
 
             window.addEventListener("mouseup", () => {
@@ -557,7 +550,7 @@ export function HistoryChart({
                     suppressRef.current = false;
                     drawDayBands();
                     updateFutureStripe();
-        drawGapZones();
+
                   });
                 }
               }
@@ -597,7 +590,7 @@ export function HistoryChart({
         u.setSize({ width: el.clientWidth, height: H });
         drawDayBands();
         updateFutureStripe();
-        drawGapZones();
+
       }
     });
     ro.observe(el);
@@ -631,10 +624,10 @@ export function HistoryChart({
     applyDataToChart(data);
   }, [data, applyDataToChart]);
 
-  /* ── Перерисовка gap-зон при обновлении данных ──────────────────────── */
+  /* ── Перерисовка при обновлении gap-зон ──────────────────────────────── */
   useEffect(() => {
-    drawGapZones();
-  }, [gaps, drawGapZones]);
+    chartRef.current?.redraw();
+  }, [gaps]);
 
   /* ── Viewport из engine (zoom, refresh) ──────────────────────────────── */
   useEffect(() => {
@@ -653,7 +646,6 @@ export function HistoryChart({
       suppressRef.current = false;
       drawDayBands();
       updateFutureStripe();
-      drawGapZones();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewport]);
@@ -682,13 +674,6 @@ export function HistoryChart({
           ref={dayBandsRef}
           className="absolute top-0 left-0 pointer-events-none"
           style={{ zIndex: 5 }}
-        />
-
-        {/* Gap zones overlay */}
-        <canvas
-          ref={gapCanvasRef}
-          className="absolute top-0 left-0 pointer-events-none"
-          style={{ zIndex: 6 }}
         />
 
         {/* Future stripe */}
