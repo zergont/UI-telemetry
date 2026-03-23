@@ -123,8 +123,25 @@
     }
 }
 
-/* Убрать лого TradingView из lightweight-charts (Apache 2.0 — атрибуция не обязательна) */
-.tv-lightweight-charts a {
+/* ── uPlot dark theme ──────────────────────────────────────────────── */
+.uplot {
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.uplot .u-wrap {
+  background: transparent !important;
+}
+/* Crosshair lines */
+.uplot .u-cursor-x,
+.uplot .u-cursor-y {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  border-style: dashed !important;
+}
+/* Selection (disabled but just in case) */
+.uplot .u-select {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+/* Hide uPlot legend (we use custom tooltip) */
+.uplot .u-legend {
   display: none !important;
 }
 

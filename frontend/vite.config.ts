@@ -19,7 +19,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           maplibre: ["maplibre-gl"],
-          charts: ["lightweight-charts"],
+          charts: ["uplot"],
         },
       },
     },

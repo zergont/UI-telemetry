@@ -1,16 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
-import {
-  createChart,
-  createSeriesMarkers,
-  AreaSeries,
-  ColorType,
-  CrosshairMode,
-  type IChartApi,
-  type ISeriesApi,
-  type ISeriesMarkersPluginApi,
-  type Time,
-  type LineWidth,
-} from "lightweight-charts";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
 import { MIN_SPAN_MS } from "./constants";
 import type { ChartPoint, ViewportRange } from "./types";
 
@@ -23,7 +13,6 @@ interface HistoryChartProps {
   color: string;
   viewport: ViewportRange;
   isLoading: boolean;
-  /** Смещение часового пояса в часах от UTC (для отображения на оси) */
   tzOffsetHours: number;
   onZoom: (cursorTimeMs: number, zoomIn: boolean) => void;
   onPan: (vp: ViewportRange) => void;
@@ -38,15 +27,68 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Начало суток (00:00) для LWC-timestamp в ms (уже со сдвигом tz) */
+const DAY_MS = 86_400_000;
+
 function startOfDayShifted(shiftedMs: number): number {
-  // shiftedMs уже содержит tz offset, поэтому UTC-midnight по сдвинутому = полночь в нужном tz
   const d = new Date(shiftedMs);
   d.setUTCHours(0, 0, 0, 0);
   return d.getTime();
 }
 
-const DAY_MS = 86_400_000;
+/** Подготовка данных: ChartPoint[] → uPlot aligned data */
+function toUPlotData(
+  pts: ChartPoint[],
+  tzOffSec: number,
+): [number[], (number | null)[], (number | null)[], (number | null)[]] {
+  const nonNull = pts.filter((p) => p.value !== null);
+  const len = nonNull.length;
+  const times = new Float64Array(len);
+  const values: (number | null)[] = new Array(len);
+  const mins: (number | null)[] = new Array(len);
+  const maxs: (number | null)[] = new Array(len);
+
+  for (let i = 0; i < len; i++) {
+    const p = nonNull[i];
+    times[i] = p.ts / 1000 + tzOffSec;
+    values[i] = p.value;
+    mins[i] =
+      p.sampleCount != null && p.sampleCount > 1 && p.minValue != null && p.minValue !== p.value
+        ? p.minValue
+        : null;
+    maxs[i] =
+      p.sampleCount != null && p.sampleCount > 1 && p.maxValue != null && p.maxValue !== p.value
+        ? p.maxValue
+        : null;
+  }
+
+  // Вставляем null в данные для гэпов
+  const gapPts = pts.filter((p) => p.value === null);
+  if (gapPts.length === 0) {
+    return [Array.from(times), values, mins, maxs];
+  }
+
+  // Собираем все точки (данные + null-bridge) и сортируем
+  const all: { ts: number; value: number | null; min: number | null; max: number | null }[] = [];
+  for (let i = 0; i < len; i++) {
+    all.push({ ts: times[i], value: values[i], min: mins[i], max: maxs[i] });
+  }
+  for (const p of gapPts) {
+    all.push({ ts: p.ts / 1000 + tzOffSec, value: null, min: null, max: null });
+  }
+  all.sort((a, b) => a.ts - b.ts);
+
+  const t: number[] = [];
+  const v: (number | null)[] = [];
+  const mn: (number | null)[] = [];
+  const mx: (number | null)[] = [];
+  for (const a of all) {
+    t.push(a.ts);
+    v.push(a.value);
+    mn.push(a.min);
+    mx.push(a.max);
+  }
+  return [t, v, mn, mx];
+}
 
 /* ── Component ──────────────────────────────────────────────────────────── */
 
@@ -62,27 +104,12 @@ export function HistoryChart({
   onPan,
 }: HistoryChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mainRef = useRef<ISeriesApi<any> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bandTopRef = useRef<ISeriesApi<any> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bandBotRef = useRef<ISeriesApi<any> | null>(null);
-
-  // Плагин маркеров для raw точек
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
-
-  /** true → игнорируем события visibleTimeRangeChange (мы сами двигаем viewport) */
-  const suppressRef = useRef(true);
+  const chartRef = useRef<uPlot | null>(null);
   const prevDataRef = useRef<ChartPoint[] | null>(null);
   const appliedVpRef = useRef<ViewportRange>(viewport);
-
-  // Ref для viewport prop — нужен в mouseup чтобы скорректировать позицию после clamping
   const viewportPropRef = useRef(viewport);
   viewportPropRef.current = viewport;
 
-  // Refs для колбэков — чтобы chart init effect не пересоздавался
   const onZoomRef = useRef(onZoom);
   const onPanRef = useRef(onPan);
   const colorRef = useRef(color);
@@ -90,141 +117,29 @@ export function HistoryChart({
   onPanRef.current = onPan;
   colorRef.current = color;
 
-  // Timezone offset: UTC ms → LWC "визуальные" секунды и обратно.
-  // LWC не поддерживает timezone — фейкаем, сдвигая timestamps.
-  // Timezone offset в секундах. LWC не поддерживает timezone нативно —
-  // мы сдвигаем timestamps на offset, чтобы ось X показывала локальное время.
   const tzOffRef = useRef(tzOffsetHours * 3600);
   tzOffRef.current = tzOffsetHours * 3600;
 
-  // Для голубой полоски «будущее»
   const futureRef = useRef<HTMLDivElement>(null);
-  // Для canvas суточных полос
   const dayBandsRef = useRef<HTMLCanvasElement>(null);
+
   // Таймер debounce пана
   const panTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // Отложенное применение данных: не вызываем setData() пока пользователь тянет мышку
+  // Подавление событий scale change (наш zoom, не пользовательский pan)
+  const suppressRef = useRef(false);
+  // Drag состояние
   const isDraggingRef = useRef(false);
   const pendingDataRef = useRef<ChartPoint[] | null>(null);
 
-  /* ── Применение данных к графику (вынесено, чтобы вызывать и из effect, и из mouseup) */
-  const applyDataToChart = useCallback((pts: ChartPoint[]) => {
-    const chart = chartRef.current;
-    const main = mainRef.current;
-    const bandTop = bandTopRef.current;
-    const bandBot = bandBotRef.current;
-    if (!chart || !main) return;
-
-    prevDataRef.current = pts;
-
-    // Main area (avg) — применяем timezone offset
-    // AreaSeries в LWC не поддерживает whitespace-точки (value=null) —
-    // фильтруем их, чтобы избежать "Value is null" при пане.
-    const off = tzOffRef.current;
-    const lwMain = pts
-      .filter((p) => p.value !== null)
-      .map((p) => ({
-        time: ((p.ts / 1000) + off) as Time,
-        value: p.value!,
-      }));
-
-    // Min/Max band (только для агрегированных данных)
-    const hasAgg = pts.some(
-      (p) =>
-        p.value !== null &&
-        p.sampleCount != null &&
-        p.sampleCount > 1 &&
-        p.minValue != null &&
-        p.maxValue != null &&
-        p.minValue !== p.maxValue,
-    );
-
-    const topData = hasAgg
-      ? pts
-          .filter((p) => p.value !== null)
-          .map((p) => ({
-            time: ((p.ts / 1000) + off) as Time,
-            value:
-              p.maxValue != null && p.sampleCount != null && p.sampleCount > 1
-                ? p.maxValue
-                : p.value!,
-          }))
-      : [];
-
-    const botData = hasAgg
-      ? pts
-          .filter((p) => p.value !== null)
-          .map((p) => ({
-            time: ((p.ts / 1000) + off) as Time,
-            value:
-              p.minValue != null && p.sampleCount != null && p.sampleCount > 1
-                ? p.minValue
-                : p.value!,
-          }))
-      : [];
-
-    // Определяем: raw данные? (считаем только реальные точки, без synthetic)
-    const realRawPoints = pts.filter(
-      (p) => p.value !== null && !p.synthetic && (p.sampleCount == null || p.sampleCount <= 1),
-    );
-    const realNonNull = pts.filter((p) => p.value !== null && !p.synthetic);
-    const isRaw = realRawPoints.length > 0 && realRawPoints.length > realNonNull.length * 0.5;
-
-    // Применяем данные и восстанавливаем viewport без мерцания
-    suppressRef.current = true;
-    main.setData(lwMain);
-    bandTop?.setData(topData);
-    bandBot?.setData(botData);
-
-    // Маркеры только на реальных raw точках (не synthetic, не агрегированных)
-    if (isRaw && realRawPoints.length <= 2000) {
-      const markers = realRawPoints.map((p) => ({
-        time: ((p.ts / 1000) + off) as Time,
-        position: "inBar" as const,
-        color: colorRef.current,
-        shape: "circle" as const,
-        size: 0.1,
-      }));
-      if (markersRef.current) {
-        markersRef.current.setMarkers(markers);
-      } else {
-        markersRef.current = createSeriesMarkers(main, markers);
-      }
-    } else if (markersRef.current) {
-      markersRef.current.setMarkers([]);
-    }
-
-    // Восстановить viewport (с tz offset)
-    const vp = appliedVpRef.current;
-    requestAnimationFrame(() => {
-      if (!chartRef.current) return;
-      suppressRef.current = true;
-      try {
-        chartRef.current.timeScale().setVisibleRange({
-          from: ((vp.from / 1000) + tzOffRef.current) as Time,
-          to: ((vp.to / 1000) + tzOffRef.current) as Time,
-        });
-      } catch { /* timeScale not ready */ }
-      requestAnimationFrame(() => {
-        suppressRef.current = false;
-        drawDayBands();
-        updateFutureStripe();
-      });
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   /* ── Рисование суточных полос ────────────────────────────────────────── */
   const drawDayBands = useCallback(() => {
-    const chart = chartRef.current;
+    const u = chartRef.current;
     const canvas = dayBandsRef.current;
     const container = containerRef.current;
-    if (!chart || !canvas || !container) return;
+    if (!u || !canvas || !container) return;
 
     const W = container.clientWidth;
-    // Высота chart area (без timeScale ~28px)
-    const H = container.clientHeight - 28;
+    const H = container.clientHeight - 30; // ось X ~30px
     canvas.width = W;
     canvas.height = H;
     canvas.style.width = `${W}px`;
@@ -234,18 +149,15 @@ export function HistoryChart({
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
 
-    const ts = chart.timeScale();
-    const range = ts.getVisibleRange();
-    if (!range) return;
+    const fromSec = u.scales.x.min;
+    const toSec = u.scales.x.max;
+    if (fromSec == null || toSec == null) return;
 
-    const fromMs = (range.from as number) * 1000;
-    const toMs = (range.to as number) * 1000;
+    const fromMs = fromSec * 1000;
+    const toMs = toSec * 1000;
 
-    // Находим начало первого видимого дня (fromMs/toMs уже в shifted координатах LWC)
     let dayStart = startOfDayShifted(fromMs);
     let dayIndex = 0;
-
-    // Определяем чётность первого дня (по кол-ву дней от epoch)
     const epochDayNum = Math.floor(dayStart / DAY_MS);
 
     while (dayStart < toMs) {
@@ -253,8 +165,8 @@ export function HistoryChart({
       const isOdd = (epochDayNum + dayIndex) % 2 === 1;
 
       if (isOdd) {
-        const x1 = ts.timeToCoordinate((dayStart / 1000) as Time);
-        const x2 = ts.timeToCoordinate((dayEnd / 1000) as Time);
+        const x1 = u.valToPos(dayStart / 1000, "x", true);
+        const x2 = u.valToPos(dayEnd / 1000, "x", true);
 
         if (x1 != null && x2 != null) {
           const left = Math.max(0, x1);
@@ -271,268 +183,16 @@ export function HistoryChart({
     }
   }, []);
 
-  /* ── Создание графика (один раз) ───────────────────────────────────────── */
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#94a3b8",
-        fontSize: 12,
-      },
-      grid: {
-        vertLines: { color: "rgba(148,163,184,0.06)" },
-        horzLines: { color: "rgba(148,163,184,0.06)" },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { labelVisible: true },
-        horzLine: { labelVisible: true },
-      },
-      rightPriceScale: { borderVisible: false },
-      timeScale: {
-        borderVisible: false,
-        timeVisible: true,
-        secondsVisible: true,
-        lockVisibleTimeRangeOnResize: true,
-      },
-      // Pan встроенный (LWC делает плавно), zoom — наш кастомный
-      handleScroll: true,
-      handleScale: false,
-    });
-
-    // ── Band top (max) ─────────────────────────────────────────────
-    const bandTop = chart.addSeries(AreaSeries, {
-      lineWidth: 1 as LineWidth,
-      lineColor: "transparent",
-      topColor: hexToRgba("#22c55e", 0.08),
-      bottomColor: "transparent",
-      priceLineVisible: false,
-      lastValueVisible: false,
-      crosshairMarkerVisible: false,
-    });
-
-    // ── Band bottom (min) — перекрывает нижнюю часть bandTop ───────
-    const bandBot = chart.addSeries(AreaSeries, {
-      lineWidth: 1 as LineWidth,
-      lineColor: "transparent",
-      topColor: "rgba(0,0,0,0)",
-      bottomColor: "transparent",
-      priceLineVisible: false,
-      lastValueVisible: false,
-      crosshairMarkerVisible: false,
-    });
-
-    // ── Main area (avg + зелёная тень под графиком) ──────────────
-    const main = chart.addSeries(AreaSeries, {
-      lineColor: "#22c55e",
-      lineWidth: 2,
-      topColor: hexToRgba("#22c55e", 0.18),
-      bottomColor: hexToRgba("#22c55e", 0.02),
-      priceLineVisible: true,
-      lastValueVisible: true,
-      crosshairMarkerVisible: true,
-      crosshairMarkerRadius: 4,
-      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
-    });
-
-    chartRef.current = chart;
-    mainRef.current = main;
-    bandTopRef.current = bandTop;
-    bandBotRef.current = bandBot;
-
-    // ── Pan detection (от встроенного drag LWC) ────────────────────
-    // Не боремся с LWC — он двигает график плавно сам.
-    // Мы только отслеживаем куда пользователь ушёл для подгрузки данных.
-    chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (suppressRef.current || !range) return;
-      // LWC секунды → UTC ms (вычитаем tz offset)
-      const from = ((range.from as number) - tzOffRef.current) * 1000;
-      const to = ((range.to as number) - tzOffRef.current) * 1000;
-      if (to - from < MIN_SPAN_MS * 0.8) return;
-      appliedVpRef.current = { from, to };
-
-      // Debounce: не дёргаем React state на каждый кадр пана.
-      // LWC сам рендерит плавно, а мы обновляем state только при паузе —
-      // это триггерит подгрузку данных, но не мешает анимации.
-      clearTimeout(panTimerRef.current);
-      panTimerRef.current = setTimeout(() => {
-        onPanRef.current({ from, to });
-      }, 80);
-
-      // Перерисовать оверлеи синхронно с паном
-      drawDayBands();
-      updateFutureStripe();
-    });
-
-    // При mousedown/touchstart — перестаём подавлять события + трекаем drag
-    const el = containerRef.current;
-
-    const onPointerDown = () => {
-      suppressRef.current = false;
-      isDraggingRef.current = true;
-    };
-    const onPointerUp = () => {
-      isDraggingRef.current = false;
-
-      // Flush pending pan timer so engine viewport is up-to-date
-      // before drift correction runs.
-      const hadPendingPan = panTimerRef.current !== undefined;
-      if (hadPendingPan) {
-        clearTimeout(panTimerRef.current);
-        panTimerRef.current = undefined;
-        onPanRef.current(appliedVpRef.current);
-      }
-
-      // Применяем данные, которые пришли во время drag
-      const pending = pendingDataRef.current;
-      if (pending) {
-        pendingDataRef.current = null;
-        applyDataToChart(pending);
-      }
-
-      // Коррекция: если engine зажал viewport (clamp будущего/прошлого),
-      // то LWC показывает не ту позицию. Возвращаем график на место.
-      // Если мы только что flush'нули pan — engine скоро обновит viewport
-      // через React state, и viewport effect сам поставит chart на место.
-      if (!hadPendingPan) {
-        const engineVp = viewportPropRef.current;
-        const lwcVp = appliedVpRef.current;
-        const drift = Math.abs(engineVp.from - lwcVp.from) + Math.abs(engineVp.to - lwcVp.to);
-        if (drift > 500) {
-          appliedVpRef.current = engineVp;
-          suppressRef.current = true;
-          requestAnimationFrame(() => {
-            if (!chartRef.current) return;
-            try {
-              chartRef.current.timeScale().setVisibleRange({
-                from: ((engineVp.from / 1000) + tzOffRef.current) as Time,
-                to: ((engineVp.to / 1000) + tzOffRef.current) as Time,
-              });
-            } catch { /* */ }
-            requestAnimationFrame(() => {
-              suppressRef.current = false;
-              drawDayBands();
-              updateFutureStripe();
-            });
-          });
-        }
-      }
-    };
-
-    el.addEventListener("mousedown", onPointerDown);
-    el.addEventListener("touchstart", onPointerDown, { passive: true });
-    window.addEventListener("mouseup", onPointerUp);
-    window.addEventListener("touchend", onPointerUp);
-
-    // ── Кастомный zoom (wheel → zoomAtCursor) ──────────────────────
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const ts = chart.timeScale();
-      const cursorTime = ts.coordinateToTime(x);
-      if (cursorTime == null) return;
-      const cursorMs = ((cursorTime as number) - tzOffRef.current) * 1000;
-      const zoomIn = e.deltaY < 0;
-      suppressRef.current = true;
-      onZoomRef.current(cursorMs, zoomIn);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-
-    // ── ResizeObserver ──────────────────────────────────────────────
-    const ro = new ResizeObserver(() => {
-      if (el) {
-        chart.applyOptions({ width: el.clientWidth });
-        drawDayBands();
-      }
-    });
-    ro.observe(el);
-
-    return () => {
-      clearTimeout(panTimerRef.current);
-      el.removeEventListener("mousedown", onPointerDown);
-      el.removeEventListener("touchstart", onPointerDown);
-      window.removeEventListener("mouseup", onPointerUp);
-      window.removeEventListener("touchend", onPointerUp);
-      el.removeEventListener("wheel", onWheel);
-      ro.disconnect();
-      markersRef.current?.detach();
-      markersRef.current = null;
-      chart.remove();
-      chartRef.current = null;
-      mainRef.current = null;
-      bandTopRef.current = null;
-      bandBotRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* ── Обновление цвета серий ────────────────────────────────────────────── */
-  useEffect(() => {
-    mainRef.current?.applyOptions({
-      lineColor: color,
-      topColor: hexToRgba(color, 0.18),
-      bottomColor: hexToRgba(color, 0.02),
-    });
-    bandTopRef.current?.applyOptions({ topColor: hexToRgba(color, 0.08) });
-  }, [color]);
-
-  /* ── Загрузка / обновление данных ──────────────────────────────────────── */
-  useEffect(() => {
-    if (!chartRef.current || !mainRef.current || data === prevDataRef.current) return;
-
-    if (isDraggingRef.current) {
-      // Пользователь тянет мышку — откладываем setData() до mouseup,
-      // иначе LWC пересчитает бар/пиксель и drag превратится в зум.
-      pendingDataRef.current = data;
-      return;
-    }
-
-    applyDataToChart(data);
-  }, [data, applyDataToChart]);
-
-  /* ── Viewport из engine (zoom, refresh, начальная загрузка) ─────────────── */
-  useEffect(() => {
-    appliedVpRef.current = viewport;
-
-    // Во время активного drag LWC сам двигает график.
-    // Дёргать setVisibleRange в это время = рывки.
-    if (isDraggingRef.current) return;
-
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    requestAnimationFrame(() => {
-      if (!chartRef.current) return;
-      suppressRef.current = true;
-      try {
-        chartRef.current.timeScale().setVisibleRange({
-          from: ((viewport.from / 1000) + tzOffRef.current) as Time,
-          to: ((viewport.to / 1000) + tzOffRef.current) as Time,
-        });
-      } catch { /* not ready */ }
-      requestAnimationFrame(() => {
-        suppressRef.current = false;
-        drawDayBands();
-        updateFutureStripe();
-      });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewport]);
-
   /* ── Голубая полоска «будущее» ──────────────────────────────────────────── */
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const updateFutureStripe = useCallback(() => {
-    const chart = chartRef.current;
+    const u = chartRef.current;
     const el = futureRef.current;
     const container = containerRef.current;
-    if (!chart || !el || !container) return;
+    if (!u || !el || !container) return;
 
     const now = Date.now();
-    const nowSec = ((now / 1000) + tzOffRef.current) as Time;
-    const coord = chart.timeScale().timeToCoordinate(nowSec);
+    const nowSec = now / 1000 + tzOffRef.current;
+    const coord = u.valToPos(nowSec, "x", true);
     const containerW = container.clientWidth;
 
     if (coord != null && coord < containerW - 5) {
@@ -545,39 +205,426 @@ export function HistoryChart({
     }
   }, []);
 
+  /* ── Применение данных к графику ─────────────────────────────────────── */
+  const applyDataToChart = useCallback(
+    (pts: ChartPoint[]) => {
+      const u = chartRef.current;
+      if (!u) return;
+
+      prevDataRef.current = pts;
+
+      const uData = toUPlotData(pts, tzOffRef.current);
+      u.setData(uData, false); // false = не автоскейлить
+
+      // Восстановить viewport
+      const vp = appliedVpRef.current;
+      suppressRef.current = true;
+      u.setScale("x", {
+        min: vp.from / 1000 + tzOffRef.current,
+        max: vp.to / 1000 + tzOffRef.current,
+      });
+      requestAnimationFrame(() => {
+        suppressRef.current = false;
+        drawDayBands();
+        updateFutureStripe();
+      });
+    },
+    [drawDayBands, updateFutureStripe],
+  );
+
+  /* ── Создание графика (один раз) ───────────────────────────────────────── */
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const el = containerRef.current;
+    const W = el.clientWidth;
+    const H = 400;
+
+    // Gradient fill для area
+    function areaFill(u: uPlot, seriesIdx: number) {
+      const ctx = u.ctx;
+      const s = u.series[seriesIdx];
+      const sc = u.scales[s.scale!];
+      if (sc.min == null || sc.max == null) return "transparent";
+
+      const y0 = u.valToPos(sc.min, s.scale!, true);
+      const y1 = u.valToPos(sc.max, s.scale!, true);
+      const grad = ctx.createLinearGradient(0, y1, 0, y0);
+      grad.addColorStop(0, hexToRgba(colorRef.current, 0.02));
+      grad.addColorStop(1, hexToRgba(colorRef.current, 0.18));
+      return grad;
+    }
+
+    // Gradient fill для min/max band
+    function bandFill(u: uPlot, seriesIdx: number) {
+      const ctx = u.ctx;
+      const s = u.series[seriesIdx];
+      const sc = u.scales[s.scale!];
+      if (sc.min == null || sc.max == null) return "transparent";
+
+      const y0 = u.valToPos(sc.min, s.scale!, true);
+      const y1 = u.valToPos(sc.max, s.scale!, true);
+      const grad = ctx.createLinearGradient(0, y1, 0, y0);
+      grad.addColorStop(0, hexToRgba(colorRef.current, 0.0));
+      grad.addColorStop(1, hexToRgba(colorRef.current, 0.08));
+      return grad;
+    }
+
+    // Raw точки маркеры — рисуем через drawPoints
+    function drawRawMarkers(u: uPlot, sidx: number) {
+      const { ctx } = u;
+      const s = u.series[sidx];
+
+      // Определяем: raw данные? (все sampleCount ≤ 1 и не synthetic)
+      const pts = prevDataRef.current;
+      if (!pts) return;
+
+      const realRaw = pts.filter(
+        (p) => p.value !== null && !p.synthetic && (p.sampleCount == null || p.sampleCount <= 1),
+      );
+      const realNonNull = pts.filter((p) => p.value !== null && !p.synthetic);
+      const isRaw = realRaw.length > 0 && realRaw.length > realNonNull.length * 0.5;
+      if (!isRaw || realRaw.length > 2000) return;
+
+      ctx.save();
+      ctx.fillStyle = colorRef.current;
+
+      for (const p of realRaw) {
+        const tSec = p.ts / 1000 + tzOffRef.current;
+        const x = u.valToPos(tSec, "x", true);
+        const y = u.valToPos(p.value!, s.scale!, true);
+        if (x == null || y == null || x < 0 || x > u.width) continue;
+
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    const opts: uPlot.Options = {
+      id: "history-chart",
+      width: W,
+      height: H,
+      cursor: {
+        x: true,
+        y: true,
+        drag: { x: true, y: false, setScale: false },
+        sync: { key: "history" },
+      },
+      select: { show: false, left: 0, top: 0, width: 0, height: 0 },
+      legend: { show: false },
+      axes: [
+        {
+          // X axis (time)
+          stroke: "#94a3b8",
+          grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+          ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+          font: "12px system-ui, sans-serif",
+          gap: 8,
+        },
+        {
+          // Y axis
+          side: 1, // right
+          stroke: "#94a3b8",
+          grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+          ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+          font: "12px system-ui, sans-serif",
+          size: 60,
+          gap: 8,
+          values: (_u: uPlot, vals: number[]) =>
+            vals.map((v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(2))),
+        },
+      ],
+      scales: {
+        x: { time: true },
+        y: { auto: true, range: (_u, min, max) => {
+          // Немного отступов сверху/снизу
+          const pad = (max - min) * 0.05 || 1;
+          return [min - pad, max + pad];
+        }},
+      },
+      series: [
+        {}, // x series (timestamps)
+        {
+          // Main value line
+          label: label,
+          stroke: colorRef.current,
+          width: 2,
+          fill: areaFill as unknown as string,
+          points: { show: false },
+          spanGaps: false,
+          scale: "y",
+        },
+        {
+          // Min band
+          label: "Min",
+          stroke: "transparent",
+          fill: bandFill as unknown as string,
+          points: { show: false },
+          spanGaps: false,
+          scale: "y",
+        },
+        {
+          // Max band
+          label: "Max",
+          stroke: "transparent",
+          fill: bandFill as unknown as string,
+          points: { show: false },
+          spanGaps: false,
+          scale: "y",
+        },
+      ],
+      bands: [
+        { series: [2, 3], fill: hexToRgba(colorRef.current, 0.08) },
+      ],
+      hooks: {
+        drawSeries: [
+          (u: uPlot, sidx: number) => {
+            if (sidx === 1) drawRawMarkers(u, sidx);
+          },
+        ],
+        setScale: [
+          (u: uPlot, scaleKey: string) => {
+            if (scaleKey !== "x" || suppressRef.current) return;
+
+            const min = u.scales.x.min;
+            const max = u.scales.x.max;
+            if (min == null || max == null) return;
+
+            const off = tzOffRef.current;
+            const from = (min - off) * 1000;
+            const to = (max - off) * 1000;
+            if (to - from < MIN_SPAN_MS * 0.8) return;
+
+            appliedVpRef.current = { from, to };
+
+            clearTimeout(panTimerRef.current);
+            panTimerRef.current = setTimeout(() => {
+              onPanRef.current({ from, to });
+            }, 80);
+
+            drawDayBands();
+            updateFutureStripe();
+          },
+        ],
+        ready: [
+          (u: uPlot) => {
+            // Initial overlays
+            drawDayBands();
+            updateFutureStripe();
+
+            // Custom pan via pointer events on the over element
+            const over = u.over;
+
+            let dragStartX: number | null = null;
+            let dragStartMin: number | null = null;
+            let dragStartMax: number | null = null;
+
+            over.addEventListener("mousedown", (e: MouseEvent) => {
+              if (e.button !== 0) return;
+              isDraggingRef.current = true;
+              dragStartX = e.clientX;
+              dragStartMin = u.scales.x.min!;
+              dragStartMax = u.scales.x.max!;
+              over.style.cursor = "grabbing";
+            });
+
+            window.addEventListener("mousemove", (e: MouseEvent) => {
+              if (dragStartX == null || dragStartMin == null || dragStartMax == null) return;
+
+              const dx = e.clientX - dragStartX;
+              const pxPerSec = u.width / (dragStartMax - dragStartMin);
+              const dtSec = dx / pxPerSec;
+
+              suppressRef.current = true;
+              u.setScale("x", {
+                min: dragStartMin - dtSec,
+                max: dragStartMax - dtSec,
+              });
+              suppressRef.current = false;
+
+              // Уведомляем engine
+              const off = tzOffRef.current;
+              const from = (dragStartMin - dtSec - off) * 1000;
+              const to = (dragStartMax - dtSec - off) * 1000;
+              appliedVpRef.current = { from, to };
+
+              clearTimeout(panTimerRef.current);
+              panTimerRef.current = setTimeout(() => {
+                onPanRef.current({ from, to });
+              }, 80);
+
+              drawDayBands();
+              updateFutureStripe();
+            });
+
+            window.addEventListener("mouseup", () => {
+              if (dragStartX == null) return;
+              dragStartX = null;
+              dragStartMin = null;
+              dragStartMax = null;
+              isDraggingRef.current = false;
+              over.style.cursor = "crosshair";
+
+              // Flush pending pan
+              const hadPending = panTimerRef.current !== undefined;
+              if (hadPending) {
+                clearTimeout(panTimerRef.current);
+                panTimerRef.current = undefined;
+                onPanRef.current(appliedVpRef.current);
+              }
+
+              // Применяем отложенные данные
+              const pending = pendingDataRef.current;
+              if (pending) {
+                pendingDataRef.current = null;
+                applyDataToChart(pending);
+              }
+
+              // Коррекция drift (если engine зажал viewport)
+              if (!hadPending) {
+                const engineVp = viewportPropRef.current;
+                const lwcVp = appliedVpRef.current;
+                const drift = Math.abs(engineVp.from - lwcVp.from) + Math.abs(engineVp.to - lwcVp.to);
+                if (drift > 500) {
+                  appliedVpRef.current = engineVp;
+                  suppressRef.current = true;
+                  u.setScale("x", {
+                    min: engineVp.from / 1000 + tzOffRef.current,
+                    max: engineVp.to / 1000 + tzOffRef.current,
+                  });
+                  requestAnimationFrame(() => {
+                    suppressRef.current = false;
+                    drawDayBands();
+                    updateFutureStripe();
+                  });
+                }
+              }
+            });
+
+            // Custom zoom (wheel)
+            over.addEventListener("wheel", (e: WheelEvent) => {
+              e.preventDefault();
+              const rect = over.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const xSec = u.posToVal(x, "x");
+              if (xSec == null) return;
+              const cursorMs = (xSec - tzOffRef.current) * 1000;
+              const zoomIn = e.deltaY < 0;
+              suppressRef.current = true;
+              onZoomRef.current(cursorMs, zoomIn);
+            }, { passive: false });
+
+            over.style.cursor = "crosshair";
+          },
+        ],
+      },
+      plugins: [
+        // Tooltip plugin
+        tooltipPlugin(colorRef),
+      ],
+    };
+
+    // Initial empty data
+    const initData: uPlot.AlignedData = [[], [], [], []];
+    const u = new uPlot(opts, initData, el);
+    chartRef.current = u;
+
+    // ResizeObserver
+    const ro = new ResizeObserver(() => {
+      if (el) {
+        u.setSize({ width: el.clientWidth, height: H });
+        drawDayBands();
+        updateFutureStripe();
+      }
+    });
+    ro.observe(el);
+
+    return () => {
+      clearTimeout(panTimerRef.current);
+      ro.disconnect();
+      u.destroy();
+      chartRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── Обновление цвета ────────────────────────────────────────────────── */
+  useEffect(() => {
+    const u = chartRef.current;
+    if (!u) return;
+    u.series[1].stroke = () => colorRef.current;
+    u.redraw();
+  }, [color]);
+
+  /* ── Загрузка / обновление данных ────────────────────────────────────── */
+  useEffect(() => {
+    if (!chartRef.current || data === prevDataRef.current) return;
+
+    if (isDraggingRef.current) {
+      pendingDataRef.current = data;
+      return;
+    }
+
+    applyDataToChart(data);
+  }, [data, applyDataToChart]);
+
+  /* ── Viewport из engine (zoom, refresh) ──────────────────────────────── */
+  useEffect(() => {
+    appliedVpRef.current = viewport;
+    if (isDraggingRef.current) return;
+
+    const u = chartRef.current;
+    if (!u) return;
+
+    suppressRef.current = true;
+    u.setScale("x", {
+      min: viewport.from / 1000 + tzOffRef.current,
+      max: viewport.to / 1000 + tzOffRef.current,
+    });
+    requestAnimationFrame(() => {
+      suppressRef.current = false;
+      drawDayBands();
+      updateFutureStripe();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport]);
+
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div className="relative w-full">
-      {/* Loading overlay — тонкая полоска сверху, не блокирует взаимодействие */}
+      {/* Loading overlay */}
       {isLoading && (
         <div className="absolute top-0 left-0 right-0 z-20 h-0.5 overflow-hidden rounded-t-xl">
           <div className="h-full w-1/3 animate-[slide_1s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-primary to-transparent" />
         </div>
       )}
 
-      {/* Заголовок */}
+      {/* Label */}
       <div className="text-xs text-muted-foreground mb-1">
         {label} <span className="text-muted-foreground/50">({unit})</span>
       </div>
 
-      {/* Chart container */}
+      {/* Chart */}
       <div className="relative">
         <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
 
-        {/* Canvas для суточных полос — поверх графика, но не блокирует клики */}
+        {/* Day bands overlay */}
         <canvas
           ref={dayBandsRef}
           className="absolute top-0 left-0 pointer-events-none"
           style={{ zIndex: 5 }}
         />
 
-        {/* Голубая полоска «будущее» */}
+        {/* Future stripe */}
         <div
           ref={futureRef}
           className="absolute top-0 pointer-events-none z-10"
           style={{
             display: "none",
-            bottom: "28px",
+            bottom: "30px",
             background: "rgba(59, 130, 246, 0.06)",
             borderLeft: "1px dashed rgba(59, 130, 246, 0.25)",
           }}
@@ -585,4 +632,77 @@ export function HistoryChart({
       </div>
     </div>
   );
+}
+
+/* ── Tooltip plugin ────────────────────────────────────────────────────── */
+
+function tooltipPlugin(colorRef: React.RefObject<string>) {
+  let tooltipEl: HTMLDivElement | null = null;
+
+  function init(u: uPlot) {
+    tooltipEl = document.createElement("div");
+    tooltipEl.className = "uplot-tooltip";
+    tooltipEl.style.cssText = `
+      position: absolute;
+      pointer-events: none;
+      z-index: 100;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      color: #e2e8f0;
+      font-size: 12px;
+      font-family: system-ui, sans-serif;
+      white-space: nowrap;
+      display: none;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    `;
+    u.over.appendChild(tooltipEl);
+  }
+
+  function setCursor(u: uPlot) {
+    if (!tooltipEl) return;
+    const { idx } = u.cursor;
+    if (idx == null) {
+      tooltipEl.style.display = "none";
+      return;
+    }
+
+    const val = u.data[1][idx];
+    const time = u.data[0][idx];
+    if (val == null || time == null) {
+      tooltipEl.style.display = "none";
+      return;
+    }
+
+    const d = new Date(time * 1000);
+    const timeStr = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+
+    const valStr = val >= 1000 ? (val / 1000).toFixed(2) + "k" : val.toFixed(2);
+
+    tooltipEl.innerHTML = `
+      <div style="color: rgba(148,163,184,0.7); margin-bottom: 2px">${dateStr} ${timeStr}</div>
+      <div style="color: ${colorRef.current}; font-weight: 600">${valStr}</div>
+    `;
+    tooltipEl.style.display = "block";
+
+    const cx = u.cursor.left!;
+    const cy = u.cursor.top!;
+    const tw = tooltipEl.offsetWidth;
+
+    let left = cx + 12;
+    if (left + tw > u.width) left = cx - tw - 12;
+
+    tooltipEl.style.left = `${left}px`;
+    tooltipEl.style.top = `${cy - 20}px`;
+  }
+
+  return {
+    hooks: {
+      init: [init],
+      setCursor: [setCursor],
+    },
+  };
 }

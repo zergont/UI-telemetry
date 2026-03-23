@@ -8,10 +8,12 @@ import asyncpg
 # ─────────────────────────────────────────────────────────────────────────────
 # Выбор источника данных по ширине диапазона
 #
-# v2.0.0 (TimescaleDB):
+# v3.0.0 (uPlot migration):
 #   span ≤ 30 дней → history (raw hypertable, time_bucket on-the-fly)
 #   span ≤ 90 дней → history_1min  (CA, 1 минута)
 #   span >  90 дней → history_1hour (CA, 1 час)
+#
+# Убрано: _fill_synthetic, _fetch_boundary_points (не нужны для uPlot)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _30D = 30 * 86_400
@@ -141,71 +143,6 @@ async def _query_raw(
         )
 
 
-def _fill_synthetic(
-    points: list[dict],
-    span_seconds: float,
-) -> list[dict]:
-    """Дозаполняет промежутки между raw-точками синтетическими (линейная интерполяция).
-
-    Нужно для плавного пана в LWC при редких данных (генератор стоит,
-    данные приходят раз в несколько минут).
-    Синтетические точки помечены synthetic=True и не отображаются как маркеры.
-    """
-    if len(points) < 2:
-        return points
-
-    from datetime import timedelta
-
-    # Интервал заполнения: обеспечиваем ~10 точек на ширину viewport.
-    # viewport ≈ span / 3 (PREFETCH_SCREENS=3), значит fill = span / 30.
-    fill_interval = max(1.0, span_seconds / 30)
-    # Порог: заполняем только если промежуток > 3× fill_interval
-    min_gap = fill_interval * 3
-    max_synthetic_per_gap = 500
-
-    result: list[dict] = []
-    for i, pt in enumerate(points):
-        result.append(pt)
-        if i >= len(points) - 1:
-            continue
-        next_pt = points[i + 1]
-        gap = (next_pt["ts"] - pt["ts"]).total_seconds()
-        if gap <= min_gap:
-            continue
-        raw_a = pt.get("value")
-        raw_b = next_pt.get("value")
-        if raw_a is None or raw_b is None:
-            continue
-
-        # Линейная интерполяция между двумя реальными точками
-        val_a = float(raw_a)
-        val_b = float(raw_b)
-        ts_a = pt["ts"]
-        total_gap = gap
-        current = ts_a + timedelta(seconds=fill_interval)
-        count = 0
-        while current < next_pt["ts"] and count < max_synthetic_per_gap:
-            # Доля пройденного расстояния от A к B
-            t = (current - ts_a).total_seconds() / total_gap
-            val = val_a + (val_b - val_a) * t
-            result.append({
-                "ts": current,
-                "value": round(val, 4),
-                "min_value": round(val, 4),
-                "max_value": round(val, 4),
-                "open_value": round(val, 4),
-                "close_value": round(val, 4),
-                "sample_count": 1,
-                "synthetic": True,
-                "text": None,
-                "reason": None,
-            })
-            current += timedelta(seconds=fill_interval)
-            count += 1
-
-    return result
-
-
 def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     """Находит разрывы (потери данных) между последовательными точками.
 
@@ -246,53 +183,6 @@ def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     return gaps
 
 
-async def _fetch_boundary_points(
-    conn: asyncpg.Connection,
-    table: str,
-    router_sn: str,
-    equip_type: str,
-    panel_id: int,
-    addr: int,
-    start: datetime,
-    end: datetime,
-) -> tuple[dict | None, dict | None]:
-    """Ближайшая точка ДО start и ПОСЛЕ end.
-
-    Гарантирует, что LWC всегда имеет точки по краям viewport,
-    даже если в запрошенном диапазоне данных мало (редкие записи).
-    """
-    is_raw = table == "history"
-
-    if is_raw:
-        cols = """
-            ts, value,
-            value AS min_value, value AS max_value,
-            value AS open_value, value AS close_value,
-            1::bigint AS sample_count, text, reason
-        """
-    else:
-        cols = """
-            ts, avg_value AS value,
-            min_value, max_value, open_value, close_value,
-            sample_count, NULL::text AS text, NULL::text AS reason
-        """
-
-    before = await conn.fetchrow(
-        f"SELECT {cols} FROM {table} "
-        "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4 "
-        "  AND ts < $5 ORDER BY ts DESC LIMIT 1",
-        router_sn, equip_type, panel_id, addr, start,
-    )
-    after = await conn.fetchrow(
-        f"SELECT {cols} FROM {table} "
-        "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4 "
-        "  AND ts > $5 ORDER BY ts ASC LIMIT 1",
-        router_sn, equip_type, panel_id, addr, end,
-    )
-
-    return (dict(before) if before else None, dict(after) if after else None)
-
-
 async def fetch_history(
     pool: asyncpg.Pool,
     router_sn: str,
@@ -325,13 +215,6 @@ async def fetch_history(
                 conn, table, router_sn, equip_type, panel_id, addr, start, end, limit
             )
 
-        # Граничные точки: ближайшая ДО start и ПОСЛЕ end.
-        # Гарантируют, что график имеет данные по краям viewport,
-        # даже если в диапазоне точек мало (редкие записи при простое).
-        before, after = await _fetch_boundary_points(
-            conn, table, router_sn, equip_type, panel_id, addr, start, end,
-        )
-
         first_data_at = await conn.fetchval(
             f"SELECT MIN(ts) FROM {table} "
             "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4",
@@ -339,27 +222,7 @@ async def fetch_history(
         )
 
     points = [dict(r) for r in rows]
-
-    # Определяем gap'ы ДО synthetic fill и ДО boundary —
-    # иначе boundary создают ложные разрывы, а synthetic их маскирует.
     gaps = _compute_gaps(points, min_gap_points)
-
-    # Дозаполняем промежутки синтетическими точками для raw данных.
-    # Без этого при редких данных (генератор стоит) LWC не может
-    # нормально панить — в viewport может быть 0 точек.
-    if table == "history":
-        bucket_secs = max(1, int(span / limit))
-        if bucket_secs <= 5:
-            points = _fill_synthetic(points, span)
-
-    # Boundary точки добавляются ПОСЛЕ gap-детекции и synthetic fill.
-    # Так LWC рисует линию от boundary до ближайшей реальной точки
-    # без ложных разрывов и без интерполяции к значениям за viewport.
-    existing_ts = {p["ts"] for p in points}
-    if before and before["ts"] not in existing_ts:
-        points.insert(0, before)
-    if after and after["ts"] not in existing_ts:
-        points.append(after)
 
     return {
         "points":        points,
