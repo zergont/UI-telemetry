@@ -1,4 +1,4 @@
-import type { ChartPoint, GapZone, HistoryPoint } from "./types";
+import type { ChartPoint, HistoryPoint } from "./types";
 
 /* ── Примитивы ──────────────────────────────────────────────────────────── */
 
@@ -47,18 +47,14 @@ export function zoomBucket(spanMs: number): number {
 
 /* ── Конвертация API → ChartPoint[] ─────────────────────────────────────── */
 
-export function buildChartData(
-  points: HistoryPoint[],
-  gaps: GapZone[],
-): ChartPoint[] {
-  const valid = points.filter(
-    (p) =>
-      p.ts != null &&
-      p.value != null &&
-      p.reason?.toUpperCase().includes("NA") !== true,
-  );
-
-  const converted: ChartPoint[] = valid
+export function buildChartData(points: HistoryPoint[]): ChartPoint[] {
+  return points
+    .filter(
+      (p) =>
+        p.ts != null &&
+        p.value != null &&
+        p.reason?.toUpperCase().includes("NA") !== true,
+    )
     .map((p) => ({
       ts: parseIsoToMs(p.ts!),
       value: p.value!,
@@ -68,43 +64,13 @@ export function buildChartData(
     }))
     .filter((p) => isFiniteNumber(p.ts) && isFiniteNumber(p.value as number))
     .sort((a, b) => a.ts - b.ts);
-
-  if (converted.length === 0) return [];
-
-  // Null-bridge для гэпов
-  const gapMs = gaps
-    .map((g) => ({ from: parseIsoToMs(g.from_ts), to: parseIsoToMs(g.to_ts) }))
-    .filter((g) => isFiniteNumber(g.from) && isFiniteNumber(g.to) && g.to > g.from);
-
-  if (gapMs.length === 0) return converted;
-
-  const result: ChartPoint[] = [];
-  for (const pt of converted) {
-    for (const g of gapMs) {
-      if (Math.abs(pt.ts - g.to) < 1000) {
-        result.push({ ts: g.from, value: null });
-        result.push({ ts: g.to, value: null });
-      }
-    }
-    result.push(pt);
-  }
-
-  const seen = new Set<number>();
-  return result
-    .filter((p) => {
-      if (seen.has(p.ts)) return false;
-      seen.add(p.ts);
-      return true;
-    })
-    .sort((a, b) => a.ts - b.ts);
 }
 
 /* ── Merge двух отсортированных массивов точек ──────────────────────────── */
 
 /**
  * Объединяет два отсортированных по ts массива ChartPoint[].
- * При дубликатах по ts: если один из них null-bridge — оставляем оба (нужны для gap).
- * Иначе берём точку с большим sampleCount (более актуальная агрегация).
+ * При дубликатах по ts берём точку от последнего запроса (b).
  */
 export function mergePoints(a: ChartPoint[], b: ChartPoint[]): ChartPoint[] {
   const result: ChartPoint[] = [];
@@ -122,14 +88,8 @@ export function mergePoints(a: ChartPoint[], b: ChartPoint[]): ChartPoint[] {
       result.push(pb);
       j++;
     } else {
-      // Одинаковый ts — одну из них null-bridge?
-      if (pa.value === null || pb.value === null) {
-        result.push(pa);
-        if (pb.value !== pa.value) result.push(pb);
-      } else {
-        // Берём более «свежую» (от последнего запроса = b)
-        result.push(pb);
-      }
+      // Одинаковый ts — берём более свежую (b)
+      result.push(pb);
       i++;
       j++;
     }

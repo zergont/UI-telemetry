@@ -8,12 +8,11 @@ import asyncpg
 # ─────────────────────────────────────────────────────────────────────────────
 # Выбор источника данных по ширине диапазона
 #
-# v3.0.0 (uPlot migration):
 #   span ≤ 30 дней → history (raw hypertable, time_bucket on-the-fly)
 #   span ≤ 90 дней → history_1min  (CA, 1 минута)
 #   span >  90 дней → history_1hour (CA, 1 час)
 #
-# Убрано: _fill_synthetic, _fetch_boundary_points (не нужны для uPlot)
+# Gap-детекция вынесена в DB_MQTT (таблица data_gaps).
 # ─────────────────────────────────────────────────────────────────────────────
 
 _30D = 30 * 86_400
@@ -42,11 +41,7 @@ async def _query_aggregated(
     end: datetime,
     limit: int,
 ) -> list:
-    """Читает из Continuous Aggregate (history_1min / history_1hour).
-
-    Возвращает avg/min/max/open/close/sample_count.
-    sample_count = NULL означает gap (бакет пустой, заполнен locf).
-    """
+    """Читает из Continuous Aggregate (history_1min / history_1hour)."""
     return await conn.fetch(
         f"""
         SELECT
@@ -143,38 +138,6 @@ async def _query_raw(
         )
 
 
-def _compute_gaps(points: list[dict], gap_threshold_sec: int) -> list[dict]:
-    """Находит разрывы (потери данных) между последовательными точками.
-
-    gap_threshold_sec — минимальный промежуток (сек) чтобы считать gap.
-    По умолчанию 1800 (30 мин) — 2× максимальный heartbeat (15 мин).
-    Промежутки меньше порога — нормальная нерегулярность (heartbeat, сжатие).
-
-    Zero-bridge rule: если value до и после разрыва ≈ 0 — не считается потерей
-    (оборудование не работало, данные приходили редко).
-    """
-    if len(points) < 2:
-        return []
-
-    threshold = max(gap_threshold_sec, 60)  # не менее 60 сек
-
-    gaps = []
-    for i in range(len(points) - 1):
-        diff = (points[i + 1]["ts"] - points[i]["ts"]).total_seconds()
-        if diff <= threshold:
-            continue
-        v0 = points[i].get("value")
-        v1 = points[i + 1].get("value")
-        zero_bridge = (
-            v0 is not None and v1 is not None
-            and abs(v0) < 0.001 and abs(v1) < 0.001
-        )
-        if not zero_bridge:
-            gaps.append({"from_ts": points[i]["ts"], "to_ts": points[i + 1]["ts"]})
-
-    return gaps
-
-
 async def fetch_history(
     pool: asyncpg.Pool,
     router_sn: str,
@@ -184,15 +147,13 @@ async def fetch_history(
     start: datetime,
     end: datetime,
     limit: int = TARGET_POINTS,
-    gap_threshold_sec: int = 1800,
 ) -> dict[str, Any]:
-    """Выбирает данные из нужного источника, определяет gap'ы.
+    """Выбирает данные из нужного источника.
 
     Возвращает:
       points        — [{ts, value, min_value, max_value,
                         open_value, close_value, sample_count, text, reason}]
       first_data_at — первая запись в источнике (граница «данных нет»)
-      gaps          — [{from_ts, to_ts}] красные зоны (потери данных)
     """
     span  = (end - start).total_seconds()
     table = _choose_table(span)
@@ -214,12 +175,10 @@ async def fetch_history(
         )
 
     points = [dict(r) for r in rows]
-    gaps = _compute_gaps(points, gap_threshold_sec)
 
     return {
         "points":        points,
         "first_data_at": first_data_at,
-        "gaps":          gaps,
     }
 
 
@@ -231,19 +190,8 @@ async def fetch_state_events(
     addr: int,
     start: datetime,
     end: datetime,
-    heartbeat_sec: int = 900,
 ) -> dict[str, Any]:
-    """Журнал изменений состояния (discrete/enum регистры) с детекцией gap'ов.
-
-    Gap = интервал между записями > heartbeat_sec * 2.
-    Gap означает потенциально пропущенные события (аварийный останов и т.п.).
-
-    Возвращает:
-      events  — [{ts, raw, text, write_reason, gap_after, gap_duration_sec}]
-      gaps    — [{from_ts, to_ts}] красные зоны
-    """
-    gap_threshold = heartbeat_sec * 2
-
+    """Журнал изменений состояния (discrete/enum регистры)."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -251,11 +199,7 @@ async def fetch_state_events(
                 ts,
                 raw,
                 text,
-                write_reason,
-                lead(ts) OVER (ORDER BY ts)          AS next_ts,
-                EXTRACT(EPOCH FROM (
-                    lead(ts) OVER (ORDER BY ts) - ts
-                ))::float                             AS interval_sec
+                write_reason
             FROM state_events
             WHERE router_sn  = $1
               AND equip_type = $2
@@ -267,26 +211,14 @@ async def fetch_state_events(
             router_sn, equip_type, panel_id, addr, start, end,
         )
 
-    events = []
-    gaps   = []
+    events = [
+        {
+            "ts":           r["ts"],
+            "raw":          r["raw"],
+            "text":         r["text"],
+            "write_reason": r["write_reason"],
+        }
+        for r in rows
+    ]
 
-    for r in rows:
-        interval_sec = r["interval_sec"]
-        gap_after    = interval_sec is not None and interval_sec > gap_threshold
-
-        events.append({
-            "ts":               r["ts"],
-            "raw":              r["raw"],
-            "text":             r["text"],
-            "write_reason":     r["write_reason"],
-            "gap_after":        gap_after,
-            "gap_duration_sec": round(interval_sec) if gap_after else None,
-        })
-
-        if gap_after:
-            gaps.append({"from_ts": r["ts"], "to_ts": r["next_ts"]})
-
-    return {
-        "events": events,
-        "gaps":   gaps,
-    }
+    return {"events": events}

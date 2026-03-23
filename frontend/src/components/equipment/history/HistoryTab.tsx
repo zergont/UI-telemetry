@@ -15,7 +15,6 @@ interface HistoryTabProps {
 
 export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabProps) {
   const tzOffsetHours = useSettingsStore((s) => s.tzOffsetHours);
-  const gapThresholdSec = useSettingsStore((s) => s.gapThresholdSec);
   const [selectedAddr, setSelectedAddr] = useState<number>(REGISTER_OPTIONS[0].addr);
   const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr)!;
 
@@ -24,7 +23,6 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
     equipType,
     panelId,
     addr: selectedAddr,
-    gapThresholdSec,
   });
 
   const hasData = engine.data.some((p) => p.value !== null);

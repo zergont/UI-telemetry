@@ -39,50 +39,23 @@ function startOfDayShifted(shiftedMs: number): number {
 function toUPlotData(
   pts: ChartPoint[],
   tzOffSec: number,
-): [number[], (number | null)[], (number | null)[], (number | null)[]] {
-  const nonNull = pts.filter((p) => p.value !== null);
-  const len = nonNull.length;
-  const times = new Float64Array(len);
-  const values: (number | null)[] = new Array(len);
-  const mins: (number | null)[] = new Array(len);
-  const maxs: (number | null)[] = new Array(len);
+): [number[], number[], number[], number[]] {
+  const len = pts.length;
+  const times = new Array<number>(len);
+  const values = new Array<number>(len);
+  const mins = new Array<number>(len);
+  const maxs = new Array<number>(len);
 
   for (let i = 0; i < len; i++) {
-    const p = nonNull[i];
+    const p = pts[i];
     times[i] = p.ts / 1000 + tzOffSec;
-    values[i] = p.value;
+    values[i] = p.value!;
     const hasAgg = p.sampleCount != null && p.sampleCount > 1;
-    mins[i] = hasAgg && p.minValue != null ? p.minValue : p.value;
-    maxs[i] = hasAgg && p.maxValue != null ? p.maxValue : p.value;
+    mins[i] = hasAgg && p.minValue != null ? p.minValue : p.value!;
+    maxs[i] = hasAgg && p.maxValue != null ? p.maxValue : p.value!;
   }
 
-  // Вставляем null в данные для гэпов
-  const gapPts = pts.filter((p) => p.value === null);
-  if (gapPts.length === 0) {
-    return [Array.from(times), values, mins, maxs];
-  }
-
-  // Собираем все точки (данные + null-bridge) и сортируем
-  const all: { ts: number; value: number | null; min: number | null; max: number | null }[] = [];
-  for (let i = 0; i < len; i++) {
-    all.push({ ts: times[i], value: values[i], min: mins[i], max: maxs[i] });
-  }
-  for (const p of gapPts) {
-    all.push({ ts: p.ts / 1000 + tzOffSec, value: null, min: null, max: null });
-  }
-  all.sort((a, b) => a.ts - b.ts);
-
-  const t: number[] = [];
-  const v: (number | null)[] = [];
-  const mn: (number | null)[] = [];
-  const mx: (number | null)[] = [];
-  for (const a of all) {
-    t.push(a.ts);
-    v.push(a.value);
-    mn.push(a.min);
-    mx.push(a.max);
-  }
-  return [t, v, mn, mx];
+  return [times, values, mins, maxs];
 }
 
 /* ── Component ──────────────────────────────────────────────────────────── */
@@ -367,7 +340,7 @@ export function HistoryChart({
           width: 2,
           fill: areaFill as unknown as string,
           points: { show: false },
-          spanGaps: false,
+          spanGaps: true,
           scale: "y",
         },
         {
@@ -376,7 +349,7 @@ export function HistoryChart({
           stroke: "transparent",
           fill: bandFill as unknown as string,
           points: { show: false },
-          spanGaps: false,
+          spanGaps: true,
           scale: "y",
         },
         {
@@ -385,7 +358,7 @@ export function HistoryChart({
           stroke: "transparent",
           fill: bandFill as unknown as string,
           points: { show: false },
-          spanGaps: false,
+          spanGaps: true,
           scale: "y",
         },
       ],

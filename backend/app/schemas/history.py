@@ -18,16 +18,9 @@ class HistoryPoint(BaseModel):
     reason: Optional[str] = None
 
 
-class GapZone(BaseModel):
-    """Диапазон потери данных (красная зона на графике)."""
-    from_ts: datetime
-    to_ts: datetime
-
-
 class HistoryResponse(BaseModel):
     points: List[HistoryPoint]
     first_data_at: Optional[datetime] = None
-    gaps: List[GapZone] = []
 
 
 # ── State events (дискретные / enum регистры) ────────────────────────────────
@@ -37,10 +30,7 @@ class StateEvent(BaseModel):
     raw: Optional[int] = None
     text: Optional[str] = None
     write_reason: Optional[str] = None   # 'change' | 'heartbeat'
-    gap_after: bool = False              # True = после этой записи разрыв данных
-    gap_duration_sec: Optional[int] = None
 
 
 class StateEventsResponse(BaseModel):
     events: List[StateEvent]
-    gaps: List[GapZone] = []

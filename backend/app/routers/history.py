@@ -9,7 +9,6 @@ from app.auth import AuthContext, enforce_router_scope, require_auth
 from app.db.queries.history import fetch_history, fetch_state_events
 from app.deps import get_pool
 from app.schemas.history import (
-    GapZone,
     HistoryPoint,
     HistoryResponse,
     StateEvent,
@@ -28,23 +27,17 @@ async def get_history(
     start: datetime = Query(...),
     end: datetime = Query(...),
     points: int = Query(2000, ge=100, le=20000),
-    min_gap_points: int = Query(1800, ge=60, le=7200, alias="min_gap_points"),
     pool: asyncpg.Pool = Depends(get_pool),
     ctx: AuthContext = Depends(require_auth),
 ):
     enforce_router_scope(ctx, router_sn)
-    # Таблица выбирается автоматически в fetch_history по span:
-    #   ≤ 30d → history (raw / on-the-fly time_bucket)
-    #   ≤ 90d → history_1min  (Continuous Aggregate, 1 минута)
-    #   > 90d → history_1hour (Continuous Aggregate, 1 час)
     result = await fetch_history(
         pool, router_sn, equip_type, panel_id, addr, start, end,
-        limit=points, gap_threshold_sec=min_gap_points,
+        limit=points,
     )
     return HistoryResponse(
         points=[HistoryPoint(**p) for p in result["points"]],
         first_data_at=result["first_data_at"],
-        gaps=[GapZone(**g) for g in result["gaps"]],
     )
 
 
@@ -56,22 +49,14 @@ async def get_state_events(
     addr: int = Query(...),
     start: datetime = Query(...),
     end: datetime = Query(...),
-    heartbeat_sec: int = Query(900, ge=10, le=86400,
-                               description="Порог gap (сек). Gap = интервал > heartbeat × 2"),
     pool: asyncpg.Pool = Depends(get_pool),
     ctx: AuthContext = Depends(require_auth),
 ):
-    """Журнал изменений состояния (discrete / enum регистры).
-
-    Возвращает список событий с флагами gap_after/gap_duration_sec
-    и список красных зон для отображения на графике.
-    """
+    """Журнал изменений состояния (discrete / enum регистры)."""
     enforce_router_scope(ctx, router_sn)
     result = await fetch_state_events(
         pool, router_sn, equip_type, panel_id, addr, start, end,
-        heartbeat_sec=heartbeat_sec,
     )
     return StateEventsResponse(
         events=[StateEvent(**e) for e in result["events"]],
-        gaps=[GapZone(**g) for g in result["gaps"]],
     )

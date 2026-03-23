@@ -27,13 +27,7 @@ export interface HistoryPoint {
   reason: string | null;
 }
 
-export interface GapZone {
-  from_ts: string;
-  to_ts: string;
-}
-
 export interface HistoryResponse {
   points: HistoryPoint[];
   first_data_at: string | null;
-  gaps: GapZone[];
 }
