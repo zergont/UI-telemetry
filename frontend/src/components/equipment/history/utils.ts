@@ -32,11 +32,17 @@ export function calcTargetPoints(spanMs: number): number {
 }
 
 /**
- * «Корзина» уровня зума — меняется только при значимом изменении масштаба.
- * Используется как ключ для инвалидации кэша данных.
+ * «Корзина» источника данных — инвалидирует кэш ТОЛЬКО при смене таблицы.
+ *   0 = history (raw),  span ≤ 30 дней
+ *   1 = history_1min,   span ≤ 90 дней
+ *   2 = history_1hour,  span >  90 дней
+ * При зуме внутри одного источника кэш НЕ сбрасывается — подгрузка инкрементальная.
  */
 export function zoomBucket(spanMs: number): number {
-  return Math.floor(Math.log2(Math.max(spanMs, 5000) / 60_000));
+  const spanSec = spanMs / 1000;
+  if (spanSec <= 30 * 86_400) return 0;   // raw
+  if (spanSec <= 90 * 86_400) return 1;   // 1min
+  return 2;                                 // 1hour
 }
 
 /* ── Конвертация API → ChartPoint[] ─────────────────────────────────────── */
