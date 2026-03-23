@@ -14,7 +14,6 @@ class HistoryPoint(BaseModel):
     open_value: Optional[float] = None   # OHLC: первое значение в бакете
     close_value: Optional[float] = None  # OHLC: последнее значение в бакете
     sample_count: Optional[int] = None   # None = gapfilled бакет (нет данных)
-    synthetic: Optional[bool] = None     # deprecated (v3.0: не используется)
     text: Optional[str] = None
     reason: Optional[str] = None
 

@@ -275,14 +275,14 @@ export function HistoryChart({
       const { ctx } = u;
       const s = u.series[sidx];
 
-      // Определяем: raw данные? (все sampleCount ≤ 1 и не synthetic)
+      // Определяем: raw данные? (все sampleCount ≤ 1)
       const pts = prevDataRef.current;
       if (!pts) return;
 
       const realRaw = pts.filter(
-        (p) => p.value !== null && !p.synthetic && (p.sampleCount == null || p.sampleCount <= 1),
+        (p) => p.value !== null && (p.sampleCount == null || p.sampleCount <= 1),
       );
-      const realNonNull = pts.filter((p) => p.value !== null && !p.synthetic);
+      const realNonNull = pts.filter((p) => p.value !== null);
       const isRaw = realRaw.length > 0 && realRaw.length > realNonNull.length * 0.5;
       if (!isRaw || realRaw.length > 2000) return;
 

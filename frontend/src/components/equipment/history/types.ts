@@ -11,7 +11,6 @@ export interface ChartPoint {
   minValue?: number | null;
   maxValue?: number | null;
   sampleCount?: number;
-  synthetic?: boolean;  // deprecated (v3.0: не используется)
 }
 
 /* ── API types ──────────────────────────────────────────────────────────── */
@@ -24,7 +23,6 @@ export interface HistoryPoint {
   open_value: number | null;
   close_value: number | null;
   sample_count: number | null;
-  synthetic: boolean | null;
   text: string | null;
   reason: string | null;
 }
