@@ -28,7 +28,7 @@ async def get_history(
     start: datetime = Query(...),
     end: datetime = Query(...),
     points: int = Query(2000, ge=100, le=20000),
-    min_gap_points: int = Query(3, ge=1, le=20),
+    min_gap_points: int = Query(1800, ge=60, le=7200, alias="min_gap_points"),
     pool: asyncpg.Pool = Depends(get_pool),
     ctx: AuthContext = Depends(require_auth),
 ):
@@ -39,7 +39,7 @@ async def get_history(
     #   > 90d → history_1hour (Continuous Aggregate, 1 час)
     result = await fetch_history(
         pool, router_sn, equip_type, panel_id, addr, start, end,
-        limit=points, min_gap_points=min_gap_points,
+        limit=points, gap_threshold_sec=min_gap_points,
     )
     return HistoryResponse(
         points=[HistoryPoint(**p) for p in result["points"]],

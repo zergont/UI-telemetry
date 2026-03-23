@@ -55,7 +55,7 @@ const STATE_LABELS: Record<string, string> = {
 
 export default function SystemPage() {
   const isAdmin = useIsAdmin();
-  const { tzOffsetHours, setTzOffsetHours, minGapPoints, setMinGapPoints } = useSettingsStore();
+  const { tzOffsetHours, setTzOffsetHours, gapThresholdSec, setGapThresholdSec } = useSettingsStore();
   const adminPanelUrl = `${window.location.protocol}//${window.location.hostname}:9443/admin/`;
   const [polling, setPolling] = useState(false);
   const [restarting, setRestarting] = useState(false);
@@ -205,21 +205,23 @@ export default function SystemPage() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-3">
-            Минимальное количество пропущенных точек подряд для отметки разрыва
-            данных (красная зона). 1–2 пропуска — норма, не считаются потерей.
+            Порог разрыва данных на графике. Если между точками прошло больше
+            указанного времени — считается потерей связи.
+            Heartbeat устройств: 15 мин (обычные) / 1 мин (KPI). Рекомендуется 30 мин.
           </p>
           <div className="flex items-center gap-3">
             <input
               type="number"
-              min={1}
-              max={20}
-              value={minGapPoints}
+              min={60}
+              max={7200}
+              step={60}
+              value={gapThresholdSec}
               onChange={(e) =>
-                setMinGapPoints(Math.max(1, Math.min(20, Number(e.target.value))))
+                setGapThresholdSec(Math.max(60, Math.min(7200, Number(e.target.value))))
               }
-              className="w-20 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-24 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <span className="text-sm text-muted-foreground">точек (1–20)</span>
+            <span className="text-sm text-muted-foreground">секунд (60–7200)</span>
           </div>
         </CardContent>
       </Card>

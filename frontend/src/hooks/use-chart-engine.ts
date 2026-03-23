@@ -38,7 +38,7 @@ interface UseChartEngineOpts {
   equipType: string;
   panelId: string;
   addr: number;
-  minGapPoints?: number;
+  gapThresholdSec?: number;
 }
 
 interface UseChartEngineResult {
@@ -69,7 +69,7 @@ async function fetchRange(
   from: number,
   to: number,
   points: number,
-  minGapPoints: number,
+  gapThresholdSec: number,
   signal?: AbortSignal,
 ): Promise<{ points: ChartPoint[]; firstDataAt: number | null } | null> {
   const params = new URLSearchParams({
@@ -80,7 +80,7 @@ async function fetchRange(
     start: new Date(from).toISOString(),
     end: new Date(Math.min(to, Date.now() + FUTURE_PAD_MS)).toISOString(),
     points: String(Math.min(points, 20000)),
-    min_gap_points: String(minGapPoints),
+    min_gap_points: String(gapThresholdSec),
   });
 
   try {
@@ -107,7 +107,7 @@ export function useChartEngine({
   equipType,
   panelId,
   addr,
-  minGapPoints = 3,
+  gapThresholdSec = 1800,
 }: UseChartEngineOpts): UseChartEngineResult {
   /* ── state ─────────────────────────────────────────────────────────────── */
   const [viewport, setViewportRaw] = useState<ViewportRange>(makeDefaultViewport);
@@ -162,7 +162,7 @@ export function useChartEngine({
         const pts = calcTargetPoints(span) * PREFETCH_SCREENS;
 
         setIsLoading(true);
-        fetchRange(routerSn, equipType, panelId, addr, fetchFrom, fetchTo, pts, minGapPoints, ac.signal)
+        fetchRange(routerSn, equipType, panelId, addr, fetchFrom, fetchTo, pts, gapThresholdSec, ac.signal)
           .then((res) => {
             if (!res || ac.signal.aborted) return;
             cacheRef.current = { points: res.points, loadedFrom: fetchFrom, loadedTo: fetchTo, bucket };
@@ -185,7 +185,7 @@ export function useChartEngine({
           const edgeFrom = edgeTo - span * 1.5;
           const edgePts = Math.round(ptsPerScreen * 1.5);
           setIsLoading(true);
-          promise = fetchRange(routerSn, equipType, panelId, addr, edgeFrom, edgeTo, edgePts, minGapPoints, ac.signal)
+          promise = fetchRange(routerSn, equipType, panelId, addr, edgeFrom, edgeTo, edgePts, gapThresholdSec, ac.signal)
             .then((res) => {
               if (!res || ac.signal.aborted) return;
               const merged = mergePoints(res.points, cache.points);
@@ -203,7 +203,7 @@ export function useChartEngine({
           const edgePts = Math.round(ptsPerScreen * 1.5);
           promise = promise.then(() => {
             if (ac.signal.aborted) return;
-            return fetchRange(routerSn, equipType, panelId, addr, edgeFrom, edgeTo, edgePts, minGapPoints, ac.signal)
+            return fetchRange(routerSn, equipType, panelId, addr, edgeFrom, edgeTo, edgePts, gapThresholdSec, ac.signal)
               .then((res) => {
                 if (!res || ac.signal.aborted) return;
                 const merged = mergePoints(cache.points, res.points);
@@ -220,7 +220,7 @@ export function useChartEngine({
 
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewport, routerSn, equipType, panelId, addr, minGapPoints]);
+  }, [viewport, routerSn, equipType, panelId, addr, gapThresholdSec]);
 
   /* ── zoom к курсору ────────────────────────────────────────────────────── */
   const zoomAtCursor = useCallback((cursorTimeMs: number, zoomIn: boolean) => {

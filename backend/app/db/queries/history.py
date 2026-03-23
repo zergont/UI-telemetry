@@ -143,31 +143,20 @@ async def _query_raw(
         )
 
 
-def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
+def _compute_gaps(points: list[dict], gap_threshold_sec: int) -> list[dict]:
     """Находит разрывы (потери данных) между последовательными точками.
 
-    expected_interval = медиана всех интервалов (устойчива к выбросам).
-    threshold = max((min_gap_points + 1) × expected_interval, MIN_GAP_SEC).
+    gap_threshold_sec — минимальный промежуток (сек) чтобы считать gap.
+    По умолчанию 1800 (30 мин) — 2× максимальный heartbeat (15 мин).
+    Промежутки меньше порога — нормальная нерегулярность (heartbeat, сжатие).
 
     Zero-bridge rule: если value до и после разрыва ≈ 0 — не считается потерей
     (оборудование не работало, данные приходили редко).
     """
-    MIN_GAP_SEC = 120  # промежуток < 2 мин — не gap, а нормальная нерегулярность
-
     if len(points) < 2:
         return []
 
-    diffs = sorted(
-        (points[i + 1]["ts"] - points[i]["ts"]).total_seconds()
-        for i in range(len(points) - 1)
-        if (points[i + 1]["ts"] - points[i]["ts"]).total_seconds() > 0
-    )
-    if not diffs:
-        return []
-
-    # Медиана (P50) вместо Q1 — гораздо устойчивее к нерегулярным данным
-    expected  = max(diffs[len(diffs) // 2], 1.0)
-    threshold = max((min_gap_points + 1) * expected, MIN_GAP_SEC)
+    threshold = max(gap_threshold_sec, 60)  # не менее 60 сек
 
     gaps = []
     for i in range(len(points) - 1):
@@ -195,7 +184,7 @@ async def fetch_history(
     start: datetime,
     end: datetime,
     limit: int = TARGET_POINTS,
-    min_gap_points: int = 3,
+    gap_threshold_sec: int = 1800,
 ) -> dict[str, Any]:
     """Выбирает данные из нужного источника, определяет gap'ы.
 
@@ -225,7 +214,7 @@ async def fetch_history(
         )
 
     points = [dict(r) for r in rows]
-    gaps = _compute_gaps(points, min_gap_points)
+    gaps = _compute_gaps(points, gap_threshold_sec)
 
     return {
         "points":        points,
