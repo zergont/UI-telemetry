@@ -29,13 +29,7 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-const DAY_MS = 86_400_000;
-
-function startOfDayShifted(shiftedMs: number): number {
-  const d = new Date(shiftedMs);
-  d.setUTCHours(0, 0, 0, 0);
-  return d.getTime();
-}
+const DAY_SEC = 86_400;
 
 /** Подготовка данных: ChartPoint[] → uPlot aligned data */
 function toUPlotData(
@@ -92,7 +86,6 @@ export function HistoryChart({
   tzOffRef.current = tzOffsetHours * 3600;
 
   const futureRef = useRef<HTMLDivElement>(null);
-  const dayBandsRef = useRef<HTMLCanvasElement>(null);
   const gapsRef = useRef<GapMs[]>(gaps);
   gapsRef.current = gaps;
 
@@ -104,59 +97,7 @@ export function HistoryChart({
   const isDraggingRef = useRef(false);
   const pendingDataRef = useRef<ChartPoint[] | null>(null);
 
-  /* ── Рисование суточных полос ────────────────────────────────────────── */
-  const drawDayBands = useCallback(() => {
-    const u = chartRef.current;
-    const canvas = dayBandsRef.current;
-    const container = containerRef.current;
-    if (!u || !canvas || !container) return;
-
-    const W = container.clientWidth;
-    const H = container.clientHeight - 30; // ось X ~30px
-    canvas.width = W;
-    canvas.height = H;
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, W, H);
-
-    const fromSec = u.scales.x.min;
-    const toSec = u.scales.x.max;
-    if (fromSec == null || toSec == null) return;
-
-    const fromMs = fromSec * 1000;
-    const toMs = toSec * 1000;
-
-    let dayStart = startOfDayShifted(fromMs);
-    let dayIndex = 0;
-    const epochDayNum = Math.floor(dayStart / DAY_MS);
-
-    while (dayStart < toMs) {
-      const dayEnd = dayStart + DAY_MS;
-      const isOdd = (epochDayNum + dayIndex) % 2 === 1;
-
-      if (isOdd) {
-        const x1 = u.valToPos(dayStart / 1000, "x", true);
-        const x2 = u.valToPos(dayEnd / 1000, "x", true);
-
-        if (x1 != null && x2 != null) {
-          const left = Math.max(0, x1);
-          const right = Math.min(W, x2);
-          if (right > left) {
-            ctx.fillStyle = "rgba(148, 163, 184, 0.10)";
-            ctx.fillRect(left, 0, right - left, H);
-          }
-        }
-      }
-
-      dayStart = dayEnd;
-      dayIndex++;
-    }
-  }, []);
-
-  /* ── Голубая полоска «будущее» ──────────────────────────────────────────── */
+  /* ── Голубая полоска «будущее» (DOM-элемент, не canvas) ────────────────── */
   const updateFutureStripe = useCallback(() => {
     const u = chartRef.current;
     const el = futureRef.current;
@@ -187,9 +128,8 @@ export function HistoryChart({
       prevDataRef.current = pts;
 
       const uData = toUPlotData(pts, tzOffRef.current);
-      u.setData(uData, false); // false = не автоскейлить
+      u.setData(uData, false);
 
-      // Восстановить viewport
       const vp = appliedVpRef.current;
       suppressRef.current = true;
       u.setScale("x", {
@@ -198,12 +138,10 @@ export function HistoryChart({
       });
       requestAnimationFrame(() => {
         suppressRef.current = false;
-        drawDayBands();
         updateFutureStripe();
-
       });
     },
-    [drawDayBands, updateFutureStripe],
+    [updateFutureStripe],
   );
 
   /* ── Создание графика (один раз) ───────────────────────────────────────── */
@@ -244,12 +182,11 @@ export function HistoryChart({
       return grad;
     }
 
-    // Raw точки маркеры — рисуем через drawPoints
+    // Raw точки маркеры
     function drawRawMarkers(u: uPlot, sidx: number) {
       const { ctx } = u;
       const s = u.series[sidx];
 
-      // Определяем: raw данные? (все sampleCount ≤ 1)
       const pts = prevDataRef.current;
       if (!pts) return;
 
@@ -277,7 +214,58 @@ export function HistoryChart({
       ctx.restore();
     }
 
-    // Gap-зоны — рисуем прямо на uPlot canvas (синхронно с данными)
+    // ── Суточные полосы (на uPlot canvas) ──────────────────────────────────
+    function drawDayBands(u: uPlot) {
+      const { ctx } = u;
+      const { left, top, width, height } = u.bbox;
+      const dpr = devicePixelRatio || 1;
+
+      const fromSec = u.scales.x.min;
+      const toSec = u.scales.x.max;
+      if (fromSec == null || toSec == null) return;
+
+      // Начало первого дня (UTC, в секундах)
+      let daySec = Math.floor(fromSec / DAY_SEC) * DAY_SEC;
+      const epochDayNum = Math.floor(daySec / DAY_SEC);
+
+      ctx.save();
+      ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
+
+      let dayIndex = 0;
+      while (daySec < toSec) {
+        const dayEnd = daySec + DAY_SEC;
+        const isOdd = (epochDayNum + dayIndex) % 2 === 1;
+
+        if (isOdd) {
+          const x1 = Math.max(left, u.valToPos(daySec, "x", false));
+          const x2 = Math.min(left + width, u.valToPos(dayEnd, "x", false));
+          if (x2 > x1) {
+            ctx.fillRect(x1, top, x2 - x1, height);
+          }
+        }
+
+        daySec = dayEnd;
+        dayIndex++;
+      }
+
+      // Линия "сейчас"
+      const nowSec = Date.now() / 1000 + tzOffRef.current;
+      if (nowSec > fromSec && nowSec < toSec) {
+        const nx = u.valToPos(nowSec, "x", false);
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.25)";
+        ctx.lineWidth = dpr;
+        ctx.setLineDash([4 * dpr, 4 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(nx, top);
+        ctx.lineTo(nx, top + height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      ctx.restore();
+    }
+
+    // ── Gap-зоны (на uPlot canvas) ─────────────────────────────────────────
     function drawGapZones(u: uPlot) {
       const currentGaps = gapsRef.current;
       if (!currentGaps.length) return;
@@ -296,7 +284,7 @@ export function HistoryChart({
         const gapFromSec = gap.from / 1000 + tzOffRef.current;
         const gapToSec = gap.to != null
           ? gap.to / 1000 + tzOffRef.current
-          : toSec; // ongoing → до правого края
+          : toSec;
 
         if (gapToSec < fromSec || gapFromSec > toSec) continue;
 
@@ -304,11 +292,9 @@ export function HistoryChart({
         const x2 = Math.min(left + width, u.valToPos(gapToSec, "x", false));
 
         if (x2 > x1) {
-          // Полупрозрачная красная заливка
           ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
           ctx.fillRect(x1, top, x2 - x1, height);
 
-          // Вертикальные границы
           ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
           ctx.fillRect(x1, top, dpr, height);
           if (gap.to != null) {
@@ -360,7 +346,6 @@ export function HistoryChart({
                 label = `${hh}:${mm}`;
               }
 
-              // Дедупликация: если подпись совпадает с предыдущей — не показывать
               if (label === prev) return "";
               prev = label;
               return label;
@@ -381,9 +366,8 @@ export function HistoryChart({
         },
       ],
       scales: {
-        x: { time: false }, // Мы форматируем сами через values
+        x: { time: false },
         y: { auto: true, range: (_u, min, max) => {
-          // Ноль всегда снизу, отступ сверху
           const top = max + (max - Math.min(min, 0)) * 0.05 || 1;
           return [Math.min(0, min), top];
         }},
@@ -391,7 +375,6 @@ export function HistoryChart({
       series: [
         {}, // x series (timestamps)
         {
-          // Main value line
           label: label,
           stroke: colorRef.current,
           width: 2,
@@ -401,7 +384,6 @@ export function HistoryChart({
           scale: "y",
         },
         {
-          // Min band
           label: "Min",
           stroke: "transparent",
           fill: bandFill as unknown as string,
@@ -410,7 +392,6 @@ export function HistoryChart({
           scale: "y",
         },
         {
-          // Max band
           label: "Max",
           stroke: "transparent",
           fill: bandFill as unknown as string,
@@ -425,6 +406,7 @@ export function HistoryChart({
       hooks: {
         draw: [
           (u: uPlot) => {
+            drawDayBands(u);
             drawGapZones(u);
           },
         ],
@@ -453,19 +435,13 @@ export function HistoryChart({
               onPanRef.current({ from, to });
             }, 80);
 
-            drawDayBands();
             updateFutureStripe();
-
           },
         ],
         ready: [
           (u: uPlot) => {
-            // Initial overlays
-            drawDayBands();
             updateFutureStripe();
 
-
-            // Custom pan via pointer events on the over element
             const over = u.over;
 
             let dragStartX: number | null = null;
@@ -495,7 +471,6 @@ export function HistoryChart({
               });
               suppressRef.current = false;
 
-              // Уведомляем engine
               const off = tzOffRef.current;
               const from = (dragStartMin - dtSec - off) * 1000;
               const to = (dragStartMax - dtSec - off) * 1000;
@@ -506,9 +481,7 @@ export function HistoryChart({
                 onPanRef.current({ from, to });
               }, 80);
 
-              drawDayBands();
               updateFutureStripe();
-
             });
 
             window.addEventListener("mouseup", () => {
@@ -519,7 +492,6 @@ export function HistoryChart({
               isDraggingRef.current = false;
               over.style.cursor = "crosshair";
 
-              // Flush pending pan
               const hadPending = panTimerRef.current !== undefined;
               if (hadPending) {
                 clearTimeout(panTimerRef.current);
@@ -527,14 +499,12 @@ export function HistoryChart({
                 onPanRef.current(appliedVpRef.current);
               }
 
-              // Применяем отложенные данные
               const pending = pendingDataRef.current;
               if (pending) {
                 pendingDataRef.current = null;
                 applyDataToChart(pending);
               }
 
-              // Коррекция drift (если engine зажал viewport)
               if (!hadPending) {
                 const engineVp = viewportPropRef.current;
                 const chartVp = appliedVpRef.current;
@@ -548,9 +518,7 @@ export function HistoryChart({
                   });
                   requestAnimationFrame(() => {
                     suppressRef.current = false;
-                    drawDayBands();
                     updateFutureStripe();
-
                   });
                 }
               }
@@ -574,23 +542,18 @@ export function HistoryChart({
         ],
       },
       plugins: [
-        // Tooltip plugin
         tooltipPlugin(colorRef),
       ],
     };
 
-    // Initial empty data
     const initData: uPlot.AlignedData = [[], [], [], []];
     const u = new uPlot(opts, initData, el);
     chartRef.current = u;
 
-    // ResizeObserver
     const ro = new ResizeObserver(() => {
       if (el) {
         u.setSize({ width: el.clientWidth, height: H });
-        drawDayBands();
         updateFutureStripe();
-
       }
     });
     ro.observe(el);
@@ -644,7 +607,6 @@ export function HistoryChart({
     });
     requestAnimationFrame(() => {
       suppressRef.current = false;
-      drawDayBands();
       updateFutureStripe();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -668,13 +630,6 @@ export function HistoryChart({
       {/* Chart */}
       <div className="relative">
         <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
-
-        {/* Day bands overlay */}
-        <canvas
-          ref={dayBandsRef}
-          className="absolute top-0 left-0 pointer-events-none"
-          style={{ zIndex: 5 }}
-        />
 
         {/* Future stripe */}
         <div
@@ -728,14 +683,12 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
       return;
     }
 
-    // Время из позиции курсора (не из idx — чтобы не "зависало" при близком зуме)
     const timeSec = u.posToVal(cx, "x");
     if (timeSec == null) {
       tooltipEl.style.display = "none";
       return;
     }
 
-    // Значение — из ближайшей точки данных (idx)
     const { idx } = u.cursor;
     const val = idx != null ? u.data[1][idx] : null;
 
