@@ -51,14 +51,9 @@ function toUPlotData(
     const p = nonNull[i];
     times[i] = p.ts / 1000 + tzOffSec;
     values[i] = p.value;
-    mins[i] =
-      p.sampleCount != null && p.sampleCount > 1 && p.minValue != null && p.minValue !== p.value
-        ? p.minValue
-        : null;
-    maxs[i] =
-      p.sampleCount != null && p.sampleCount > 1 && p.maxValue != null && p.maxValue !== p.value
-        ? p.maxValue
-        : null;
+    const hasAgg = p.sampleCount != null && p.sampleCount > 1;
+    mins[i] = hasAgg && p.minValue != null ? p.minValue : p.value;
+    maxs[i] = hasAgg && p.maxValue != null ? p.maxValue : p.value;
   }
 
   // Вставляем null в данные для гэпов
@@ -317,16 +312,34 @@ export function HistoryChart({
       legend: { show: false },
       axes: [
         {
-          // X axis (time)
+          // X axis (time) — 24-часовой формат
           stroke: "#94a3b8",
           grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
           ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
           font: "12px system-ui, sans-serif",
           gap: 8,
+          values: (_u: uPlot, splits: number[]) =>
+            splits.map((s) => {
+              const d = new Date(s * 1000);
+              const hh = String(d.getUTCHours()).padStart(2, "0");
+              const mm = String(d.getUTCMinutes()).padStart(2, "0");
+              const ss = String(d.getUTCSeconds()).padStart(2, "0");
+              const DD = String(d.getUTCDate()).padStart(2, "0");
+              const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+              // Показываем дату если первый тик или новый день
+              const spanSec = (_u.scales.x.max ?? 0) - (_u.scales.x.min ?? 0);
+              if (spanSec > 86400) {
+                return `${DD}.${MM}\n${hh}:${mm}`;
+              }
+              if (spanSec < 120) {
+                return `${hh}:${mm}:${ss}`;
+              }
+              return `${hh}:${mm}`;
+            }),
         },
         {
-          // Y axis
-          side: 1, // right
+          // Y axis — целые числа, справа
+          side: 1,
           stroke: "#94a3b8",
           grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
           ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
@@ -334,15 +347,15 @@ export function HistoryChart({
           size: 60,
           gap: 8,
           values: (_u: uPlot, vals: number[]) =>
-            vals.map((v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(2))),
+            vals.map((v) => (v >= 10000 ? (v / 1000).toFixed(1) + "k" : Math.round(v).toString())),
         },
       ],
       scales: {
-        x: { time: true },
+        x: { time: false }, // Мы форматируем сами через values
         y: { auto: true, range: (_u, min, max) => {
-          // Немного отступов сверху/снизу
-          const pad = (max - min) * 0.05 || 1;
-          return [min - pad, max + pad];
+          // Ноль всегда снизу, отступ сверху
+          const top = max + (max - Math.min(min, 0)) * 0.05 || 1;
+          return [Math.min(0, min), top];
         }},
       },
       series: [
@@ -677,10 +690,15 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
     }
 
     const d = new Date(time * 1000);
-    const timeStr = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    const ss = String(d.getUTCSeconds()).padStart(2, "0");
+    const DD = String(d.getUTCDate()).padStart(2, "0");
+    const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const timeStr = `${hh}:${mm}:${ss}`;
+    const dateStr = `${DD}.${MM}`;
 
-    const valStr = val >= 1000 ? (val / 1000).toFixed(2) + "k" : val.toFixed(2);
+    const valStr = val >= 10000 ? (val / 1000).toFixed(2) + "k" : Math.round(val).toString();
 
     tooltipEl.innerHTML = `
       <div style="color: rgba(148,163,184,0.7); margin-bottom: 2px">${dateStr} ${timeStr}</div>
