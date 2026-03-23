@@ -11,7 +11,7 @@ export interface ChartPoint {
   minValue?: number | null;
   maxValue?: number | null;
   sampleCount?: number;
-  synthetic?: boolean;  // true = дозаполненная точка (hold last value)
+  synthetic?: boolean;  // deprecated (v3.0: не используется)
 }
 
 /* ── API types ──────────────────────────────────────────────────────────── */

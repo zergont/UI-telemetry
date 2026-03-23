@@ -486,8 +486,8 @@ export function HistoryChart({
               // Коррекция drift (если engine зажал viewport)
               if (!hadPending) {
                 const engineVp = viewportPropRef.current;
-                const lwcVp = appliedVpRef.current;
-                const drift = Math.abs(engineVp.from - lwcVp.from) + Math.abs(engineVp.to - lwcVp.to);
+                const chartVp = appliedVpRef.current;
+                const drift = Math.abs(engineVp.from - chartVp.from) + Math.abs(engineVp.to - chartVp.to);
                 if (drift > 500) {
                   appliedVpRef.current = engineVp;
                   suppressRef.current = true;

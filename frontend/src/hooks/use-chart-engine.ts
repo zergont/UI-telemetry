@@ -53,7 +53,7 @@ interface UseChartEngineResult {
 
   /** Zoom к курсору. zoomIn=true — приближение */
   zoomAtCursor: (cursorTimeMs: number, zoomIn: boolean) => void;
-  /** Установить viewport (вызывается при pan из LWC) */
+  /** Установить viewport (вызывается при pan из графика) */
   setViewport: (vp: ViewportRange) => void;
   /** Сброс к начальному виду: последние 4 часа, очистка кэша */
   refresh: () => void;
@@ -259,13 +259,13 @@ export function useChartEngine({
     });
   }, []);
 
-  /* ── setViewport (от drag/pan в LWC) ───────────────────────────────────── */
+  /* ── setViewport (от drag/pan в графике) ──────────────────────────────── */
   const setViewport = useCallback((vp: ViewportRange) => {
     if (!isFiniteNumber(vp.from) || !isFiniteNumber(vp.to) || vp.to <= vp.from) return;
 
     setViewportRaw((prev) => {
       // Пан НЕ меняет масштаб — сохраняем span предыдущего viewport.
-      // LWC может слегка менять span при пане (из-за распределения данных),
+      // Графическая библиотека может слегка менять span при пане,
       // что вызывает прыжки зума. Фиксируем span — меняется только позиция.
       const prevSpan = prev.to - prev.from;
       let newFrom = vp.from;
