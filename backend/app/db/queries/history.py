@@ -146,12 +146,14 @@ async def _query_raw(
 def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     """Находит разрывы (потери данных) между последовательными точками.
 
-    expected_interval = Q1 всех интервалов (устойчив к выбросам).
-    threshold = (min_gap_points + 1) × expected_interval.
+    expected_interval = медиана всех интервалов (устойчива к выбросам).
+    threshold = max((min_gap_points + 1) × expected_interval, MIN_GAP_SEC).
 
     Zero-bridge rule: если value до и после разрыва ≈ 0 — не считается потерей
     (оборудование не работало, данные приходили редко).
     """
+    MIN_GAP_SEC = 120  # промежуток < 2 мин — не gap, а нормальная нерегулярность
+
     if len(points) < 2:
         return []
 
@@ -163,8 +165,9 @@ def _compute_gaps(points: list[dict], min_gap_points: int) -> list[dict]:
     if not diffs:
         return []
 
-    expected  = max(diffs[len(diffs) // 4], 1.0)
-    threshold = (min_gap_points + 1) * expected
+    # Медиана (P50) вместо Q1 — гораздо устойчивее к нерегулярным данным
+    expected  = max(diffs[len(diffs) // 2], 1.0)
+    threshold = max((min_gap_points + 1) * expected, MIN_GAP_SEC)
 
     gaps = []
     for i in range(len(points) - 1):

@@ -76,7 +76,6 @@ export function buildChartData(
     .map((g) => ({ from: parseIsoToMs(g.from_ts), to: parseIsoToMs(g.to_ts) }))
     .filter((g) => isFiniteNumber(g.from) && isFiniteNumber(g.to) && g.to > g.from);
 
-  console.log(`[buildChartData] converted=${converted.length}, gaps=${gapMs.length}`);
   if (gapMs.length === 0) return converted;
 
   const result: ChartPoint[] = [];

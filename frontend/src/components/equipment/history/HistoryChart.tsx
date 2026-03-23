@@ -82,13 +82,6 @@ function toUPlotData(
     mn.push(a.min);
     mx.push(a.max);
   }
-  // DEBUG: логируем что попадает в uPlot
-  const nullCount = v.filter(x => x === null).length;
-  const totalCount = v.length;
-  if (totalCount > 0) {
-    console.log(`[uPlot data] total=${totalCount}, nulls=${nullCount} (${(nullCount/totalCount*100).toFixed(1)}%), non-null=${totalCount-nullCount}`);
-  }
-
   return [t, v, mn, mx];
 }
 
