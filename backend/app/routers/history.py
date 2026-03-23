@@ -6,9 +6,11 @@ import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from app.auth import AuthContext, enforce_router_scope, require_auth
+from app.db.queries.gaps import fetch_gaps
 from app.db.queries.history import fetch_history, fetch_state_events
 from app.deps import get_pool
 from app.schemas.history import (
+    GapZone,
     HistoryPoint,
     HistoryResponse,
     StateEvent,
@@ -35,9 +37,11 @@ async def get_history(
         pool, router_sn, equip_type, panel_id, addr, start, end,
         limit=points,
     )
+    gap_rows = await fetch_gaps(pool, router_sn, equip_type, panel_id, start, end)
     return HistoryResponse(
         points=[HistoryPoint(**p) for p in result["points"]],
         first_data_at=result["first_data_at"],
+        gaps=[GapZone(**g) for g in gap_rows],
     )
 
 

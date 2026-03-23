@@ -105,6 +105,7 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
       ) : (
         <HistoryChart
           data={engine.data}
+          gaps={engine.gaps}
           label={selectedReg.label}
           unit={selectedReg.unit}
           color={selectedReg.color}

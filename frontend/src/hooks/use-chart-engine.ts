@@ -20,14 +20,22 @@ import {
 } from "@/components/equipment/history/utils";
 import type {
   ChartPoint,
+  GapZone,
   HistoryResponse,
   ViewportRange,
 } from "@/components/equipment/history/types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
+/** Gap в миллисекундах (конвертирован из ISO) */
+export interface GapMs {
+  from: number;  // Unix ms
+  to: number | null;  // null = ongoing
+}
+
 interface DataCache {
   points: ChartPoint[];
+  gaps: GapMs[];
   loadedFrom: number;
   loadedTo: number;
   bucket: number;        // zoomBucket при котором загружены данные
@@ -45,6 +53,8 @@ interface UseChartEngineResult {
   viewport: ViewportRange;
   /** Все загруженные точки (кумулятивно) */
   data: ChartPoint[];
+  /** Gap-зоны (разрывы связи) */
+  gaps: GapMs[];
   /** Загрузка в процессе */
   isLoading: boolean;
   /** Самая ранняя точка данных в БД (ms) */
@@ -60,6 +70,13 @@ interface UseChartEngineResult {
 
 /* ── Fetch helper ───────────────────────────────────────────────────────── */
 
+function parseGaps(gaps: GapZone[]): GapMs[] {
+  return gaps.map((g) => ({
+    from: parseIsoToMs(g.gap_start),
+    to: g.gap_end ? parseIsoToMs(g.gap_end) : null,
+  }));
+}
+
 async function fetchRange(
   routerSn: string,
   equipType: string,
@@ -69,7 +86,7 @@ async function fetchRange(
   to: number,
   points: number,
   signal?: AbortSignal,
-): Promise<{ points: ChartPoint[]; firstDataAt: number | null } | null> {
+): Promise<{ points: ChartPoint[]; gaps: GapMs[]; firstDataAt: number | null } | null> {
   const params = new URLSearchParams({
     router_sn: routerSn,
     equip_type: equipType,
@@ -83,8 +100,9 @@ async function fetchRange(
   try {
     const resp = await apiFetch<HistoryResponse>(`/api/history?${params}`, { signal });
     const pts = buildChartData(resp.points);
+    const gaps = parseGaps(resp.gaps ?? []);
     const fda = resp.first_data_at ? parseIsoToMs(resp.first_data_at) : null;
-    return { points: pts, firstDataAt: isFiniteNumber(fda) ? fda : null };
+    return { points: pts, gaps, firstDataAt: isFiniteNumber(fda) ? fda : null };
   } catch (e: unknown) {
     if (e instanceof DOMException && e.name === "AbortError") return null;
     console.error("[chart-engine] fetch error:", e);
@@ -93,6 +111,14 @@ async function fetchRange(
 }
 
 /* ── Hook ───────────────────────────────────────────────────────────────── */
+
+/** Объединить два списка gap'ов без дубликатов (по gap_start) */
+function mergeGaps(a: GapMs[], b: GapMs[]): GapMs[] {
+  const map = new Map<number, GapMs>();
+  for (const g of a) map.set(g.from, g);
+  for (const g of b) map.set(g.from, g);
+  return Array.from(map.values()).sort((x, y) => x.from - y.from);
+}
 
 function makeDefaultViewport(): ViewportRange {
   const now = Date.now();
@@ -108,6 +134,7 @@ export function useChartEngine({
   /* ── state ─────────────────────────────────────────────────────────────── */
   const [viewport, setViewportRaw] = useState<ViewportRange>(makeDefaultViewport);
   const [data, setData] = useState<ChartPoint[]>([]);
+  const [gaps, setGaps] = useState<GapMs[]>([]);
   const [firstDataAt, setFirstDataAt] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -128,6 +155,7 @@ export function useChartEngine({
       prevParamKey.current = paramKey;
       cacheRef.current = null;
       setData([]);
+      setGaps([]);
       setFirstDataAt(null);
       setIsLoading(true);
       setViewportRaw(makeDefaultViewport());
@@ -161,8 +189,9 @@ export function useChartEngine({
         fetchRange(routerSn, equipType, panelId, addr, fetchFrom, fetchTo, pts, ac.signal)
           .then((res) => {
             if (!res || ac.signal.aborted) return;
-            cacheRef.current = { points: res.points, loadedFrom: fetchFrom, loadedTo: fetchTo, bucket };
+            cacheRef.current = { points: res.points, gaps: res.gaps, loadedFrom: fetchFrom, loadedTo: fetchTo, bucket };
             setData(res.points);
+            setGaps(res.gaps);
             if (res.firstDataAt != null) setFirstDataAt(res.firstDataAt);
             setIsLoading(false);
           });
@@ -186,9 +215,11 @@ export function useChartEngine({
               if (!res || ac.signal.aborted) return;
               const merged = mergePoints(res.points, cache.points);
               cache.points = merged;
+              cache.gaps = mergeGaps(res.gaps, cache.gaps);
               cache.loadedFrom = edgeFrom;
               if (res.firstDataAt != null) setFirstDataAt(res.firstDataAt);
               setData(merged);
+              setGaps(cache.gaps);
             });
         }
 
@@ -204,8 +235,10 @@ export function useChartEngine({
                 if (!res || ac.signal.aborted) return;
                 const merged = mergePoints(cache.points, res.points);
                 cache.points = merged;
+                cache.gaps = mergeGaps(cache.gaps, res.gaps);
                 cache.loadedTo = edgeTo;
                 setData(merged);
+                setGaps(cache.gaps);
               });
           });
         }
@@ -293,10 +326,11 @@ export function useChartEngine({
     abortRef.current?.abort();
     cacheRef.current = null;
     setData([]);
+    setGaps([]);
     setFirstDataAt(null);
     setIsLoading(true);
     setViewportRaw(makeDefaultViewport());
   }, []);
 
-  return { viewport, data, isLoading, firstDataAt, zoomAtCursor, setViewport, refresh };
+  return { viewport, data, gaps, isLoading, firstDataAt, zoomAtCursor, setViewport, refresh };
 }

@@ -27,7 +27,13 @@ export interface HistoryPoint {
   reason: string | null;
 }
 
+export interface GapZone {
+  gap_start: string;  // ISO datetime
+  gap_end: string | null;  // null = ongoing
+}
+
 export interface HistoryResponse {
   points: HistoryPoint[];
   first_data_at: string | null;
+  gaps: GapZone[];
 }

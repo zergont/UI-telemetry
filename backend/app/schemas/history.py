@@ -18,9 +18,15 @@ class HistoryPoint(BaseModel):
     reason: Optional[str] = None
 
 
+class GapZone(BaseModel):
+    gap_start: datetime
+    gap_end: Optional[datetime] = None  # None = ongoing (оборудование offline)
+
+
 class HistoryResponse(BaseModel):
     points: List[HistoryPoint]
     first_data_at: Optional[datetime] = None
+    gaps: List[GapZone] = []
 
 
 # ── State events (дискретные / enum регистры) ────────────────────────────────
