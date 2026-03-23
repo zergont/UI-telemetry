@@ -352,24 +352,32 @@ export function HistoryChart({
           ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
           font: "12px system-ui, sans-serif",
           gap: 8,
-          values: (_u: uPlot, splits: number[]) =>
-            splits.map((s) => {
+          values: (_u: uPlot, splits: number[]) => {
+            const spanSec = (_u.scales.x.max ?? 0) - (_u.scales.x.min ?? 0);
+            let prev = "";
+            return splits.map((s) => {
               const d = new Date(s * 1000);
               const hh = String(d.getUTCHours()).padStart(2, "0");
               const mm = String(d.getUTCMinutes()).padStart(2, "0");
               const ss = String(d.getUTCSeconds()).padStart(2, "0");
               const DD = String(d.getUTCDate()).padStart(2, "0");
               const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
-              // Показываем дату если первый тик или новый день
-              const spanSec = (_u.scales.x.max ?? 0) - (_u.scales.x.min ?? 0);
+
+              let label: string;
               if (spanSec > 86400) {
-                return `${DD}.${MM}\n${hh}:${mm}`;
+                label = `${DD}.${MM}\n${hh}:${mm}`;
+              } else if (spanSec < 120) {
+                label = `${hh}:${mm}:${ss}`;
+              } else {
+                label = `${hh}:${mm}`;
               }
-              if (spanSec < 120) {
-                return `${hh}:${mm}:${ss}`;
-              }
-              return `${hh}:${mm}`;
-            }),
+
+              // Дедупликация: если подпись совпадает с предыдущей — не показывать
+              if (label === prev) return "";
+              prev = label;
+              return label;
+            });
+          },
         },
         {
           // Y axis — целые числа, справа
@@ -645,6 +653,7 @@ export function HistoryChart({
       suppressRef.current = false;
       drawDayBands();
       updateFutureStripe();
+      drawGapZones();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewport]);
@@ -727,20 +736,25 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
 
   function setCursor(u: uPlot) {
     if (!tooltipEl) return;
+    const cx = u.cursor.left;
+    const cy = u.cursor.top;
+    if (cx == null || cy == null || cx < 0) {
+      tooltipEl.style.display = "none";
+      return;
+    }
+
+    // Время из позиции курсора (не из idx — чтобы не "зависало" при близком зуме)
+    const timeSec = u.posToVal(cx, "x");
+    if (timeSec == null) {
+      tooltipEl.style.display = "none";
+      return;
+    }
+
+    // Значение — из ближайшей точки данных (idx)
     const { idx } = u.cursor;
-    if (idx == null) {
-      tooltipEl.style.display = "none";
-      return;
-    }
+    const val = idx != null ? u.data[1][idx] : null;
 
-    const val = u.data[1][idx];
-    const time = u.data[0][idx];
-    if (val == null || time == null) {
-      tooltipEl.style.display = "none";
-      return;
-    }
-
-    const d = new Date(time * 1000);
+    const d = new Date(timeSec * 1000);
     const hh = String(d.getUTCHours()).padStart(2, "0");
     const mm = String(d.getUTCMinutes()).padStart(2, "0");
     const ss = String(d.getUTCSeconds()).padStart(2, "0");
@@ -749,7 +763,9 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
     const timeStr = `${hh}:${mm}:${ss}`;
     const dateStr = `${DD}.${MM}`;
 
-    const valStr = val >= 10000 ? (val / 1000).toFixed(2) + "k" : Math.round(val).toString();
+    const valStr = val != null
+      ? (val >= 10000 ? (val / 1000).toFixed(2) + "k" : Math.round(val).toString())
+      : "—";
 
     tooltipEl.innerHTML = `
       <div style="color: rgba(148,163,184,0.7); margin-bottom: 2px">${dateStr} ${timeStr}</div>
@@ -757,10 +773,7 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
     `;
     tooltipEl.style.display = "block";
 
-    const cx = u.cursor.left!;
-    const cy = u.cursor.top!;
     const tw = tooltipEl.offsetWidth;
-
     let left = cx + 12;
     if (left + tw > u.width) left = cx - tw - 12;
 
