@@ -214,7 +214,17 @@ export function HistoryChart({
       ctx.restore();
     }
 
-    // ── Суточные полосы (на uPlot canvas) ──────────────────────────────────
+    // ── Полночь в сдвинутом времени (точно 00:00 local) ────────────────────
+    function midnightBefore(shiftedSec: number): number {
+      // shiftedSec = UTC_sec + tzOffset — на X-оси выглядит как local time
+      // Находим 00:00:00.000 этого «дня»
+      const ms = shiftedSec * 1000;
+      const d = new Date(ms);
+      d.setUTCHours(0, 0, 0, 0);
+      return d.getTime() / 1000;
+    }
+
+    // ── Суточные полосы + метки дат (на uPlot canvas) ───────────────────────
     function drawDayBands(u: uPlot) {
       const { ctx } = u;
       const { left, top, width, height } = u.bbox;
@@ -224,37 +234,74 @@ export function HistoryChart({
       const toSec = u.scales.x.max;
       if (fromSec == null || toSec == null) return;
 
-      // Начало первого дня — через Date чтобы корректно обработать полночь
-      const startDate = new Date(fromSec * 1000);
-      startDate.setUTCHours(0, 0, 0, 0);
-      let daySec = startDate.getTime() / 1000;
-      const epochDayNum = Math.round(daySec / DAY_SEC);
+      let daySec = midnightBefore(fromSec);
+      const firstDay = Math.round(daySec / DAY_SEC);
 
       ctx.save();
-      ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
 
+      // ── Полосы через день ──
       let dayIndex = 0;
-      while (daySec < toSec) {
-        const dayEnd = daySec + DAY_SEC;
-        const isOdd = (epochDayNum + dayIndex) % 2 === 1;
+      let curSec = daySec;
+      while (curSec < toSec) {
+        const dayEnd = curSec + DAY_SEC;
+        const isOdd = (firstDay + dayIndex) % 2 === 1;
 
         if (isOdd) {
-          const x1 = Math.max(left, u.valToPos(daySec, "x", false));
+          const x1 = Math.max(left, u.valToPos(curSec, "x", false));
           const x2 = Math.min(left + width, u.valToPos(dayEnd, "x", false));
           if (x2 > x1) {
+            ctx.fillStyle = "rgba(148, 163, 184, 0.06)";
             ctx.fillRect(x1, top, x2 - x1, height);
           }
         }
 
-        daySec = dayEnd;
+        curSec = dayEnd;
         dayIndex++;
       }
 
-      // Линия "сейчас"
+      // ── Вертикальные линии и метки дат на границах суток ──
+      curSec = daySec;
+      while (curSec <= toSec) {
+        if (curSec >= fromSec) {
+          const nx = u.valToPos(curSec, "x", false);
+
+          // Вертикальная линия полночи
+          ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
+          ctx.lineWidth = dpr;
+          ctx.beginPath();
+          ctx.moveTo(nx, top);
+          ctx.lineTo(nx, top + height);
+          ctx.stroke();
+
+          // Метка даты ("ДД.ММ") справа от линии
+          const d = new Date(curSec * 1000);
+          const DD = String(d.getUTCDate()).padStart(2, "0");
+          const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+          const dateLabel = `${DD}.${MM}`;
+
+          ctx.font = `${11 * dpr}px system-ui, sans-serif`;
+          ctx.fillStyle = "rgba(148, 163, 184, 0.5)";
+          ctx.fillText(dateLabel, nx + 4 * dpr, top + 14 * dpr);
+        }
+
+        curSec += DAY_SEC;
+      }
+
+      // ── Если на экране один день без границ — показать дату слева ──
+      if (daySec < fromSec) {
+        const d = new Date(fromSec * 1000);
+        const DD = String(d.getUTCDate()).padStart(2, "0");
+        const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+        ctx.font = `${11 * dpr}px system-ui, sans-serif`;
+        ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
+        ctx.fillText(`${DD}.${MM}`, left + 6 * dpr, top + 14 * dpr);
+      }
+
+      // ── Линия «сейчас» ──
       const nowSec = Date.now() / 1000 + tzOffRef.current;
       if (nowSec > fromSec && nowSec < toSec) {
         const nx = u.valToPos(nowSec, "x", false);
-        ctx.strokeStyle = "rgba(59, 130, 246, 0.25)";
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.3)";
         ctx.lineWidth = dpr;
         ctx.setLineDash([4 * dpr, 4 * dpr]);
         ctx.beginPath();
