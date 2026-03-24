@@ -224,9 +224,11 @@ export function HistoryChart({
       const toSec = u.scales.x.max;
       if (fromSec == null || toSec == null) return;
 
-      // Начало первого дня (UTC, в секундах)
-      let daySec = Math.floor(fromSec / DAY_SEC) * DAY_SEC;
-      const epochDayNum = Math.floor(daySec / DAY_SEC);
+      // Начало первого дня — через Date чтобы корректно обработать полночь
+      const startDate = new Date(fromSec * 1000);
+      startDate.setUTCHours(0, 0, 0, 0);
+      let daySec = startDate.getTime() / 1000;
+      const epochDayNum = Math.round(daySec / DAY_SEC);
 
       ctx.save();
       ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
