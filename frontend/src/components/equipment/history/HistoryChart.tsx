@@ -280,7 +280,7 @@ export function HistoryChart({
           const dateLabel = `${DD}.${MM}`;
 
           ctx.font = `${11 * dpr}px system-ui, sans-serif`;
-          ctx.fillStyle = "rgba(148, 163, 184, 0.5)";
+          ctx.fillStyle = "rgba(148, 163, 184, 0.8)";
           ctx.fillText(dateLabel, nx + 4 * dpr, top + 14 * dpr);
         }
 
@@ -293,7 +293,7 @@ export function HistoryChart({
         const DD = String(d.getUTCDate()).padStart(2, "0");
         const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
         ctx.font = `${11 * dpr}px system-ui, sans-serif`;
-        ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
+        ctx.fillStyle = "rgba(148, 163, 184, 0.6)";
         ctx.fillText(`${DD}.${MM}`, left + 6 * dpr, top + 14 * dpr);
       }
 
@@ -410,8 +410,15 @@ export function HistoryChart({
           font: "12px system-ui, sans-serif",
           size: 60,
           gap: 8,
-          values: (_u: uPlot, vals: number[]) =>
-            vals.map((v) => (v >= 10000 ? (v / 1000).toFixed(1) + "k" : Math.round(v).toString())),
+          values: (_u: uPlot, vals: number[]) => {
+            let prev = "";
+            return vals.map((v) => {
+              const label = v >= 10000 ? (v / 1000).toFixed(1) + "k" : Math.round(v).toString();
+              if (label === prev) return "";
+              prev = label;
+              return label;
+            });
+          },
         },
       ],
       scales: {
