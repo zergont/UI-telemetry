@@ -176,12 +176,11 @@ export function HistoryChart({
       ctx.save();
       ctx.fillStyle = colorRef.current;
 
-      const plotRight = u.bbox.left + u.bbox.width;
       for (const p of realRaw) {
         const tSec = p.ts / 1000 + tzOffRef.current;
-        const x = u.valToPos(tSec, "x", false);
-        const y = u.valToPos(p.value!, s.scale!, false);
-        if (x == null || y == null || x < u.bbox.left || x > plotRight) continue;
+        const x = u.valToPos(tSec, "x", true);
+        const y = u.valToPos(p.value!, s.scale!, true);
+        if (x == null || y == null || x < 0 || x > u.width) continue;
 
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
@@ -408,7 +407,7 @@ export function HistoryChart({
         },
       ],
       scales: {
-        x: { time: false },
+        x: { time: true },
         y: { auto: true, range: (_u, min, max) => {
           const top = max + (max - Math.min(min, 0)) * 0.05 || 1;
           return [Math.min(0, min), top];
