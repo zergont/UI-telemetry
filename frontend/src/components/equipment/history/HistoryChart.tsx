@@ -105,10 +105,13 @@ export function HistoryChart({
       prevDataRef.current = pts;
 
       const uData = toUPlotData(pts, tzOffRef.current);
-      u.setData(uData, false);
 
-      const vp = appliedVpRef.current;
+      // suppressRef предотвращает лишние pan-события при пересчёте масштабов
       suppressRef.current = true;
+      // true → пересчитать ВСЕ оси (включая Y). Без этого Y остаётся 0–1.
+      u.setData(uData, true);
+      // Затем переопределяем X нашим viewport (Y остаётся авто)
+      const vp = appliedVpRef.current;
       u.setScale("x", {
         min: vp.from / 1000 + tzOffRef.current,
         max: vp.to / 1000 + tzOffRef.current,
@@ -344,6 +347,13 @@ export function HistoryChart({
       id: "history-chart",
       width: W,
       height: H,
+      // Наши X-значения = UTC_sec + tzOffset — выглядят как local time в UTC.
+      // Без tzDate uPlot использует часовой пояс браузера для генерации тиков,
+      // что сдвигает границы суток. Форсируем UTC-интерпретацию.
+      tzDate: (ts) => {
+        const d = new Date(ts * 1e3);
+        return new Date(d.getTime() + d.getTimezoneOffset() * 6e4);
+      },
       cursor: {
         x: true,
         y: true,
@@ -599,6 +609,7 @@ export function HistoryChart({
       ro.disconnect();
       u.destroy();
       chartRef.current = null;
+      prevDataRef.current = null; // Сброс для React StrictMode double-mount
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
