@@ -85,7 +85,6 @@ export function HistoryChart({
   const tzOffRef = useRef(tzOffsetHours * 3600);
   tzOffRef.current = tzOffsetHours * 3600;
 
-  const futureRef = useRef<HTMLDivElement>(null);
   const gapsRef = useRef<GapMs[]>(gaps);
   gapsRef.current = gaps;
 
@@ -96,28 +95,6 @@ export function HistoryChart({
   // Drag состояние
   const isDraggingRef = useRef(false);
   const pendingDataRef = useRef<ChartPoint[] | null>(null);
-
-  /* ── Голубая полоска «будущее» (DOM-элемент, не canvas) ────────────────── */
-  const updateFutureStripe = useCallback(() => {
-    const u = chartRef.current;
-    const el = futureRef.current;
-    const container = containerRef.current;
-    if (!u || !el || !container) return;
-
-    const now = Date.now();
-    const nowSec = now / 1000 + tzOffRef.current;
-    const coord = u.valToPos(nowSec, "x", true);
-    const containerW = container.clientWidth;
-
-    if (coord != null && coord < containerW - 5) {
-      const left = Math.max(0, coord);
-      el.style.display = "block";
-      el.style.left = `${left}px`;
-      el.style.width = `${containerW - left}px`;
-    } else {
-      el.style.display = "none";
-    }
-  }, []);
 
   /* ── Применение данных к графику ─────────────────────────────────────── */
   const applyDataToChart = useCallback(
@@ -138,10 +115,9 @@ export function HistoryChart({
       });
       requestAnimationFrame(() => {
         suppressRef.current = false;
-        updateFutureStripe();
       });
     },
-    [updateFutureStripe],
+    [],
   );
 
   /* ── Создание графика (один раз) ───────────────────────────────────────── */
@@ -200,11 +176,12 @@ export function HistoryChart({
       ctx.save();
       ctx.fillStyle = colorRef.current;
 
+      const plotRight = u.bbox.left + u.bbox.width;
       for (const p of realRaw) {
         const tSec = p.ts / 1000 + tzOffRef.current;
-        const x = u.valToPos(tSec, "x", true);
-        const y = u.valToPos(p.value!, s.scale!, true);
-        if (x == null || y == null || x < 0 || x > u.width) continue;
+        const x = u.valToPos(tSec, "x", false);
+        const y = u.valToPos(p.value!, s.scale!, false);
+        if (x == null || y == null || x < u.bbox.left || x > plotRight) continue;
 
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
@@ -297,10 +274,19 @@ export function HistoryChart({
         ctx.fillText(`${DD}.${MM}`, left + 6 * dpr, top + 14 * dpr);
       }
 
-      // ── Линия «сейчас» ──
+      // ── «Будущее» (полупрозрачная заливка + пунктирная линия «сейчас») ──
       const nowSec = Date.now() / 1000 + tzOffRef.current;
       if (nowSec > fromSec && nowSec < toSec) {
         const nx = u.valToPos(nowSec, "x", false);
+
+        // Заливка будущего
+        const futureRight = left + width;
+        if (futureRight > nx) {
+          ctx.fillStyle = "rgba(59, 130, 246, 0.04)";
+          ctx.fillRect(nx, top, futureRight - nx, height);
+        }
+
+        // Пунктирная линия «сейчас»
         ctx.strokeStyle = "rgba(59, 130, 246, 0.3)";
         ctx.lineWidth = dpr;
         ctx.setLineDash([4 * dpr, 4 * dpr]);
@@ -491,12 +477,10 @@ export function HistoryChart({
               onPanRef.current({ from, to });
             }, 80);
 
-            updateFutureStripe();
           },
         ],
         ready: [
           (u: uPlot) => {
-            updateFutureStripe();
 
             const over = u.over;
 
@@ -517,7 +501,7 @@ export function HistoryChart({
               if (dragStartX == null || dragStartMin == null || dragStartMax == null) return;
 
               const dx = e.clientX - dragStartX;
-              const pxPerSec = u.width / (dragStartMax - dragStartMin);
+              const pxPerSec = u.over.clientWidth / (dragStartMax - dragStartMin);
               const dtSec = dx / pxPerSec;
 
               suppressRef.current = true;
@@ -537,7 +521,6 @@ export function HistoryChart({
                 onPanRef.current({ from, to });
               }, 80);
 
-              updateFutureStripe();
             });
 
             window.addEventListener("mouseup", () => {
@@ -574,8 +557,7 @@ export function HistoryChart({
                   });
                   requestAnimationFrame(() => {
                     suppressRef.current = false;
-                    updateFutureStripe();
-                  });
+                        });
                 }
               }
             });
@@ -609,7 +591,6 @@ export function HistoryChart({
     const ro = new ResizeObserver(() => {
       if (el) {
         u.setSize({ width: el.clientWidth, height: H });
-        updateFutureStripe();
       }
     });
     ro.observe(el);
@@ -663,7 +644,6 @@ export function HistoryChart({
     });
     requestAnimationFrame(() => {
       suppressRef.current = false;
-      updateFutureStripe();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewport]);
@@ -687,17 +667,6 @@ export function HistoryChart({
       <div className="relative">
         <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
 
-        {/* Future stripe */}
-        <div
-          ref={futureRef}
-          className="absolute top-0 pointer-events-none z-10"
-          style={{
-            display: "none",
-            bottom: "30px",
-            background: "rgba(59, 130, 246, 0.06)",
-            borderLeft: "1px dashed rgba(59, 130, 246, 0.25)",
-          }}
-        />
       </div>
     </div>
   );
