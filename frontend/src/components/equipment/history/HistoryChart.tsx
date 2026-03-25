@@ -213,6 +213,10 @@ export function HistoryChart({
       const toSec = u.scales.x.max;
       if (fromSec == null || toSec == null) return;
 
+      // valToPos возвращает CSS-пиксели, но canvas draw работает в buffer-пикселях.
+      // Конвертируем: buffer_x = bbox.left + valToPos(CSS) * DPR
+      const xToBuf = (sec: number) => left + u.valToPos(sec, "x", false) * dpr;
+
       let daySec = midnightBefore(fromSec);
       const firstDay = Math.round(daySec / DAY_SEC);
 
@@ -226,8 +230,8 @@ export function HistoryChart({
         const isOdd = (firstDay + dayIndex) % 2 === 1;
 
         if (isOdd) {
-          const x1 = Math.max(left, u.valToPos(curSec, "x", false));
-          const x2 = Math.min(left + width, u.valToPos(dayEnd, "x", false));
+          const x1 = Math.max(left, xToBuf(curSec));
+          const x2 = Math.min(left + width, xToBuf(dayEnd));
           if (x2 > x1) {
             ctx.fillStyle = "rgba(148, 163, 184, 0.06)";
             ctx.fillRect(x1, top, x2 - x1, height);
@@ -242,7 +246,7 @@ export function HistoryChart({
       curSec = daySec;
       while (curSec <= toSec) {
         if (curSec >= fromSec) {
-          const nx = u.valToPos(curSec, "x", false);
+          const nx = xToBuf(curSec);
 
           // Вертикальная линия полночи
           ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
@@ -279,7 +283,7 @@ export function HistoryChart({
       // ── «Будущее» (полупрозрачная заливка + пунктирная линия «сейчас») ──
       const nowSec = Date.now() / 1000 + tzOffRef.current;
       if (nowSec > fromSec && nowSec < toSec) {
-        const nx = u.valToPos(nowSec, "x", false);
+        const nx = xToBuf(nowSec);
 
         // Заливка будущего
         const futureRight = left + width;
@@ -315,6 +319,8 @@ export function HistoryChart({
       const toSec = u.scales.x.max;
       if (fromSec == null || toSec == null) return;
 
+      const xToBuf = (sec: number) => left + u.valToPos(sec, "x", false) * dpr;
+
       ctx.save();
 
       for (const gap of currentGaps) {
@@ -325,8 +331,8 @@ export function HistoryChart({
 
         if (gapToSec < fromSec || gapFromSec > toSec) continue;
 
-        const x1 = Math.max(left, u.valToPos(gapFromSec, "x", false));
-        const x2 = Math.min(left + width, u.valToPos(gapToSec, "x", false));
+        const x1 = Math.max(left, xToBuf(gapFromSec));
+        const x2 = Math.min(left + width, xToBuf(gapToSec));
 
         if (x2 > x1) {
           ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
