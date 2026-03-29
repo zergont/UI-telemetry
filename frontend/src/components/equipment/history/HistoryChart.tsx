@@ -645,6 +645,24 @@ export function HistoryChart({
     chartRef.current?.redraw();
   }, [gaps]);
 
+  /* ── Пересчёт при смене часового пояса ─────────────────────────────── */
+  useEffect(() => {
+    const u = chartRef.current;
+    if (!u || !prevDataRef.current) return;
+
+    const uData = toUPlotData(prevDataRef.current, tzOffRef.current);
+    suppressRef.current = true;
+    u.setData(uData, true);
+    const vp = appliedVpRef.current;
+    u.setScale("x", {
+      min: vp.from / 1000 + tzOffRef.current,
+      max: vp.to / 1000 + tzOffRef.current,
+    });
+    requestAnimationFrame(() => {
+      suppressRef.current = false;
+    });
+  }, [tzOffsetHours]);
+
   /* ── Viewport из engine (zoom, refresh) ──────────────────────────────── */
   useEffect(() => {
     appliedVpRef.current = viewport;
