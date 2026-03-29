@@ -344,33 +344,38 @@ export function useChartEngine({
     setViewportRaw(makeDefaultViewport());
   }, []);
 
-  /* ── Live: подписка на телеметрию из WS ──────────────────────────────── */
-  const equipKey = makeEquipKey(routerSn, equipType, Number(panelId));
-  const liveReg = useTelemetryStore(
-    (s) => s.registers.get(equipKey)?.get(addr) ?? null,
-  );
-
-  // Ref чтобы не добавлять дубли
+  /* ── Live: подписка на телеметрию из WS (императивная) ────────────────── */
   const lastLiveTsRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!isLiveRef.current || !liveReg || liveReg.value == null) return;
+    if (!isLive) return;
 
-    const ts = liveReg.ts ? new Date(liveReg.ts).getTime() : Date.now();
-    if (!isFiniteNumber(ts) || ts <= lastLiveTsRef.current) return;
-    lastLiveTsRef.current = ts;
+    const key = makeEquipKey(routerSn, equipType, Number(panelId));
 
-    const newPt: ChartPoint = { ts, value: liveReg.value, sampleCount: 1 };
+    const unsub = useTelemetryStore.subscribe((state) => {
+      if (!isLiveRef.current) return;
 
-    // Добавляем точку в кэш
-    const cache = cacheRef.current;
-    if (cache) {
-      cache.points = mergePoints(cache.points, [newPt]);
-      cache.loadedTo = Math.max(cache.loadedTo, ts + 1000);
-    }
+      const reg = state.registers.get(key)?.get(addr);
+      if (!reg || reg.value == null) return;
 
-    setData((prev) => mergePoints(prev, [newPt]));
-  }, [liveReg]);
+      const ts = reg.ts ? new Date(reg.ts).getTime() : Date.now();
+      if (!isFiniteNumber(ts) || ts <= lastLiveTsRef.current) return;
+      lastLiveTsRef.current = ts;
+
+      const newPt: ChartPoint = { ts, value: reg.value, sampleCount: 1 };
+
+      // Добавляем точку в кэш
+      const cache = cacheRef.current;
+      if (cache) {
+        cache.points = mergePoints(cache.points, [newPt]);
+        cache.loadedTo = Math.max(cache.loadedTo, ts + 1000);
+      }
+
+      setData((prev) => mergePoints(prev, [newPt]));
+    });
+
+    return unsub;
+  }, [isLive, routerSn, equipType, panelId, addr]);
 
   /* ── Live: авто-сдвиг viewport каждую минуту ───────────────────────── */
   useEffect(() => {
@@ -380,6 +385,15 @@ export function useChartEngine({
       if (!isLiveRef.current) return;
 
       const now = Date.now();
+
+      // Сдвигаем viewport, но НЕ триггерим data-loader:
+      // данные уже есть в кэше от live-подписки.
+      // Пересоздаём data из кэша чтобы график отрисовал все live-точки.
+      const cache = cacheRef.current;
+      if (cache) {
+        setData(cache.points);
+      }
+
       setViewportRaw((prev) => {
         const span = prev.to - prev.from;
         const newTo = now + FUTURE_PAD_MS;
