@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
 import {
   DEFAULT_SPAN_MS,
   FETCH_DEBOUNCE_MS,
@@ -48,6 +49,9 @@ interface UseChartEngineOpts {
   addr: number;
 }
 
+/** Интервал автосдвига viewport в live-режиме (мс) */
+const LIVE_SHIFT_INTERVAL_MS = 60_000;
+
 interface UseChartEngineResult {
   /** Текущий видимый диапазон (ms) */
   viewport: ViewportRange;
@@ -59,12 +63,14 @@ interface UseChartEngineResult {
   isLoading: boolean;
   /** Самая ранняя точка данных в БД (ms) */
   firstDataAt: number | null;
+  /** Live-режим: данные дорисовываются в реальном времени */
+  isLive: boolean;
 
   /** Zoom к курсору. zoomIn=true — приближение */
   zoomAtCursor: (cursorTimeMs: number, zoomIn: boolean) => void;
   /** Установить viewport (вызывается при pan из графика) */
   setViewport: (vp: ViewportRange) => void;
-  /** Сброс к начальному виду: последние 4 часа, очистка кэша */
+  /** Сброс к начальному виду: последние 4 часа, очистка кэша, включение live */
   refresh: () => void;
 }
 
@@ -137,15 +143,18 @@ export function useChartEngine({
   const [gaps, setGaps] = useState<GapMs[]>([]);
   const [firstDataAt, setFirstDataAt] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLive, setIsLive] = useState(true);
 
   const cacheRef = useRef<DataCache | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const viewportRef = useRef(viewport);
   const firstDataAtRef = useRef(firstDataAt);
+  const isLiveRef = useRef(isLive);
 
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
   useEffect(() => { firstDataAtRef.current = firstDataAt; }, [firstDataAt]);
+  useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
 
   // Сброс кэша при смене параметра (другой регистр, другое оборудование)
   const paramKey = `${routerSn}/${equipType}/${panelId}/${addr}`;
@@ -253,6 +262,7 @@ export function useChartEngine({
 
   /* ── zoom к курсору ────────────────────────────────────────────────────── */
   const zoomAtCursor = useCallback((cursorTimeMs: number, zoomIn: boolean) => {
+    setIsLive(false);
     setViewportRaw((prev) => {
       const span = prev.to - prev.from;
       const factor = zoomIn ? 1 - ZOOM_SPEED : 1 + ZOOM_SPEED;
@@ -291,6 +301,7 @@ export function useChartEngine({
   /* ── setViewport (от drag/pan в графике) ──────────────────────────────── */
   const setViewport = useCallback((vp: ViewportRange) => {
     if (!isFiniteNumber(vp.from) || !isFiniteNumber(vp.to) || vp.to <= vp.from) return;
+    setIsLive(false);
 
     setViewportRaw((prev) => {
       // Пан НЕ меняет масштаб — сохраняем span предыдущего viewport.
@@ -329,8 +340,55 @@ export function useChartEngine({
     setGaps([]);
     setFirstDataAt(null);
     setIsLoading(true);
+    setIsLive(true);
     setViewportRaw(makeDefaultViewport());
   }, []);
 
-  return { viewport, data, gaps, isLoading, firstDataAt, zoomAtCursor, setViewport, refresh };
+  /* ── Live: подписка на телеметрию из WS ──────────────────────────────── */
+  const equipKey = makeEquipKey(routerSn, equipType, Number(panelId));
+  const liveReg = useTelemetryStore(
+    (s) => s.registers.get(equipKey)?.get(addr) ?? null,
+  );
+
+  // Ref чтобы не добавлять дубли
+  const lastLiveTsRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!isLiveRef.current || !liveReg || liveReg.value == null) return;
+
+    const ts = liveReg.ts ? new Date(liveReg.ts).getTime() : Date.now();
+    if (!isFiniteNumber(ts) || ts <= lastLiveTsRef.current) return;
+    lastLiveTsRef.current = ts;
+
+    const newPt: ChartPoint = { ts, value: liveReg.value, sampleCount: 1 };
+
+    // Добавляем точку в кэш
+    const cache = cacheRef.current;
+    if (cache) {
+      cache.points = mergePoints(cache.points, [newPt]);
+      cache.loadedTo = Math.max(cache.loadedTo, ts + 1000);
+    }
+
+    setData((prev) => mergePoints(prev, [newPt]));
+  }, [liveReg]);
+
+  /* ── Live: авто-сдвиг viewport каждую минуту ───────────────────────── */
+  useEffect(() => {
+    if (!isLive) return;
+
+    const timer = setInterval(() => {
+      if (!isLiveRef.current) return;
+
+      const now = Date.now();
+      setViewportRaw((prev) => {
+        const span = prev.to - prev.from;
+        const newTo = now + FUTURE_PAD_MS;
+        return { from: newTo - span, to: newTo };
+      });
+    }, LIVE_SHIFT_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [isLive]);
+
+  return { viewport, data, gaps, isLoading, firstDataAt, isLive, zoomAtCursor, setViewport, refresh };
 }

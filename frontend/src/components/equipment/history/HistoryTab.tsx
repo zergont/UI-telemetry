@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Minus, Plus, RefreshCw } from "lucide-react";
+import { Minus, Plus, RefreshCw, Radio } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -61,13 +61,20 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
           ))}
         </select>
 
-        <button
-          onClick={engine.refresh}
-          className="inline-flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${engine.isLoading ? "animate-spin" : ""}`} />
-          Обновить
-        </button>
+        {engine.isLive ? (
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-green-500/10 px-3 py-1.5 text-sm text-green-600 dark:text-green-400">
+            <Radio className="h-3.5 w-3.5 animate-pulse" />
+            Онлайн мониторинг
+          </span>
+        ) : (
+          <button
+            onClick={engine.refresh}
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${engine.isLoading ? "animate-spin" : ""}`} />
+            Обновить
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground/50">
