@@ -1,12 +1,22 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Moon, Sun, Zap, ChevronRight, Share2, Settings } from "lucide-react";
+import { Moon, Sun, Zap, ChevronRight, Share2, Settings, Clock } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/hooks/use-theme";
 import { useIsAdmin } from "@/hooks/use-auth";
 import { useTelemetryStore } from "@/stores/telemetry-store";
+import { useSettingsStore, TZ_OPTIONS } from "@/stores/settings-store";
 import type { ObjectOut } from "@/hooks/use-objects";
 import type { EquipmentOut } from "@/hooks/use-equipment";
 
@@ -24,6 +34,7 @@ export default function Header() {
   const { theme, toggleTheme } = useTheme();
   const isAdmin = useIsAdmin();
   const connected = useTelemetryStore((s) => s.connected);
+  const { tzOffsetHours, setTzOffsetHours } = useSettingsStore();
   const location = useLocation();
 
   const { routerSn, equipType, panelId } = useMemo(
@@ -124,6 +135,28 @@ export default function Header() {
               </Link>
             </>
           )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" title="Часовой пояс">
+                <Clock className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Часовой пояс</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup
+                value={String(tzOffsetHours)}
+                onValueChange={(v) => setTzOffsetHours(Number(v))}
+              >
+                {TZ_OPTIONS.map((tz) => (
+                  <DropdownMenuRadioItem key={tz.offset} value={String(tz.offset)}>
+                    {tz.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button variant="ghost" size="icon" onClick={toggleTheme}>
             {theme === "dark" ? (
