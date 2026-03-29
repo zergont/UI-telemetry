@@ -344,8 +344,21 @@ export function useChartEngine({
     setViewportRaw(makeDefaultViewport());
   }, []);
 
+  /* ── Live: безопасный парсинг timestamp ──────────────────────────────── */
+  function parseLiveTs(raw: string | null | undefined): number {
+    if (!raw) return Date.now();
+    // parseIsoToMs добавляет "Z" если нет — единообразно с history
+    try {
+      const ms = parseIsoToMs(raw);
+      return isFiniteNumber(ms) ? ms : Date.now();
+    } catch {
+      return Date.now();
+    }
+  }
+
   /* ── Live: подписка на телеметрию из WS (императивная) ────────────────── */
   const lastLiveTsRef = useRef<number>(0);
+  const liveAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!isLive) return;
@@ -358,8 +371,8 @@ export function useChartEngine({
       const reg = state.registers.get(key)?.get(addr);
       if (!reg || reg.value == null) return;
 
-      const ts = reg.ts ? new Date(reg.ts).getTime() : Date.now();
-      if (!isFiniteNumber(ts) || ts <= lastLiveTsRef.current) return;
+      const ts = parseLiveTs(reg.ts);
+      if (ts <= lastLiveTsRef.current) return;
       lastLiveTsRef.current = ts;
 
       const newPt: ChartPoint = { ts, value: reg.value, sampleCount: 1 };
@@ -377,7 +390,7 @@ export function useChartEngine({
     return unsub;
   }, [isLive, routerSn, equipType, panelId, addr]);
 
-  /* ── Live: авто-сдвиг viewport каждую минуту ───────────────────────── */
+  /* ── Live: авто-сдвиг viewport + свежий fetch каждую минуту ─────────── */
   useEffect(() => {
     if (!isLive) return;
 
@@ -385,24 +398,46 @@ export function useChartEngine({
       if (!isLiveRef.current) return;
 
       const now = Date.now();
-
-      // Сдвигаем viewport, но НЕ триггерим data-loader:
-      // данные уже есть в кэше от live-подписки.
-      // Пересоздаём data из кэша чтобы график отрисовал все live-точки.
       const cache = cacheRef.current;
-      if (cache) {
-        setData(cache.points);
-      }
 
-      setViewportRaw((prev) => {
+      // 1. Сдвигаем viewport (не через setViewportRaw чтобы не триггерить data-loader)
+      //    Вместо этого напрямую обновляем viewportRef и state одним действием
+      //    с пометкой что это live-сдвиг.
+      const newVp: ViewportRange = (() => {
+        const prev = viewportRef.current;
         const span = prev.to - prev.from;
         const newTo = now + FUTURE_PAD_MS;
         return { from: newTo - span, to: newTo };
-      });
+      })();
+
+      // 2. Свежий fetch за последние 5 минут — страховка для точек,
+      //    которые бэкенд уже сохранил в БД, но WS не доставил
+      liveAbortRef.current?.abort();
+      const ac = new AbortController();
+      liveAbortRef.current = ac;
+
+      const fetchFrom = now - 5 * 60_000;
+      const fetchTo = now + FUTURE_PAD_MS;
+      fetchRange(routerSn, equipType, panelId, addr, fetchFrom, fetchTo, 500, ac.signal)
+        .then((res) => {
+          if (!res || ac.signal.aborted || !isLiveRef.current) return;
+          if (cache) {
+            cache.points = mergePoints(cache.points, res.points);
+            cache.loadedTo = Math.max(cache.loadedTo, fetchTo);
+          }
+          // Обновляем data из кэша (все live + свежие серверные точки)
+          setData(cache ? cache.points : res.points);
+        });
+
+      // 3. Обновляем viewport state
+      setViewportRaw(newVp);
     }, LIVE_SHIFT_INTERVAL_MS);
 
-    return () => clearInterval(timer);
-  }, [isLive]);
+    return () => {
+      clearInterval(timer);
+      liveAbortRef.current?.abort();
+    };
+  }, [isLive, routerSn, equipType, panelId, addr]);
 
   return { viewport, data, gaps, isLoading, firstDataAt, isLive, zoomAtCursor, setViewport, refresh };
 }
