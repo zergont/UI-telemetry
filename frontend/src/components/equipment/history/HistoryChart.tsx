@@ -165,6 +165,8 @@ export function HistoryChart({
     function drawRawMarkers(u: uPlot, sidx: number) {
       const { ctx } = u;
       const s = u.series[sidx];
+      const { left, top, width, height } = u.bbox;
+      const dpr = devicePixelRatio || 1;
 
       const pts = prevDataRef.current;
       if (!pts) return;
@@ -181,12 +183,13 @@ export function HistoryChart({
 
       for (const p of realRaw) {
         const tSec = p.ts / 1000 + tzOffRef.current;
-        const x = u.valToPos(tSec, "x", true);
-        const y = u.valToPos(p.value!, s.scale!, true);
-        if (x == null || y == null || x < 0 || x > u.width) continue;
+        // CSS→buffer пиксели + bbox offset (как в drawDayBands)
+        const x = left + u.valToPos(tSec, "x", false) * dpr;
+        const y = top + u.valToPos(p.value!, s.scale!, false) * dpr;
+        if (x < left || x > left + width || y < top || y > top + height) continue;
 
         ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.arc(x, y, 3 * dpr, 0, Math.PI * 2);
         ctx.fill();
       }
 
