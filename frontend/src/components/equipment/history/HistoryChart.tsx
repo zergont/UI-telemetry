@@ -161,8 +161,15 @@ export function HistoryChart({
       return grad;
     }
 
-    // Raw точки маркеры
+    // Raw точки маркеры (только при zoomLevel < 30)
     function drawRawMarkers(u: uPlot, sidx: number) {
+      const fromSec = u.scales.x.min;
+      const toSec = u.scales.x.max;
+      if (fromSec == null || toSec == null) return;
+      const spanMs = (toSec - fromSec) * 1000;
+      const zoomLevel = Math.max(0, Math.round(Math.log(spanMs / MIN_SPAN_MS) / Math.log(1.25)));
+      if (zoomLevel >= 30) return;
+
       const { ctx } = u;
       const s = u.series[sidx];
       const { left, top, width, height } = u.bbox;
@@ -170,13 +177,6 @@ export function HistoryChart({
 
       const pts = prevDataRef.current;
       if (!pts) return;
-
-      const realRaw = pts.filter(
-        (p) => p.value !== null && (p.sampleCount == null || p.sampleCount <= 1),
-      );
-      const realNonNull = pts.filter((p) => p.value !== null);
-      const isRaw = realRaw.length > 0 && realRaw.length > realNonNull.length * 0.5;
-      if (!isRaw || realRaw.length > 2000) return;
 
       ctx.save();
       ctx.fillStyle = colorRef.current;
