@@ -176,12 +176,13 @@ export function HistoryChart({
       const dpr = devicePixelRatio || 1;
 
       const pts = prevDataRef.current;
-      if (!pts) return;
+      if (!pts || pts.length === 0) return;
 
       ctx.save();
       ctx.fillStyle = colorRef.current;
 
-      for (const p of realRaw) {
+      for (const p of pts) {
+        if (p.value == null) continue;
         const tSec = p.ts / 1000 + tzOffRef.current;
         // CSS→buffer пиксели + bbox offset (как в drawDayBands)
         const x = left + u.valToPos(tSec, "x", false) * dpr;
