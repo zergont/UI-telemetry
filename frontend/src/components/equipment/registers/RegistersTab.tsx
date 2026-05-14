@@ -128,9 +128,7 @@ export default function RegistersTab({
                 <TableCell className="text-sm">{r.name || "\u2014"}</TableCell>
                 <FlashCell value={r.value} className="font-semibold tabular-nums">
                   {r.value != null
-                    ? Number.isInteger(r.value)
-                      ? r.value
-                      : parseFloat(r.value.toFixed(4))
+                    ? (() => { const n = +r.value; return Number.isInteger(n) ? n : parseFloat(n.toFixed(4)); })()
                     : "\u2014"}
                 </FlashCell>
                 <FlashCell value={r.text} className="text-xs text-muted-foreground">
