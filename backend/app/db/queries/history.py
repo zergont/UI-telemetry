@@ -182,6 +182,41 @@ async def fetch_history(
     }
 
 
+async def fetch_journal(
+    pool: asyncpg.Pool,
+    router_sn: str,
+    equip_type: str,
+    panel_id: int,
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Журнал состояний: все state_events оборудования (все адреса)."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                se.ts,
+                se.addr,
+                ls.name,
+                se.raw,
+                se.text,
+                se.write_reason
+            FROM state_events se
+            LEFT JOIN latest_state ls
+                ON ls.router_sn  = se.router_sn
+               AND ls.equip_type = se.equip_type
+               AND ls.panel_id   = se.panel_id
+               AND ls.addr       = se.addr
+            WHERE se.router_sn  = $1
+              AND se.equip_type = $2
+              AND se.panel_id   = $3
+            ORDER BY se.ts DESC
+            LIMIT $4
+            """,
+            router_sn, equip_type, panel_id, limit,
+        )
+    return {"events": [dict(r) for r in rows]}
+
+
 async def fetch_state_events(
     pool: asyncpg.Pool,
     router_sn: str,

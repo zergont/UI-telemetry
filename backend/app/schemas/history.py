@@ -29,6 +29,21 @@ class HistoryResponse(BaseModel):
     gaps: List[GapZone] = []
 
 
+# ── Journal (все state_events оборудования) ──────────────────────────────────
+
+class JournalEvent(BaseModel):
+    ts: datetime
+    addr: int
+    name: Optional[str] = None
+    raw: Optional[int] = None
+    text: Optional[str] = None
+    write_reason: Optional[str] = None
+
+
+class JournalResponse(BaseModel):
+    events: List[JournalEvent]
+
+
 # ── State events (дискретные / enum регистры) ────────────────────────────────
 
 class StateEvent(BaseModel):

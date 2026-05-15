@@ -19,6 +19,8 @@ async def fetch_registers(
             WHERE ls.router_sn = $1
               AND ls.equip_type = $2
               AND ls.panel_id = $3
+              AND ls.unit IS NOT NULL
+              AND ls.unit != 'fault_bitmap'
             ORDER BY ls.addr
         """, router_sn, equip_type, panel_id)
     return [dict(r) for r in rows]

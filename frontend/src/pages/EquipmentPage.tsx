@@ -18,6 +18,8 @@ import {
 import { formatRelativeTime } from "@/lib/format";
 import RegistersTab from "@/components/equipment/registers/RegistersTab";
 import HistoryTab from "@/components/equipment/history/HistoryTab";
+import JournalTab from "@/components/equipment/journal/JournalTab";
+import NotificationsTab from "@/components/equipment/notifications/NotificationsTab";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 export default function EquipmentPage() {
@@ -191,6 +193,8 @@ export default function EquipmentPage() {
         <TabsList>
           <TabsTrigger value="history">История</TabsTrigger>
           <TabsTrigger value="registers">Регистры</TabsTrigger>
+          <TabsTrigger value="journal">Журнал</TabsTrigger>
+          <TabsTrigger value="notifications">Уведомления</TabsTrigger>
         </TabsList>
 
         <TabsContent value="history" className="mt-4">
@@ -204,13 +208,35 @@ export default function EquipmentPage() {
         </TabsContent>
 
         <TabsContent value="registers" className="mt-4">
-          <RegistersTab
-            registers={mergedRegisters}
-            isLoading={regsLoading}
-            liveCount={liveRegs?.size ?? 0}
-            wsConnected={wsConnected}
-            lastWsUpdate={lastUpdate}
-          />
+          <ErrorBoundary>
+            <RegistersTab
+              registers={mergedRegisters}
+              isLoading={regsLoading}
+              liveCount={liveRegs?.size ?? 0}
+              wsConnected={wsConnected}
+              lastWsUpdate={lastUpdate}
+            />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="journal" className="mt-4">
+          <ErrorBoundary>
+            <JournalTab
+              routerSn={routerSn!}
+              equipType={equipType!}
+              panelId={panelId!}
+            />
+          </ErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="notifications" className="mt-4">
+          <ErrorBoundary>
+            <NotificationsTab
+              routerSn={routerSn!}
+              equipType={equipType!}
+              panelId={panelId!}
+            />
+          </ErrorBoundary>
         </TabsContent>
       </Tabs>
     </div>

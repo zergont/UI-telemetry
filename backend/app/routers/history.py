@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends, Query
 
 from app.auth import AuthContext, enforce_router_scope, require_auth
 from app.db.queries.gaps import fetch_gaps
-from app.db.queries.history import fetch_history, fetch_state_events
+from app.db.queries.history import fetch_history, fetch_journal, fetch_state_events
 from app.deps import get_pool
 from app.schemas.history import (
     GapZone,
     HistoryPoint,
     HistoryResponse,
+    JournalEvent,
+    JournalResponse,
     StateEvent,
     StateEventsResponse,
 )
@@ -43,6 +45,21 @@ async def get_history(
         first_data_at=result["first_data_at"],
         gaps=[GapZone(**g) for g in gap_rows],
     )
+
+
+@router.get("/journal", response_model=JournalResponse)
+async def get_journal(
+    router_sn: str = Query(...),
+    equip_type: str = Query(...),
+    panel_id: int = Query(...),
+    limit: int = Query(500, ge=10, le=2000),
+    pool: asyncpg.Pool = Depends(get_pool),
+    ctx: AuthContext = Depends(require_auth),
+):
+    """Журнал состояний (все discrete/enum регистры оборудования)."""
+    enforce_router_scope(ctx, router_sn)
+    result = await fetch_journal(pool, router_sn, equip_type, panel_id, limit=limit)
+    return JournalResponse(events=[JournalEvent(**e) for e in result["events"]])
 
 
 @router.get("/state-events", response_model=StateEventsResponse)
