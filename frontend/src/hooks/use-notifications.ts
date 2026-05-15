@@ -4,10 +4,11 @@ import { apiFetch } from "@/lib/api";
 export interface NotificationOut {
   addr: number;
   bit: number;
-  fault_name: string | null;
-  severity: string | null;   // 'shutdown' | 'warning' | 'info'
+  fault_name: string | null;         // English
+  fault_description: string | null;  // Русское описание
+  severity: string | null;           // 'shutdown' | 'warning' | 'unknown'
   fault_start: string;
-  fault_end: string | null;  // null = активна прямо сейчас
+  fault_end: string | null;          // null = активна прямо сейчас
   duration_seconds: number | null;
 }
 

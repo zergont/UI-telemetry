@@ -93,7 +93,9 @@ export default function NotificationsTab({ routerSn, equipType, panelId }: Notif
 
   const renderRow = (n: NotificationOut, idx: number) => (
     <TableRow key={idx} className={rowClass(n)}>
-      <TableCell className="font-medium text-sm">{n.fault_name || "—"}</TableCell>
+      <TableCell className="font-medium text-sm" title={n.fault_name ?? undefined}>
+        {n.fault_description || n.fault_name || "—"}
+      </TableCell>
       <TableCell><SeverityBadge severity={n.severity} /></TableCell>
       <TableCell className="hidden sm:table-cell font-mono text-xs text-muted-foreground">
         {n.addr}/{n.bit}

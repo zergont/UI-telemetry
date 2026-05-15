@@ -23,6 +23,7 @@ async def fetch_notifications(
                 addr,
                 bit,
                 fault_name,
+                fault_description,
                 severity,
                 fault_start,
                 fault_end,

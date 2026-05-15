@@ -9,8 +9,9 @@ from pydantic import BaseModel
 class NotificationOut(BaseModel):
     addr: int
     bit: int
-    fault_name: Optional[str] = None
-    severity: Optional[str] = None       # 'shutdown' | 'warning' | 'info'
+    fault_name: Optional[str] = None         # English (из карты декодера)
+    fault_description: Optional[str] = None  # Русское описание
+    severity: Optional[str] = None           # 'shutdown' | 'warning' | 'unknown'
     fault_start: datetime
-    fault_end: Optional[datetime] = None  # None = активна прямо сейчас
+    fault_end: Optional[datetime] = None     # None = активна прямо сейчас
     duration_seconds: Optional[int] = None
