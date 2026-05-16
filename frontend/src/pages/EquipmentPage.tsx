@@ -191,7 +191,7 @@ export default function EquipmentPage() {
       {/* Tabs */}
       <Tabs defaultValue="history" className="w-full">
         <TabsList>
-          <TabsTrigger value="history">История</TabsTrigger>
+          <TabsTrigger value="history">График</TabsTrigger>
           <TabsTrigger value="registers">Регистры</TabsTrigger>
           <TabsTrigger value="journal">Журнал</TabsTrigger>
           <TabsTrigger value="notifications">Уведомления</TabsTrigger>
