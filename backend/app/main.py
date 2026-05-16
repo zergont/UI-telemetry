@@ -11,10 +11,12 @@ from app.config import APP_VERSION, get_settings
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
-from app.routers import admin_proxy, chart_settings, equipment, events, history, notifications, objects, registers, share, system, ws
+from app.routers import admin_proxy, chart_settings, equipment, events, history, notifications, objects, registers, share, system, tiles, ws
 from app.services.nginx_check import log_nginx_status
 from app.services.updater import get_current_version
 from app.services.offline_tracker import offline_tracker
+from app.services.tile_cache import prefetch_for_objects
+from app.db.queries.objects import fetch_all_objects
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,12 +54,25 @@ async def lifespan(app: FastAPI):
     # 5. Check nginx availability
     log_nginx_status(settings.access.public_base_url)
 
+    # 6. Background tile prefetch for existing objects
+    async def _prefetch_tiles():
+        await asyncio.sleep(10)  # дать БД прогреться
+        if app.state.db_pool:
+            try:
+                objs = await fetch_all_objects(app.state.db_pool)
+                await prefetch_for_objects(objs)
+            except Exception as exc:
+                logger.warning("Tile prefetch failed: %s", exc)
+
+    prefetch_task = asyncio.create_task(_prefetch_tiles())
+
     logger.info("Backend ready on %s:%s", settings.backend.host, settings.backend.port)
     yield
 
     # Cleanup
     mqtt_task.cancel()
     offline_task.cancel()
+    prefetch_task.cancel()
     if app.state.db_pool:
         await close_pool(app.state.db_pool)
     logger.info("Shutdown complete")
@@ -95,6 +110,7 @@ app.include_router(chart_settings.router)
 app.include_router(events.router)
 app.include_router(share.router)
 app.include_router(system.router)
+app.include_router(tiles.router)
 app.include_router(ws.router)
 
 

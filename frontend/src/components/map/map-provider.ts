@@ -9,7 +9,7 @@ const osmRasterStyle = (dark: boolean): StyleSpecification => ({
   sources: {
     osm: {
       type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tiles: ["/api/tiles/{z}/{x}/{y}.png"],
       tileSize: 256,
       maxzoom: 19,
       attribution: "&copy; OpenStreetMap contributors",

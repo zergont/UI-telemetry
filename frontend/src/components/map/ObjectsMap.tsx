@@ -180,9 +180,14 @@ export default function ObjectsMap({
 
   // "Ныряние" в объект — zoom до максимума, потом навигация
   useEffect(() => {
-    if (!divingSn || !mapLoadedRef.current) return;
+    if (!divingSn) return;
     const map = mapRef.current;
-    if (!map) return;
+
+    // Карта не готова — переходим сразу без анимации
+    if (!mapLoadedRef.current || !map) {
+      navigateToObject(divingSn);
+      return;
+    }
 
     const obj = geoObjects.find((o) => o.router_sn === divingSn);
     if (!obj || obj.lat == null || obj.lon == null) {
