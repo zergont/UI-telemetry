@@ -37,7 +37,7 @@ export const MAP_STYLES: Record<MapProvider, Record<string, string | StyleSpecif
     light: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
   },
   openfreemap: {
-    dark: "https://tiles.openfreemap.org/styles/dark-matter",
+    dark: "https://tiles.openfreemap.org/styles/dark",
     light: "https://tiles.openfreemap.org/styles/liberty",
   },
   osm: {
