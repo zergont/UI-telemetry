@@ -14,6 +14,12 @@ import {
   ArrowUpCircle,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/use-auth";
+import {
+  useSystemVersion,
+  useCheckSystemUpdate,
+  useTriggerSystemUpdate,
+  useSystemUpdateStatus,
+} from "@/hooks/use-system-update";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -384,6 +390,187 @@ function ChartSettingsBlock() {
   );
 }
 
+// ─── Лейблы состояний системного апдейтера ────────────────────────────────
+const SYS_STATE_LABELS: Record<string, string> = {
+  idle:        "Ожидание",
+  checking:    "Проверка обновлений...",
+  pulling:     "git pull...",
+  installing:  "pip install...",
+  building:    "npm build...",
+  restarting:  "Перезапуск сервиса...",
+  done:        "Завершено",
+  error:       "Ошибка",
+};
+
+// ─── Блок обновления UI-дашборда ──────────────────────────────────────────
+function DashboardUpdateBlock() {
+  const { data: version } = useSystemVersion();
+  const checkMutation = useCheckSystemUpdate();
+  const triggerMutation = useTriggerSystemUpdate();
+
+  const [polling, setPolling] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const [resultMsg, setResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const deadlineRef = useRef<number>(0);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  const { data: statusData } = useSystemUpdateStatus(polling);
+
+  useEffect(() => {
+    if (!polling || !statusData) return;
+    setLog(statusData.log ?? []);
+    if (statusData.state === "done") {
+      setPolling(false);
+      setResultMsg({ ok: true, text: "Обновление завершено, сервис перезапускается..." });
+      return;
+    }
+    if (statusData.state === "error") {
+      setPolling(false);
+      setResultMsg({ ok: false, text: statusData.error ?? "Неизвестная ошибка" });
+      return;
+    }
+    if (Date.now() > deadlineRef.current) {
+      setPolling(false);
+      setResultMsg({ ok: false, text: "Таймаут обновления (5 минут)" });
+    }
+  }, [statusData, polling]);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [log.length]);
+
+  const handleUpdate = () => {
+    deadlineRef.current = Date.now() + 5 * 60_000;
+    setLog([]);
+    setResultMsg(null);
+    triggerMutation.mutate(undefined, {
+      onSuccess: (res) => {
+        if (res.ok) setPolling(true);
+        else setResultMsg({ ok: false, text: res.error ?? "Не удалось запустить обновление" });
+      },
+      onError: (e) => setResultMsg({ ok: false, text: String(e) }),
+    });
+  };
+
+  const displayState = statusData?.state ?? "idle";
+  const checkResult = checkMutation.data;
+  const hasUpdate = checkResult && !checkResult.up_to_date;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <ArrowUpCircle className="h-4 w-4" />
+          Дашборд (UI-telemetry)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Версия */}
+        <div className="text-sm text-muted-foreground">
+          {version ? (
+            <span>
+              Версия:{" "}
+              <span className="font-mono font-semibold text-foreground">
+                {version.version}
+              </span>{" "}
+              <span className="font-mono text-xs">
+                ({version.commit}, {version.branch})
+              </span>
+            </span>
+          ) : (
+            <span className="italic">Загрузка...</span>
+          )}
+        </div>
+
+        {/* Кнопки */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => checkMutation.mutate()}
+            disabled={checkMutation.isPending || polling}
+          >
+            {checkMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Проверить
+          </Button>
+
+          <Button
+            size="sm"
+            variant={hasUpdate ? "default" : "outline"}
+            onClick={handleUpdate}
+            disabled={polling || triggerMutation.isPending}
+          >
+            {polling || triggerMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            Обновить дашборд
+          </Button>
+        </div>
+
+        {/* Результат проверки */}
+        {checkResult && !checkMutation.isPending && (
+          checkResult.error ? (
+            <div className="flex items-center gap-2 text-sm text-red-500">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {checkResult.error}
+            </div>
+          ) : checkResult.up_to_date ? (
+            <div className="flex items-center gap-2 text-sm text-green-600">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Актуальная версия
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-sm text-amber-500">
+                <ArrowUpCircle className="h-4 w-4 shrink-0" />
+                Доступно {checkResult.behind_count} коммит(а/ов)
+              </div>
+              <div className="rounded-md border bg-muted/40 p-2 space-y-0.5">
+                {checkResult.commits.map((c) => (
+                  <div key={c.hash} className="flex items-baseline gap-2 text-xs">
+                    <span className="font-mono text-muted-foreground shrink-0">{c.hash}</span>
+                    <span className="text-foreground">{c.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Результат обновления */}
+        {resultMsg && (
+          <div className={`flex items-center gap-2 text-sm ${resultMsg.ok ? "text-green-600" : "text-red-500"}`}>
+            {resultMsg.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            {resultMsg.text}
+          </div>
+        )}
+
+        {/* Лог */}
+        {(polling || log.length > 0) && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {polling && <Loader2 className="h-3 w-3 animate-spin" />}
+              {SYS_STATE_LABELS[displayState] ?? displayState}
+            </div>
+            <div className="border rounded-md p-3 bg-black/90 text-green-400 font-mono text-xs max-h-48 overflow-y-auto">
+              {log.map((line, i) => (
+                <div key={i}>{line}</div>
+              ))}
+              <div ref={logEndRef} />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Основная страница ─────────────────────────────────────────────────────
 export default function SystemPage() {
   const isAdmin = useIsAdmin();
@@ -407,6 +594,7 @@ export default function SystemPage() {
         <h1 className="text-2xl font-bold">Система</h1>
       </div>
 
+      <DashboardUpdateBlock />
       <AdminUpdateBlock />
       <ChartSettingsBlock />
     </div>
