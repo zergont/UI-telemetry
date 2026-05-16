@@ -81,14 +81,20 @@ function AdminUpdateBlock() {
 
     if (statusData.state === "done") {
       setPolling(false);
-      refetchVersion().then((res) => {
-        const newTag = res.data?.git_tag ?? "";
-        if (newTag && newTag !== versionBeforeRef.current) {
-          setResultMsg({ ok: true, text: `Обновлено: ${versionBeforeRef.current} → ${newTag}` });
-        } else {
-          setResultMsg({ ok: true, text: "Завершено, версия не изменилась" });
-        }
-      });
+      // cg-admin перезапускается — ждём 6 сек прежде чем проверять новую версию
+      setResultMsg({ ok: true, text: "Обновление завершено, перезапуск cg-admin..." });
+      setTimeout(() => {
+        refetchVersion().then((res) => {
+          const newTag = res.data?.git_tag ?? "";
+          if (newTag && newTag !== versionBeforeRef.current) {
+            setResultMsg({ ok: true, text: `Обновлено: ${versionBeforeRef.current} → ${newTag}` });
+          } else if (newTag) {
+            setResultMsg({ ok: true, text: `Завершено, версия актуальна (${newTag})` });
+          } else {
+            setResultMsg({ ok: true, text: "Завершено, cg-admin поднимается..." });
+          }
+        });
+      }, 6_000);
       return;
     }
 
