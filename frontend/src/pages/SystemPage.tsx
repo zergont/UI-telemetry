@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Download,
@@ -12,7 +13,10 @@ import {
   Save,
   RefreshCw,
   ArrowUpCircle,
+  Map,
+  HardDrive,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 import { useIsAdmin } from "@/hooks/use-auth";
 import {
   useSystemVersion,
@@ -577,6 +581,89 @@ function DashboardUpdateBlock() {
   );
 }
 
+// ─── Блок кеша карт ───────────────────────────────────────────────────────
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 Б";
+  const units = ["Б", "КБ", "МБ", "ГБ"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const val = bytes / 1024 ** i;
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`;
+}
+
+function TileCacheBlock() {
+  const qc = useQueryClient();
+  const { data: stats } = useQuery({
+    queryKey: ["tile-cache-stats"],
+    queryFn: () => apiFetch<{ size_bytes: number; file_count: number }>("/api/tiles/cache/stats"),
+  });
+
+  const clearMut = useMutation({
+    mutationFn: () => apiFetch("/api/tiles/cache", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["tile-cache-stats"] }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Map className="h-4 w-4" />
+          Кеш карт (OpenStreetMap)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <HardDrive className="h-4 w-4" />
+            Размер:
+            <span className="font-mono font-semibold text-foreground">
+              {stats ? formatBytes(stats.size_bytes) : "—"}
+            </span>
+          </div>
+          <div className="text-muted-foreground">
+            Файлов:
+            <span className="font-mono font-semibold text-foreground ml-1">
+              {stats ? stats.file_count.toLocaleString("ru-RU") : "—"}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => clearMut.mutate()}
+            disabled={clearMut.isPending || !stats || stats.file_count === 0}
+          >
+            {clearMut.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-1.5" />
+            )}
+            Очистить кеш
+          </Button>
+          {clearMut.isSuccess && (
+            <span className="flex items-center gap-1 text-sm text-green-600">
+              <CheckCircle2 className="h-4 w-4" />
+              Очищено
+            </span>
+          )}
+          {clearMut.isError && (
+            <span className="flex items-center gap-1 text-sm text-red-500">
+              <AlertCircle className="h-4 w-4" />
+              Ошибка очистки
+            </span>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Тайлы кешируются при просмотре карты и предзагружаются вокруг объектов (20 км, zoom 0–14).
+          Очистка безопасна — тайлы загрузятся заново при необходимости.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Основная страница ─────────────────────────────────────────────────────
 export default function SystemPage() {
   const isAdmin = useIsAdmin();
@@ -602,6 +689,7 @@ export default function SystemPage() {
 
       <DashboardUpdateBlock />
       <AdminUpdateBlock />
+      <TileCacheBlock />
       <ChartSettingsBlock />
     </div>
   );

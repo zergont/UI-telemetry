@@ -13,6 +13,39 @@ from app.config import get_config_dir
 logger = logging.getLogger(__name__)
 
 TILE_CACHE_DIR = get_config_dir() / "tile_cache"
+
+
+def cache_size_bytes() -> int:
+    """Total size of the tile cache directory in bytes."""
+    if not TILE_CACHE_DIR.exists():
+        return 0
+    return sum(f.stat().st_size for f in TILE_CACHE_DIR.rglob("*") if f.is_file())
+
+
+def cache_file_count() -> int:
+    if not TILE_CACHE_DIR.exists():
+        return 0
+    return sum(1 for f in TILE_CACHE_DIR.rglob("*") if f.is_file())
+
+
+def clear_cache() -> int:
+    """Delete all cached tiles. Returns number of files removed."""
+    if not TILE_CACHE_DIR.exists():
+        return 0
+    count = 0
+    for f in TILE_CACHE_DIR.rglob("*"):
+        if f.is_file():
+            f.unlink()
+            count += 1
+    # Remove empty directories
+    for d in sorted(TILE_CACHE_DIR.rglob("*"), reverse=True):
+        if d.is_dir():
+            try:
+                d.rmdir()
+            except OSError:
+                pass
+    _prefetched.clear()
+    return count
 OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 MAX_ZOOM = 14
 PREFETCH_RADIUS_KM = 20

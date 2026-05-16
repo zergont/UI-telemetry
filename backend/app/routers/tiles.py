@@ -1,10 +1,16 @@
 """OSM tile proxy endpoint with disk caching."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from app.services.tile_cache import get_or_fetch_tile
+from app.auth import AuthContext, require_admin, require_auth
+from app.services.tile_cache import (
+    cache_file_count,
+    cache_size_bytes,
+    clear_cache,
+    get_or_fetch_tile,
+)
 
 router = APIRouter(prefix="/api/tiles", tags=["tiles"])
 
@@ -26,3 +32,16 @@ async def tile_proxy(z: int, x: int, y: int):
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@router.get("/cache/stats")
+async def tile_cache_stats(_: AuthContext = Depends(require_auth)):
+    size = cache_size_bytes()
+    count = cache_file_count()
+    return {"size_bytes": size, "file_count": count}
+
+
+@router.delete("/cache")
+async def tile_cache_clear(_: AuthContext = Depends(require_admin)):
+    count = clear_cache()
+    return {"ok": True, "deleted": count}
