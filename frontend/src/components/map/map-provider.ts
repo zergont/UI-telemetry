@@ -1,8 +1,10 @@
+import type { StyleSpecification } from "maplibre-gl";
+
 export type MapProvider = "carto" | "maptiler" | "openfreemap" | "osm";
 
 const MAPTILER_KEY = "7rleXA0jqiQBKMYrXAs3";
 
-const osmRasterStyle = (dark: boolean): object => ({
+const osmRasterStyle = (dark: boolean): StyleSpecification => ({
   version: 8,
   sources: {
     osm: {
@@ -25,7 +27,7 @@ const osmRasterStyle = (dark: boolean): object => ({
   ],
 });
 
-export const MAP_STYLES: Record<MapProvider, Record<string, string | object>> = {
+export const MAP_STYLES: Record<MapProvider, Record<string, string | StyleSpecification>> = {
   carto: {
     dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
     light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",

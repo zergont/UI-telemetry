@@ -86,7 +86,7 @@ export default function ObjectsMap({
   }, []);
 
   const styles = MAP_STYLES[provider];
-  const mapStyle = (theme === "dark" ? styles.dark : styles.light) as string | object;
+  const mapStyle = theme === "dark" ? styles.dark : styles.light;
 
   // Объекты с координатами
   const geoObjects = useMemo(
