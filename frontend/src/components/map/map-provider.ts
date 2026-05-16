@@ -1,8 +1,31 @@
-export type MapProvider = "carto" | "maptiler" | "openfreemap";
+export type MapProvider = "carto" | "maptiler" | "openfreemap" | "osm";
 
 const MAPTILER_KEY = "7rleXA0jqiQBKMYrXAs3";
 
-export const MAP_STYLES: Record<MapProvider, Record<string, string>> = {
+const osmRasterStyle = (dark: boolean): object => ({
+  version: 8,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    },
+  },
+  layers: [
+    {
+      id: "osm-tiles",
+      type: "raster",
+      source: "osm",
+      paint: dark
+        ? { "raster-hue-rotate": 180, "raster-brightness-min": 0.08, "raster-brightness-max": 0.35, "raster-saturation": -0.6 }
+        : {},
+    },
+  ],
+});
+
+export const MAP_STYLES: Record<MapProvider, Record<string, string | object>> = {
   carto: {
     dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
     light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
@@ -15,12 +38,17 @@ export const MAP_STYLES: Record<MapProvider, Record<string, string>> = {
     dark: "https://tiles.openfreemap.org/styles/positron",
     light: "https://tiles.openfreemap.org/styles/liberty",
   },
+  osm: {
+    dark: osmRasterStyle(true),
+    light: osmRasterStyle(false),
+  },
 };
 
 export const MAP_PROVIDER_LABELS: Record<MapProvider, string> = {
   carto: "CartoDB",
   maptiler: "MapTiler",
   openfreemap: "OpenFreeMap",
+  osm: "OpenStreetMap",
 };
 
 /** Получить сохранённый провайдер карт из localStorage */
