@@ -2,142 +2,350 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
-  RefreshCw,
   Download,
   CheckCircle2,
   AlertCircle,
   Loader2,
-  GitCommit,
-  GitBranch,
-  Tag,
-  Clock,
   ExternalLink,
+  Plus,
+  Trash2,
+  Save,
 } from "lucide-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 import { useIsAdmin } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSettingsStore, TZ_OPTIONS } from "@/stores/settings-store";
+import { Input } from "@/components/ui/input";
+import {
+  useAdminVersion,
+  useAdminUpdateStatus,
+  useTriggerAdminUpdate,
+  type AdminUpdateStatus,
+} from "@/hooks/use-admin-panel";
+import {
+  useChartSettings,
+  useSaveChartSettings,
+  DEFAULT_REGISTERS,
+  type ChartRegister,
+} from "@/hooks/use-chart-settings";
 
-interface VersionInfo {
-  version: string;
-  commit: string;
-  branch: string;
-}
-
-interface UpdateCheck {
-  up_to_date: boolean;
-  behind_count?: number;
-  commits?: { hash: string; message: string }[];
-  error?: string;
-}
-
-interface UpdateStatus {
-  state: string;
-  progress: string;
-  log: string[];
-  error: string | null;
-  available: UpdateCheck | null;
-}
+// ─── Константы поллинга (по протоколу cg-admin) ───────────────────────────
+const TIMEOUT_MS = 3 * 60_000;
+const MAX_IDLE_STREAK = 10;
 
 const STATE_LABELS: Record<string, string> = {
-  idle: "Готов",
-  checking: "Проверяю...",
-  pulling: "Загружаю обновления...",
-  installing: "Установка зависимостей...",
-  building: "Сборка фронтенда...",
-  restarting: "Перезапуск...",
-  done: "Обновлено",
-  error: "Ошибка",
+  idle:       "Ожидание...",
+  running:    "Обновление...",
+  done:       "Завершено",
+  error:      "Ошибка",
 };
 
-export default function SystemPage() {
-  const isAdmin = useIsAdmin();
-  const { tzOffsetHours, setTzOffsetHours } = useSettingsStore();
-  const adminPanelUrl = `${window.location.protocol}//${window.location.hostname}:9443/admin/`;
+// ─── Палитра цветов для новых регистров ────────────────────────────────────
+const COLOR_PALETTE = [
+  "#22c55e", "#3b82f6", "#f59e0b", "#ef4444",
+  "#8b5cf6", "#06b6d4", "#ec4899", "#f97316",
+];
+
+// ─── Блок обновления cg-admin ──────────────────────────────────────────────
+function AdminUpdateBlock() {
+  const { data: version, refetch: refetchVersion } = useAdminVersion();
+  const triggerMutation = useTriggerAdminUpdate();
+
   const [polling, setPolling] = useState(false);
-  const [restarting, setRestarting] = useState(false);
-  const [updateLog, setUpdateLog] = useState<string[]>([]);
+  const [log, setLog] = useState<string[]>([]);
+  const [resultMsg, setResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [idleStreak, setIdleStreak] = useState(0);
+  const deadlineRef = useRef<number>(0);
+  const versionBeforeRef = useRef<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Current version
-  const { data: version } = useQuery<VersionInfo>({
-    queryKey: ["system-version"],
-    queryFn: () => apiFetch("/api/system/version"),
-    staleTime: 60_000,
-  });
+  const { data: statusData } = useAdminUpdateStatus(polling);
 
-  // Check for updates
-  const checkMutation = useMutation<UpdateCheck>({
-    mutationFn: () => apiFetch("/api/system/check-update"),
-  });
-
-  // Trigger update
-  const updateMutation = useMutation({
-    mutationFn: () => apiFetch("/api/system/update", { method: "POST" }),
-    onSuccess: () => setPolling(true),
-  });
-
-  // Poll update status
-  const { data: status } = useQuery<UpdateStatus>({
-    queryKey: ["update-status"],
-    queryFn: () => apiFetch("/api/system/update-status"),
-    refetchInterval: polling ? 1000 : false,
-    enabled: isAdmin && polling,
-  });
-
-  // Save log lines as they come in (before backend dies)
+  // Обработка статуса
   useEffect(() => {
-    if (status?.log?.length) {
-      setUpdateLog(status.log);
+    if (!polling || !statusData) return;
+
+    setLog(statusData.log ?? []);
+
+    if (statusData.state === "running") {
+      setIdleStreak(0);
     }
-  }, [status?.log]);
 
-  // Detect "done" state → backend is about to restart via SIGTERM
-  useEffect(() => {
-    if (status?.state === "done" && polling) {
+    if (statusData.state === "done") {
       setPolling(false);
-      setRestarting(true);
-      setUpdateLog((prev) => [...prev, "Перезапуск сервера..."]);
-
-      // Wait for backend to come back, then reload page
-      let attempt = 0;
-      const maxAttempts = 30; // 30 seconds max
-      const timer = setInterval(async () => {
-        attempt++;
-        try {
-          const res = await fetch("/api/system/version");
-          if (res.ok) {
-            clearInterval(timer);
-            setUpdateLog((prev) => [...prev, "Сервер перезапущен! Обновляю страницу..."]);
-            setTimeout(() => window.location.reload(), 500);
-          }
-        } catch {
-          // Backend still down, keep trying
+      refetchVersion().then((res) => {
+        const newTag = res.data?.git_tag ?? "";
+        if (newTag && newTag !== versionBeforeRef.current) {
+          setResultMsg({ ok: true, text: `Обновлено: ${versionBeforeRef.current} → ${newTag}` });
+        } else {
+          setResultMsg({ ok: true, text: "Завершено, версия не изменилась" });
         }
-        if (attempt >= maxAttempts) {
-          clearInterval(timer);
-          setRestarting(false);
-          setUpdateLog((prev) => [...prev, "Таймаут ожидания рестарта. Обновите страницу вручную."]);
-        }
-      }, 1000);
-
-      return () => clearInterval(timer);
+      });
+      return;
     }
-  }, [status?.state, polling]);
 
-  // Handle error state
-  useEffect(() => {
-    if (status?.state === "error" && polling) {
+    if (statusData.state === "error") {
       setPolling(false);
+      setResultMsg({ ok: false, text: statusData.error ?? "Неизвестная ошибка" });
+      return;
     }
-  }, [status?.state, polling]);
 
-  // Auto-scroll log
+    if (statusData.state === "idle") {
+      setIdleStreak((n) => {
+        const next = n + 1;
+        if (next > MAX_IDLE_STREAK) {
+          setPolling(false);
+          setResultMsg({ ok: false, text: "Деплой не начался или завершился без статуса" });
+        }
+        return next;
+      });
+    }
+
+    // Таймаут
+    if (Date.now() > deadlineRef.current) {
+      setPolling(false);
+      setResultMsg({ ok: false, text: "Таймаут обновления (3 минуты)" });
+    }
+  }, [statusData, polling, refetchVersion]);
+
+  // Авто-скролл лога
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [updateLog.length]);
+  }, [log.length]);
+
+  const handleUpdate = () => {
+    versionBeforeRef.current = version?.git_tag ?? "";
+    deadlineRef.current = Date.now() + TIMEOUT_MS;
+    setLog([]);
+    setResultMsg(null);
+    setIdleStreak(0);
+    triggerMutation.mutate(undefined, {
+      onSuccess: () => setPolling(true),
+      onError: (e) => setResultMsg({ ok: false, text: String(e) }),
+    });
+  };
+
+  const displayState: string = statusData?.state ?? "idle";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <ExternalLink className="h-4 w-4" />
+          Панель управления (cg-admin)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Версия + ссылка */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            {version ? (
+              <span>
+                Версия:{" "}
+                <span className="font-mono font-semibold text-foreground">
+                  {version.git_tag}
+                </span>{" "}
+                <span className="font-mono text-xs">({version.commit})</span>
+              </span>
+            ) : (
+              <span className="italic">Недоступна</span>
+            )}
+          </div>
+          <a
+            href={`${window.location.protocol}//${window.location.hostname}:9443/admin/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            Открыть
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+
+        {/* Кнопка обновить */}
+        <Button
+          onClick={handleUpdate}
+          disabled={polling || triggerMutation.isPending || !version}
+          variant="outline"
+          size="sm"
+        >
+          {polling || triggerMutation.isPending ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4 mr-2" />
+          )}
+          Обновить cg-admin
+        </Button>
+
+        {/* Результат */}
+        {resultMsg && (
+          <div
+            className={`flex items-center gap-2 text-sm ${
+              resultMsg.ok ? "text-green-600" : "text-red-500"
+            }`}
+          >
+            {resultMsg.ok ? (
+              <CheckCircle2 className="h-4 w-4" />
+            ) : (
+              <AlertCircle className="h-4 w-4" />
+            )}
+            {resultMsg.text}
+          </div>
+        )}
+
+        {/* Лог */}
+        {(polling || log.length > 0) && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {polling && <Loader2 className="h-3 w-3 animate-spin" />}
+              {STATE_LABELS[displayState] ?? displayState}
+            </div>
+            <div className="border rounded-md p-3 bg-black/90 text-green-400 font-mono text-xs max-h-48 overflow-y-auto">
+              {log.map((line, i) => (
+                <div key={i}>{line}</div>
+              ))}
+              <div ref={logEndRef} />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Блок настроек графика ─────────────────────────────────────────────────
+function ChartSettingsBlock() {
+  const { data: saved = DEFAULT_REGISTERS } = useChartSettings();
+  const saveMutation = useSaveChartSettings();
+
+  const [items, setItems] = useState<ChartRegister[]>(saved);
+  const [saved_, setSaved_] = useState(false);
+
+  // Синхронизируем с сервером при первой загрузке
+  useEffect(() => {
+    setItems(saved);
+  }, [saved]);
+
+  const update = (idx: number, field: keyof ChartRegister, value: string | number) => {
+    setItems((prev) =>
+      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)),
+    );
+    setSaved_(false);
+  };
+
+  const remove = (idx: number) => {
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+    setSaved_(false);
+  };
+
+  const add = () => {
+    const usedColors = new Set(items.map((r) => r.color));
+    const color = COLOR_PALETTE.find((c) => !usedColors.has(c)) ?? COLOR_PALETTE[0];
+    setItems((prev) => [
+      ...prev,
+      { addr: 0, label: "Новый параметр", unit: "", color },
+    ]);
+    setSaved_(false);
+  };
+
+  const save = () => {
+    saveMutation.mutate(items, {
+      onSuccess: () => setSaved_(true),
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Настройки графика</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Параметры, доступные для выбора во вкладке «График».
+        </p>
+
+        <div className="space-y-2">
+          {items.map((r, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              {/* Цвет */}
+              <input
+                type="color"
+                value={r.color}
+                onChange={(e) => update(idx, "color", e.target.value)}
+                className="h-8 w-8 cursor-pointer rounded border bg-transparent p-0.5"
+                title="Цвет линии"
+              />
+              {/* Адрес */}
+              <Input
+                type="number"
+                value={r.addr || ""}
+                onChange={(e) => update(idx, "addr", parseInt(e.target.value) || 0)}
+                placeholder="Адрес"
+                className="w-24 font-mono text-sm"
+              />
+              {/* Название */}
+              <Input
+                value={r.label}
+                onChange={(e) => update(idx, "label", e.target.value)}
+                placeholder="Название"
+                className="flex-1 text-sm"
+              />
+              {/* Единица */}
+              <Input
+                value={r.unit}
+                onChange={(e) => update(idx, "unit", e.target.value)}
+                placeholder="Ед."
+                className="w-16 text-sm"
+              />
+              {/* Удалить */}
+              <button
+                onClick={() => remove(idx)}
+                className="text-muted-foreground hover:text-red-500 transition-colors"
+                title="Удалить"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 pt-1">
+          <Button variant="outline" size="sm" onClick={add}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Добавить
+          </Button>
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-1.5" />
+            )}
+            Сохранить
+          </Button>
+          {saved_ && (
+            <span className="flex items-center gap-1 text-sm text-green-600">
+              <CheckCircle2 className="h-4 w-4" />
+              Сохранено
+            </span>
+          )}
+          {saveMutation.isError && (
+            <span className="flex items-center gap-1 text-sm text-red-500">
+              <AlertCircle className="h-4 w-4" />
+              Ошибка сохранения
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Основная страница ─────────────────────────────────────────────────────
+export default function SystemPage() {
+  const isAdmin = useIsAdmin();
 
   if (!isAdmin) {
     return (
@@ -147,18 +355,8 @@ export default function SystemPage() {
     );
   }
 
-  const isUpdating =
-    restarting || (status?.state && !["idle", "done", "error"].includes(status.state));
-
-  const checkData = checkMutation.data;
-
-  // Combined display state
-  const displayState = restarting ? "restarting" : status?.state || "idle";
-  const showProgress = restarting || (status && status.state !== "idle");
-
   return (
     <div className="container mx-auto p-6 max-w-3xl space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/">
           <Button variant="ghost" size="icon">
@@ -168,183 +366,8 @@ export default function SystemPage() {
         <h1 className="text-2xl font-bold">Система</h1>
       </div>
 
-      {/* Timezone */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            Часовой пояс
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">
-            Используется для отображения времени на графиках.
-          </p>
-          <select
-            value={tzOffsetHours}
-            onChange={(e) => setTzOffsetHours(Number(e.target.value))}
-            className="w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {TZ_OPTIONS.map((tz) => (
-              <option key={tz.offset} value={tz.offset}>
-                {tz.label}
-              </option>
-            ))}
-          </select>
-        </CardContent>
-      </Card>
-
-      {/* Admin panel link */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <ExternalLink className="h-4 w-4" />
-            Панель управления
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">
-            Административный интерфейс сервера (Cockpit).
-          </p>
-          <a
-            href={adminPanelUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            {adminPanelUrl}
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </CardContent>
-      </Card>
-
-      {/* Current version */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Текущая версия</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {version ? (
-            <div className="flex flex-wrap gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <Tag className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Версия:</span>
-                <span className="font-mono font-semibold">{version.version}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <GitCommit className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Коммит:</span>
-                <span className="font-mono">{version.commit}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <GitBranch className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Ветка:</span>
-                <span className="font-mono">{version.branch}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">Загрузка...</div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Check for updates */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Обновления</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={() => checkMutation.mutate()}
-              disabled={checkMutation.isPending || !!isUpdating}
-              variant="outline"
-            >
-              {checkMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Проверить обновления
-            </Button>
-
-            {checkData && checkData.up_to_date && !checkData.error && (
-              <div className="flex items-center gap-2 text-sm text-green-600">
-                <CheckCircle2 className="h-4 w-4" />
-                Актуальная версия
-              </div>
-            )}
-
-            {checkData && checkData.error && (
-              <div className="flex items-center gap-2 text-sm text-red-500">
-                <AlertCircle className="h-4 w-4" />
-                {checkData.error}
-              </div>
-            )}
-          </div>
-
-          {/* Available updates */}
-          {checkData && !checkData.up_to_date && checkData.commits && (
-            <div className="space-y-3">
-              <div className="text-sm font-medium">
-                Доступно обновлений: {checkData.behind_count}
-              </div>
-
-              <div className="border rounded-md p-3 bg-muted/30 max-h-48 overflow-y-auto">
-                {checkData.commits.map((c) => (
-                  <div key={c.hash} className="flex gap-2 text-sm py-1">
-                    <span className="font-mono text-muted-foreground shrink-0">
-                      {c.hash}
-                    </span>
-                    <span>{c.message}</span>
-                  </div>
-                ))}
-              </div>
-
-              <Button
-                onClick={() => updateMutation.mutate()}
-                disabled={!!isUpdating || updateMutation.isPending}
-              >
-                {updateMutation.isPending || isUpdating ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-2" />
-                )}
-                Обновить
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Update progress */}
-      {showProgress && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              {displayState === "error" ? (
-                <AlertCircle className="h-4 w-4 text-red-500" />
-              ) : (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              )}
-              {STATE_LABELS[displayState] || displayState}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {/* Progress log */}
-            <div className="border rounded-md p-3 bg-black/90 text-green-400 font-mono text-xs max-h-64 overflow-y-auto">
-              {updateLog.map((line, i) => (
-                <div key={i}>{line}</div>
-              ))}
-              <div ref={logEndRef} />
-            </div>
-
-            {status?.error && (
-              <div className="mt-3 text-sm text-red-500">{status.error}</div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <AdminUpdateBlock />
+      <ChartSettingsBlock />
     </div>
   );
 }

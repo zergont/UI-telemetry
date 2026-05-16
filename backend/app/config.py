@@ -76,6 +76,11 @@ class TelemetryConfig(BaseModel):
     key_registers: KeyRegisters = KeyRegisters()
 
 
+class CgAdminConfig(BaseModel):
+    url: str = "http://127.0.0.1:8888"
+    token: str = ""   # Bearer token для POST-запросов к cg-admin
+
+
 class AccessConfig(BaseModel):
     lan_subnets: list[str] = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.0/8"]
     public_base_url: str = "https://localhost:9443"
@@ -96,6 +101,7 @@ class Settings(BaseModel):
     frontend: FrontendConfig = FrontendConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     access: AccessConfig = AccessConfig()
+    cg_admin: CgAdminConfig = CgAdminConfig()
 
 
 def _find_config_path() -> Path:
@@ -103,6 +109,11 @@ def _find_config_path() -> Path:
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent.parent / "config.yaml"
+
+
+def get_config_dir() -> Path:
+    """Директория, в которой лежит config.yaml (для соседних файлов данных)."""
+    return _find_config_path().parent
 
 
 @lru_cache

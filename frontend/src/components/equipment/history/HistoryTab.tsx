@@ -4,8 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useChartEngine } from "@/hooks/use-chart-engine";
+import { useChartSettings, DEFAULT_REGISTERS } from "@/hooks/use-chart-settings";
 import { HistoryChart } from "./HistoryChart";
-import { MIN_SPAN_MS, REGISTER_OPTIONS } from "./constants";
+import { MIN_SPAN_MS } from "./constants";
 
 interface HistoryTabProps {
   routerSn: string;
@@ -15,8 +16,13 @@ interface HistoryTabProps {
 
 export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabProps) {
   const tzOffsetHours = useSettingsStore((s) => s.tzOffsetHours);
-  const [selectedAddr, setSelectedAddr] = useState<number>(REGISTER_OPTIONS[0].addr);
-  const selectedReg = REGISTER_OPTIONS.find((r) => r.addr === selectedAddr)!;
+  const { data: registerOptions = DEFAULT_REGISTERS } = useChartSettings();
+  const [selectedAddr, setSelectedAddr] = useState<number>(registerOptions[0]?.addr ?? DEFAULT_REGISTERS[0].addr);
+
+  // Если сохранённый addr пропал из списка — сбрасываем на первый
+  const selectedReg = registerOptions.find((r) => r.addr === selectedAddr)
+    ?? registerOptions[0]
+    ?? DEFAULT_REGISTERS[0];
 
   const engine = useChartEngine({
     routerSn,
@@ -54,7 +60,7 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
           onChange={(e) => setSelectedAddr(Number(e.target.value))}
           className="rounded-md border bg-card px-3 py-1.5 text-sm"
         >
-          {REGISTER_OPTIONS.map((opt) => (
+          {registerOptions.map((opt) => (
             <option key={opt.addr} value={opt.addr}>
               {opt.label}
             </option>
