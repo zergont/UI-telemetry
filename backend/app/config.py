@@ -78,7 +78,8 @@ class TelemetryConfig(BaseModel):
 
 class CgAdminConfig(BaseModel):
     url: str = "http://127.0.0.1:8888"
-    token: str = ""   # Bearer token для POST-запросов к cg-admin
+    token: str = ""                          # Bearer token для POST-запросов к cg-admin
+    github_repo: str = "zergont/cg-admin"   # owner/repo на GitHub для проверки обновлений
 
 
 class AccessConfig(BaseModel):

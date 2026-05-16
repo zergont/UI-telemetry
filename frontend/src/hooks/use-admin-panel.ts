@@ -1,6 +1,13 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
+export interface AdminUpdateCheck {
+  current: string;
+  latest: string | null;
+  has_update: boolean;
+  commit: string;
+}
+
 export interface AdminVersion {
   version: string;
   git_tag: string;
@@ -40,5 +47,11 @@ export function useTriggerAdminUpdate() {
       apiFetch<{ ok: boolean; message: string }>("/api/admin/update", {
         method: "POST",
       }),
+  });
+}
+
+export function useCheckAdminUpdate() {
+  return useMutation({
+    mutationFn: () => apiFetch<AdminUpdateCheck>("/api/admin/check-update"),
   });
 }

@@ -52,6 +52,58 @@ async def trigger_admin_update(ctx: AuthContext = Depends(require_auth)):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
+@router.get("/check-update")
+async def check_admin_update(ctx: AuthContext = Depends(require_auth)):
+    """Сравнить текущую версию cg-admin с последним релизом на GitHub."""
+    settings = get_settings()
+
+    # 1. Текущая версия cg-admin
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(_admin_url("/admin/api/system/version"), timeout=_TIMEOUT)
+            r.raise_for_status()
+            current = r.json()
+    except Exception:
+        raise HTTPException(status_code=503, detail="cg-admin недоступен")
+
+    current_tag: str = current.get("git_tag", "")
+
+    # 2. Последний релиз на GitHub
+    repo = settings.cg_admin.github_repo
+    gh_headers = {"Accept": "application/vnd.github.v3+json", "X-GitHub-Api-Version": "2022-11-28"}
+    latest_tag: str | None = None
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"https://api.github.com/repos/{repo}/releases/latest",
+                headers=gh_headers,
+                timeout=_TIMEOUT,
+            )
+            if r.status_code == 200:
+                latest_tag = r.json().get("tag_name")
+            else:
+                # Нет releases — смотрим теги
+                r2 = await client.get(
+                    f"https://api.github.com/repos/{repo}/tags",
+                    headers=gh_headers,
+                    timeout=_TIMEOUT,
+                )
+                r2.raise_for_status()
+                tags = r2.json()
+                latest_tag = tags[0]["name"] if tags else None
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="GitHub недоступен")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+    return {
+        "current": current_tag,
+        "latest": latest_tag,
+        "has_update": bool(latest_tag and latest_tag != current_tag),
+        "commit": current.get("commit", ""),
+    }
+
+
 @router.get("/update-status")
 async def get_admin_update_status(ctx: AuthContext = Depends(require_auth)):
     """Статус хода обновления cg-admin (GET, без токена — LAN auto-admin)."""

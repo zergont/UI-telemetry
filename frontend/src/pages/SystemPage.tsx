@@ -10,6 +10,8 @@ import {
   Plus,
   Trash2,
   Save,
+  RefreshCw,
+  ArrowUpCircle,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ import {
   useAdminVersion,
   useAdminUpdateStatus,
   useTriggerAdminUpdate,
+  useCheckAdminUpdate,
 } from "@/hooks/use-admin-panel";
 import {
   useChartSettings,
@@ -48,6 +51,7 @@ const COLOR_PALETTE = [
 function AdminUpdateBlock() {
   const { data: version, refetch: refetchVersion } = useAdminVersion();
   const triggerMutation = useTriggerAdminUpdate();
+  const checkMutation = useCheckAdminUpdate();
 
   const [polling, setPolling] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -157,20 +161,61 @@ function AdminUpdateBlock() {
           </a>
         </div>
 
-        {/* Кнопка обновить */}
-        <Button
-          onClick={handleUpdate}
-          disabled={polling || triggerMutation.isPending || !version}
-          variant="outline"
-          size="sm"
-        >
-          {polling || triggerMutation.isPending ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+        {/* Кнопки: Проверить + Обновить */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => checkMutation.mutate()}
+            disabled={checkMutation.isPending || polling || !version}
+            variant="outline"
+            size="sm"
+          >
+            {checkMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Проверить
+          </Button>
+
+          <Button
+            onClick={handleUpdate}
+            disabled={polling || triggerMutation.isPending || !version}
+            variant={checkMutation.data?.has_update ? "default" : "outline"}
+            size="sm"
+          >
+            {polling || triggerMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            Обновить cg-admin
+          </Button>
+        </div>
+
+        {/* Результат проверки */}
+        {checkMutation.data && !checkMutation.isPending && (
+          checkMutation.data.has_update ? (
+            <div className="flex items-center gap-2 text-sm text-amber-500">
+              <ArrowUpCircle className="h-4 w-4 shrink-0" />
+              Доступна новая версия:{" "}
+              <span className="font-mono font-semibold">{checkMutation.data.latest}</span>
+              <span className="text-muted-foreground">
+                (текущая: {checkMutation.data.current})
+              </span>
+            </div>
           ) : (
-            <Download className="h-4 w-4 mr-2" />
-          )}
-          Обновить cg-admin
-        </Button>
+            <div className="flex items-center gap-2 text-sm text-green-600">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Актуальная версия ({checkMutation.data.current})
+            </div>
+          )
+        )}
+        {checkMutation.isError && (
+          <div className="flex items-center gap-2 text-sm text-red-500">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Не удалось проверить обновление
+          </div>
+        )}
 
         {/* Результат */}
         {resultMsg && (
