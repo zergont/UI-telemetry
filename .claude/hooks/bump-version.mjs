@@ -26,8 +26,9 @@ process.stdin.on('end', () => {
 
   const cmd = input.tool_input?.command ?? '';
 
-  // Only act on git push (not git push --delete or other edge cases)
-  if (!/\bgit\s+push\b/.test(cmd)) process.exit(0);
+  // Match only when the command ITSELF is git push (e.g. "git push", "git -C /path push origin master").
+  // Avoid false positives from commit messages that contain the text "git push".
+  if (!/^\s*git(\s+-C\s+\S+)?\s+push\b/.test(cmd)) process.exit(0);
 
   try {
     const pkgPath = resolve(projectRoot, 'frontend', 'package.json');
