@@ -19,7 +19,6 @@ import {
   useAdminVersion,
   useAdminUpdateStatus,
   useTriggerAdminUpdate,
-  type AdminUpdateStatus,
 } from "@/hooks/use-admin-panel";
 import {
   useChartSettings,
@@ -53,7 +52,7 @@ function AdminUpdateBlock() {
   const [polling, setPolling] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [resultMsg, setResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [idleStreak, setIdleStreak] = useState(0);
+  const idleStreakRef = useRef(0);
   const deadlineRef = useRef<number>(0);
   const versionBeforeRef = useRef<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -67,7 +66,7 @@ function AdminUpdateBlock() {
     setLog(statusData.log ?? []);
 
     if (statusData.state === "running") {
-      setIdleStreak(0);
+      idleStreakRef.current = 0;
     }
 
     if (statusData.state === "done") {
@@ -90,14 +89,11 @@ function AdminUpdateBlock() {
     }
 
     if (statusData.state === "idle") {
-      setIdleStreak((n) => {
-        const next = n + 1;
-        if (next > MAX_IDLE_STREAK) {
-          setPolling(false);
-          setResultMsg({ ok: false, text: "Деплой не начался или завершился без статуса" });
-        }
-        return next;
-      });
+      idleStreakRef.current += 1;
+      if (idleStreakRef.current > MAX_IDLE_STREAK) {
+        setPolling(false);
+        setResultMsg({ ok: false, text: "Деплой не начался или завершился без статуса" });
+      }
     }
 
     // Таймаут
@@ -117,7 +113,7 @@ function AdminUpdateBlock() {
     deadlineRef.current = Date.now() + TIMEOUT_MS;
     setLog([]);
     setResultMsg(null);
-    setIdleStreak(0);
+    idleStreakRef.current = 0;
     triggerMutation.mutate(undefined, {
       onSuccess: () => setPolling(true),
       onError: (e) => setResultMsg({ ok: false, text: String(e) }),
