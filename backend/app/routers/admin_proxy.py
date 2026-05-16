@@ -66,7 +66,8 @@ async def check_admin_update(ctx: AuthContext = Depends(require_auth)):
     except Exception:
         raise HTTPException(status_code=503, detail="cg-admin недоступен")
 
-    current_tag: str = current.get("git_tag", "")
+    # Предпочитаем поле version (актуальное), git_tag обновляется только при git tag
+    current_ver: str = current.get("version", "") or current.get("git_tag", "")
 
     # 2. Последний релиз на GitHub
     repo = settings.cg_admin.github_repo
@@ -96,10 +97,13 @@ async def check_admin_update(ctx: AuthContext = Depends(require_auth)):
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
+    # Сравниваем без префикса "v": "1.0.2" == "v1.0.2".lstrip("v")
+    latest_clean = (latest_tag or "").lstrip("v")
+    current_clean = current_ver.lstrip("v")
     return {
-        "current": current_tag,
+        "current": current_ver,
         "latest": latest_tag,
-        "has_update": bool(latest_tag and latest_tag != current_tag),
+        "has_update": bool(latest_clean and latest_clean != current_clean),
         "commit": current.get("commit", ""),
     }
 

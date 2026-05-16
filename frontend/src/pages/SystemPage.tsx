@@ -85,11 +85,11 @@ function AdminUpdateBlock() {
       setResultMsg({ ok: true, text: "Обновление завершено, перезапуск cg-admin..." });
       setTimeout(() => {
         refetchVersion().then((res) => {
-          const newTag = res.data?.git_tag ?? "";
-          if (newTag && newTag !== versionBeforeRef.current) {
-            setResultMsg({ ok: true, text: `Обновлено: ${versionBeforeRef.current} → ${newTag}` });
-          } else if (newTag) {
-            setResultMsg({ ok: true, text: `Завершено, версия актуальна (${newTag})` });
+          const newVer = res.data?.version ?? res.data?.git_tag ?? "";
+          if (newVer && newVer !== versionBeforeRef.current) {
+            setResultMsg({ ok: true, text: `Обновлено: ${versionBeforeRef.current} → ${newVer}` });
+          } else if (newVer) {
+            setResultMsg({ ok: true, text: `Завершено, версия актуальна (${newVer})` });
           } else {
             setResultMsg({ ok: true, text: "Завершено, cg-admin поднимается..." });
           }
@@ -125,7 +125,7 @@ function AdminUpdateBlock() {
   }, [log.length]);
 
   const handleUpdate = () => {
-    versionBeforeRef.current = version?.git_tag ?? "";
+    versionBeforeRef.current = version?.version ?? version?.git_tag ?? "";
     deadlineRef.current = Date.now() + TIMEOUT_MS;
     setLog([]);
     setResultMsg(null);
@@ -154,7 +154,7 @@ function AdminUpdateBlock() {
               <span>
                 Версия:{" "}
                 <span className="font-mono font-semibold text-foreground">
-                  {version.git_tag}
+                  {version.version || version.git_tag}
                 </span>{" "}
                 <span className="font-mono text-xs">({version.commit})</span>
               </span>
