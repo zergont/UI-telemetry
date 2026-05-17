@@ -55,8 +55,8 @@ export const MAP_PROVIDER_LABELS: Record<MapProvider, string> = {
 
 /** Получить сохранённый провайдер карт из localStorage */
 export function getMapProvider(): MapProvider {
-  if (typeof window === "undefined") return "maptiler";
-  return (localStorage.getItem("cg-map-provider") as MapProvider) || "maptiler";
+  if (typeof window === "undefined") return "osm";
+  return (localStorage.getItem("cg-map-provider") as MapProvider) || "osm";
 }
 
 /** Сохранить провайдер карт */
