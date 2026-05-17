@@ -24,11 +24,6 @@
   overflow: hidden !important;
 }
 
-/* Attribution свёрнут по умолчанию */
-.maplibregl-ctrl-attrib:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-inner {
-  display: none;
-}
-
 .cg-popup .maplibregl-popup-tip {
   border-top-color: var(--background) !important;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));

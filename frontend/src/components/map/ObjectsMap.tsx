@@ -159,6 +159,10 @@ export default function ObjectsMap({
   const handleMapLoad = useCallback(() => {
     mapLoadedRef.current = true;
     fitToObjects();
+    // Свернуть attribution по умолчанию
+    const container = mapRef.current?.getMap().getContainer();
+    const attr = container?.querySelector(".maplibregl-ctrl-attrib.maplibregl-compact");
+    attr?.classList.remove("maplibregl-compact-show");
   }, [fitToObjects]);
 
   // Фокусировка на объекте при выборе из таблицы
