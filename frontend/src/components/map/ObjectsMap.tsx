@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Map, {
+  AttributionControl,
   Marker,
   NavigationControl,
   Popup,
@@ -240,7 +241,9 @@ export default function ObjectsMap({
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
         onLoad={handleMapLoad}
+        attributionControl={false}
       >
+        <AttributionControl compact={true} position="bottom-right" />
         <NavigationControl position="top-right" />
         {markers}
         {popup && popup.lat != null && popup.lon != null && (
