@@ -12,6 +12,10 @@ import {
   fahrenheitToCelsius,
   secondsToMotohours,
 } from "@/lib/conversions";
+import {
+  useDguCardSettings,
+  DEFAULT_DGU_PARAMS,
+} from "@/hooks/use-dgu-card-settings";
 
 /** Порог «нет данных» для отдельной панели, мс */
 const PANEL_STALE_MS = 30_000;
@@ -27,6 +31,8 @@ export default function DguCard({ equipment: eq }: Props) {
   const liveRegs = useTelemetryStore((s) => s.registers.get(key));
   const liveStatus = useTelemetryStore((s) => s.statuses.get(key));
   const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
+
+  const { data: cardParams = DEFAULT_DGU_PARAMS } = useDguCardSettings();
 
   // Тик каждые 5 сек для обновления относительного времени и свежести
   const [now, setNow] = useState(Date.now);
@@ -50,7 +56,7 @@ export default function DguCard({ equipment: eq }: Props) {
     engineStatus = connectionStatus;
   }
 
-  // Live values override REST values if available
+  // Возвращает live-значение регистра или null при невалидных данных
   function liveVal(addr: number): number | null {
     const reg = liveRegs?.get(addr);
     if (!reg) return null;
@@ -63,30 +69,35 @@ export default function DguCard({ equipment: eq }: Props) {
     return reg.value;
   }
 
-  const installedPower = liveVal(43019) ?? eq.installed_power_kw;
-  const currentLoad = liveVal(40034) ?? eq.current_load_kw;
-
-  const rawHours = liveVal(40070);
-  const engineHours =
-    rawHours != null ? secondsToMotohours(rawHours) : eq.engine_hours;
-
-  const rawTemp = liveVal(40063);
-  const tempReg = liveRegs?.get(40063);
-  let oilTempC: number | null = null;
-  if (rawTemp != null) {
-    const unit = tempReg?.unit || "";
-    oilTempC =
-      unit.toLowerCase().includes("f")
-        ? fahrenheitToCelsius(rawTemp)
-        : Math.round(rawTemp * 10) / 10;
-  } else {
-    oilTempC = eq.oil_temp_c;
+  // Возвращает итоговое значение для регистра с учётом REST-фолбека и конвертаций
+  function resolveValue(addr: number): number | null {
+    switch (addr) {
+      case 43019:
+        return liveVal(43019) ?? eq.installed_power_kw;
+      case 40034:
+        return liveVal(40034) ?? eq.current_load_kw;
+      case 40070: {
+        const raw = liveVal(40070);
+        return raw != null ? secondsToMotohours(raw) : eq.engine_hours;
+      }
+      case 40063: {
+        const raw = liveVal(40063);
+        if (raw != null) {
+          const unit = liveRegs?.get(40063)?.unit ?? "";
+          return unit.toLowerCase().includes("f")
+            ? fahrenheitToCelsius(raw)
+            : Math.round(raw * 10) / 10;
+        }
+        return eq.oil_temp_c;
+      }
+      case 40062:
+        return liveVal(40062) ?? eq.oil_pressure_kpa;
+      default:
+        return liveVal(addr);
+    }
   }
 
-  const oilPressure = liveVal(40062) ?? eq.oil_pressure_kpa;
-
-  const displayName =
-    eq.name || `${eq.equip_type} #${eq.panel_id}`;
+  const displayName = eq.name || `${eq.equip_type} #${eq.panel_id}`;
 
   return (
     <motion.div
@@ -128,31 +139,15 @@ export default function DguCard({ equipment: eq }: Props) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-            <MetricDisplay
-              label="Мощность уст."
-              value={installedPower}
-              unit="кВт"
-              decimals={0}
-            />
-            <MetricDisplay
-              label="Нагрузка"
-              value={currentLoad}
-              unit="кВт"
-              decimals={1}
-            />
-            <MetricDisplay
-              label="Моточасы"
-              value={engineHours}
-              unit="ч"
-              decimals={0}
-            />
-            <MetricDisplay label="t масла" value={oilTempC} unit="°C" />
-            <MetricDisplay
-              label="P масла"
-              value={oilPressure}
-              unit="кПа"
-              decimals={0}
-            />
+            {cardParams.map((param) => (
+              <MetricDisplay
+                key={param.addr}
+                label={param.label}
+                value={resolveValue(param.addr)}
+                unit={param.unit}
+                decimals={param.decimals}
+              />
+            ))}
           </div>
         </CardContent>
       </Card>
