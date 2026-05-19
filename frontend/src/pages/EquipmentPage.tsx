@@ -16,6 +16,10 @@ import {
   secondsToMotohours,
 } from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
+import {
+  useDguCardSettings,
+  DEFAULT_DGU_PARAMS,
+} from "@/hooks/use-dgu-card-settings";
 import RegistersTab from "@/components/equipment/registers/RegistersTab";
 import HistoryTab from "@/components/equipment/history/HistoryTab";
 import JournalTab from "@/components/equipment/journal/JournalTab";
@@ -93,22 +97,27 @@ export default function EquipmentPage() {
     return reg.value;
   }
 
-  const installedPower = getMetricValue(43019);
-  const currentLoad = getMetricValue(40034);
-  const rawHours = getMetricValue(40070);
-  const engineHours = rawHours != null ? secondsToMotohours(rawHours) : null;
+  const { data: cardParams = DEFAULT_DGU_PARAMS } = useDguCardSettings();
 
-  const rawTemp = getMetricValue(40063);
-  const tempReg = liveRegs?.get(40063) || registers?.find((r) => r.addr === 40063);
-  const tempUnit = tempReg?.unit || "";
-  const oilTempC =
-    rawTemp != null
-      ? tempUnit.toLowerCase().includes("f")
-        ? fahrenheitToCelsius(rawTemp)
-        : Math.round(rawTemp * 10) / 10
-      : null;
-
-  const oilPressure = getMetricValue(40062);
+  function resolveMetric(addr: number): number | null {
+    switch (addr) {
+      case 40070: {
+        const raw = getMetricValue(40070);
+        return raw != null ? secondsToMotohours(raw) : null;
+      }
+      case 40063: {
+        const raw = getMetricValue(40063);
+        if (raw == null) return null;
+        const reg = liveRegs?.get(40063) || registers?.find((r) => r.addr === 40063);
+        const unit = reg?.unit ?? "";
+        return unit.toLowerCase().includes("f")
+          ? fahrenheitToCelsius(raw)
+          : Math.round(raw * 10) / 10;
+      }
+      default:
+        return getMetricValue(addr);
+    }
+  }
 
   // liveStatus = ONLINE/OFFLINE (статус связи из telemetry-store)
   const connectionStatus = liveStatus ?? "OFFLINE";
@@ -179,11 +188,15 @@ export default function EquipmentPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
-            <MetricDisplay label="Мощность уст." value={installedPower} unit="кВт" decimals={0} />
-            <MetricDisplay label="Нагрузка" value={currentLoad} unit="кВт" decimals={1} />
-            <MetricDisplay label="Моточасы" value={engineHours} unit="ч" decimals={0} />
-            <MetricDisplay label="t масла" value={oilTempC} unit="°C" />
-            <MetricDisplay label="P масла" value={oilPressure} unit="кПа" decimals={0} />
+            {cardParams.map((param) => (
+              <MetricDisplay
+                key={param.addr}
+                label={param.label}
+                value={resolveMetric(param.addr)}
+                unit={param.unit}
+                decimals={param.decimals}
+              />
+            ))}
           </div>
         </CardContent>
       </Card>
