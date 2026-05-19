@@ -455,9 +455,16 @@ function DguCardSettingsBlock() {
         </p>
 
         <div className="space-y-2">
+          {/* Заголовки колонок */}
+          <div className="flex items-center gap-2 px-0.5">
+            <span className="w-24 text-xs text-muted-foreground">Адрес</span>
+            <span className="flex-1 text-xs text-muted-foreground">Название</span>
+            <span className="w-16 text-xs text-muted-foreground">Ед. изм.</span>
+            <span className="w-14 text-xs text-muted-foreground text-center">Дес.</span>
+            <span className="w-4" />
+          </div>
           {items.map((r, idx) => (
             <div key={idx} className="flex items-center gap-2">
-              {/* Адрес */}
               <Input
                 type="number"
                 value={r.addr || ""}
@@ -465,32 +472,28 @@ function DguCardSettingsBlock() {
                 placeholder="Адрес"
                 className="w-24 font-mono text-sm"
               />
-              {/* Название */}
               <Input
                 value={r.label}
                 onChange={(e) => update(idx, "label", e.target.value)}
                 placeholder="Название"
                 className="flex-1 text-sm"
               />
-              {/* Единица */}
               <Input
                 value={r.unit}
                 onChange={(e) => update(idx, "unit", e.target.value)}
                 placeholder="Ед."
                 className="w-16 text-sm"
               />
-              {/* Знаки после запятой */}
               <Input
                 type="number"
                 value={r.decimals}
                 onChange={(e) => update(idx, "decimals", parseInt(e.target.value) || 0)}
-                placeholder="Зн."
+                placeholder="0"
                 min={0}
                 max={6}
-                className="w-14 text-sm"
+                className="w-14 text-sm text-center"
                 title="Знаков после запятой"
               />
-              {/* Удалить */}
               <button
                 onClick={() => remove(idx)}
                 className="text-muted-foreground hover:text-red-500 transition-colors"
