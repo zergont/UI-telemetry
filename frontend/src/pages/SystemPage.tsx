@@ -39,6 +39,12 @@ import {
   DEFAULT_REGISTERS,
   type ChartRegister,
 } from "@/hooks/use-chart-settings";
+import {
+  useDguCardSettings,
+  useSaveDguCardSettings,
+  DEFAULT_DGU_PARAMS,
+  type DguCardParam,
+} from "@/hooks/use-dgu-card-settings";
 
 // ─── Константы поллинга (по протоколу cg-admin) ───────────────────────────
 const TIMEOUT_MS = 3 * 60_000;
@@ -400,6 +406,137 @@ function ChartSettingsBlock() {
   );
 }
 
+// ─── Блок настроек плашки ДГУ ─────────────────────────────────────────────
+function DguCardSettingsBlock() {
+  const { data: saved = DEFAULT_DGU_PARAMS } = useDguCardSettings();
+  const saveMutation = useSaveDguCardSettings();
+
+  const [items, setItems] = useState<DguCardParam[]>(saved);
+  const [saved_, setSaved_] = useState(false);
+
+  useEffect(() => {
+    setItems(saved);
+  }, [saved]);
+
+  const update = (idx: number, field: keyof DguCardParam, value: string | number) => {
+    setItems((prev) =>
+      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)),
+    );
+    setSaved_(false);
+  };
+
+  const remove = (idx: number) => {
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+    setSaved_(false);
+  };
+
+  const add = () => {
+    setItems((prev) => [
+      ...prev,
+      { addr: 0, label: "Новый параметр", unit: "", decimals: 1 },
+    ]);
+    setSaved_(false);
+  };
+
+  const save = () => {
+    saveMutation.mutate(items, {
+      onSuccess: () => setSaved_(true),
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Настройки плашки ДГУ</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Параметры, отображаемые на плашке оборудования на странице объекта.
+        </p>
+
+        <div className="space-y-2">
+          {items.map((r, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              {/* Адрес */}
+              <Input
+                type="number"
+                value={r.addr || ""}
+                onChange={(e) => update(idx, "addr", parseInt(e.target.value) || 0)}
+                placeholder="Адрес"
+                className="w-24 font-mono text-sm"
+              />
+              {/* Название */}
+              <Input
+                value={r.label}
+                onChange={(e) => update(idx, "label", e.target.value)}
+                placeholder="Название"
+                className="flex-1 text-sm"
+              />
+              {/* Единица */}
+              <Input
+                value={r.unit}
+                onChange={(e) => update(idx, "unit", e.target.value)}
+                placeholder="Ед."
+                className="w-16 text-sm"
+              />
+              {/* Знаки после запятой */}
+              <Input
+                type="number"
+                value={r.decimals}
+                onChange={(e) => update(idx, "decimals", parseInt(e.target.value) || 0)}
+                placeholder="Зн."
+                min={0}
+                max={6}
+                className="w-14 text-sm"
+                title="Знаков после запятой"
+              />
+              {/* Удалить */}
+              <button
+                onClick={() => remove(idx)}
+                className="text-muted-foreground hover:text-red-500 transition-colors"
+                title="Удалить"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 pt-1">
+          <Button variant="outline" size="sm" onClick={add}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Добавить
+          </Button>
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-1.5" />
+            )}
+            Сохранить
+          </Button>
+          {saved_ && (
+            <span className="flex items-center gap-1 text-sm text-green-600">
+              <CheckCircle2 className="h-4 w-4" />
+              Сохранено
+            </span>
+          )}
+          {saveMutation.isError && (
+            <span className="flex items-center gap-1 text-sm text-red-500">
+              <AlertCircle className="h-4 w-4" />
+              Ошибка сохранения
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Лейблы состояний системного апдейтера ────────────────────────────────
 const SYS_STATE_LABELS: Record<string, string> = {
   idle:        "Ожидание",
@@ -691,6 +828,7 @@ export default function SystemPage() {
       <AdminUpdateBlock />
       <TileCacheBlock />
       <ChartSettingsBlock />
+      <DguCardSettingsBlock />
     </div>
   );
 }

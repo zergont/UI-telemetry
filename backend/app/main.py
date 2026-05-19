@@ -11,7 +11,7 @@ from app.config import APP_VERSION, get_settings
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
-from app.routers import admin_proxy, chart_settings, equipment, events, history, notifications, objects, registers, share, system, tiles, ws
+from app.routers import admin_proxy, chart_settings, dgu_card_settings, equipment, events, history, notifications, objects, registers, share, system, tiles, ws
 from app.services.nginx_check import log_nginx_status
 from app.services.updater import get_current_version
 from app.services.offline_tracker import offline_tracker
@@ -107,6 +107,7 @@ app.include_router(history.router)
 app.include_router(notifications.router)
 app.include_router(admin_proxy.router)
 app.include_router(chart_settings.router)
+app.include_router(dgu_card_settings.router)
 app.include_router(events.router)
 app.include_router(share.router)
 app.include_router(system.router)
