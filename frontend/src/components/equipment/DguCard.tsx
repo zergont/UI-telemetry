@@ -4,8 +4,8 @@ import { motion } from "framer-motion";
 import { Wifi, WifiOff } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
-import StatusBadge from "./StatusBadge";
 import MetricDisplay from "./MetricDisplay";
+import EngineStatusBadges from "./EngineStatusBadges";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
 import { formatRelativeTime } from "@/lib/format";
 import {
@@ -135,7 +135,11 @@ export default function DguCard({ equipment: eq }: Props) {
               )}
             </div>
           </div>
-          <StatusBadge status={engineStatus} />
+          <EngineStatusBadges
+            liveRegs={liveRegs}
+            panelFresh={panelFresh}
+            fallbackStatus={engineStatus}
+          />
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">

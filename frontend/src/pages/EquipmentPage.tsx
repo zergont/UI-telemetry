@@ -9,8 +9,8 @@ import { useRegisters } from "@/hooks/use-registers";
 import { useEquipment } from "@/hooks/use-equipment";
 import { useRenameEquipment } from "@/hooks/use-rename";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
-import StatusBadge from "@/components/equipment/StatusBadge";
 import MetricDisplay from "@/components/equipment/MetricDisplay";
+import EngineStatusBadges from "@/components/equipment/EngineStatusBadges";
 import {
   fahrenheitToCelsius,
   secondsToMotohours,
@@ -184,7 +184,11 @@ export default function EquipmentPage() {
               )}
             </div>
           </div>
-          <StatusBadge status={status} />
+          <EngineStatusBadges
+            liveRegs={liveRegs}
+            panelFresh={lastUpdate != null && now - lastUpdate < 30_000}
+            fallbackStatus={status}
+          />
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
