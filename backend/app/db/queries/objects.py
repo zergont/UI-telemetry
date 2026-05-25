@@ -61,12 +61,10 @@ async def fetch_power_totals_bulk(
                 SUM(value) FILTER (
                     WHERE addr = $1
                       AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
                 ) AS total_installed_power_kw,
                 SUM(value) FILTER (
                     WHERE addr = $2
                       AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
                 ) AS total_load_kw
             FROM latest_state
             GROUP BY router_sn
@@ -87,12 +85,10 @@ async def fetch_power_totals_single(
                 SUM(value) FILTER (
                     WHERE addr = $2
                       AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
                 ) AS total_installed_power_kw,
                 SUM(value) FILTER (
                     WHERE addr = $3
                       AND (raw IS NULL OR raw NOT IN (65535, 32767))
-                      AND (reason IS NULL OR reason NOT ILIKE '%NA%')
                 ) AS total_load_kw
             FROM latest_state
             WHERE router_sn = $1
