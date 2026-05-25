@@ -201,6 +201,7 @@ export default function RegistersTab({
               <TableHead className="w-28">Значение</TableHead>
               <TableHead>Текст</TableHead>
               <TableHead className="w-20">Ед.</TableHead>
+              <TableHead className="hidden lg:table-cell w-28">Обновлено</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -244,12 +245,21 @@ export default function RegistersTab({
                 <TableCell className="text-xs text-muted-foreground">
                   {displayUnit(r.unit)}
                 </TableCell>
+
+                {/* Время последнего обновления */}
+                <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
+                  {r.receivedAt
+                    ? formatRelativeTime(r.receivedAt)
+                    : r.ts
+                      ? formatRelativeTime(r.ts)
+                      : "—"}
+                </TableCell>
               </TableRow>
             ))}
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Регистры не найдены
