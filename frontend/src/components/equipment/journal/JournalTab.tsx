@@ -66,43 +66,28 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="hidden lg:table-cell">Время</TableHead>
+              <TableHead className="hidden lg:table-cell w-44">Время</TableHead>
               <TableHead className="w-20">Адрес</TableHead>
               <TableHead>Имя</TableHead>
               <TableHead>Состояние</TableHead>
-              <TableHead className="w-24">Тип</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((e, idx) => {
-              const isChange = e.write_reason === "change";
-              return (
-                <TableRow key={idx} className={isChange ? "" : "opacity-50"}>
-                  <TableCell className="hidden text-xs text-muted-foreground lg:table-cell whitespace-nowrap">
-                    {new Date(e.ts).toLocaleString("ru-RU")}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{e.addr}</TableCell>
-                  <TableCell className="text-sm">{e.name || "—"}</TableCell>
-                  <TableCell className={`text-sm ${isChange ? "font-semibold" : ""}`}>
-                    {e.text ?? (e.raw != null ? String(e.raw) : "—")}
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${
-                        isChange
-                          ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {isChange ? "изменение" : "heartbeat"}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {filtered.map((e, idx) => (
+              <TableRow key={idx}>
+                <TableCell className="hidden text-xs text-muted-foreground lg:table-cell whitespace-nowrap">
+                  {new Date(e.ts).toLocaleString("ru-RU")}
+                </TableCell>
+                <TableCell className="font-mono text-xs">{e.addr}</TableCell>
+                <TableCell className="text-sm">{e.name || `reg ${e.addr}`}</TableCell>
+                <TableCell className="font-semibold text-sm">
+                  {e.text ?? (e.raw != null ? String(e.raw) : "—")}
+                </TableCell>
+              </TableRow>
+            ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                   Событий не найдено
                 </TableCell>
               </TableRow>

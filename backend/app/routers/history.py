@@ -64,9 +64,39 @@ async def get_journal(
     events = []
     for e in result["events"]:
         meta = map_store.get(equip_type, e["addr"])
+        name: str | None = None
+        text: str | None = None
+        if meta:
+            name = meta.get("name_ru") or meta.get("name")
+            unit = meta.get("unit") or ""
+            raw = e["raw"]
+            if unit == "enum" and raw is not None:
+                key = str(int(raw))
+                labels_ru = meta.get("labels_ru") or {}
+                labels = meta.get("labels") or {}
+                text = labels_ru.get(key) or labels.get(key)
+            elif unit == "fault_bitmap" and raw is not None:
+                bits_def = meta.get("bits") or {}
+                active = []
+                for bit in range(16):
+                    if (int(raw) >> bit) & 1:
+                        bit_info = bits_def.get(str(bit)) or {}
+                        active.append(
+                            bit_info.get("name_ru") or bit_info.get("name") or f"bit {bit}"
+                        )
+                if active:
+                    text = ", ".join(active)
+                elif bits_def:
+                    text = "OK"
+                else:
+                    text = f"0x{int(raw):04X}"
         events.append(JournalEvent(
-            **e,
-            name=meta.get("name") if meta else None,
+            ts=e["ts"],
+            addr=e["addr"],
+            name=name,
+            raw=e["raw"],
+            text=text,
+            write_reason="change",  # state_events records only actual changes
         ))
     return JournalResponse(events=events)
 
