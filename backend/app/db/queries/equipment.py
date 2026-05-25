@@ -38,7 +38,7 @@ async def fetch_key_metrics(
     ]
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT addr, value, raw, text, unit, reason, ts, updated_at
+            SELECT addr, value, raw, reason, ts, updated_at
             FROM latest_state
             WHERE router_sn = $1 AND equip_type = $2 AND panel_id = $3
               AND addr = ANY($4::int[])

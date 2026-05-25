@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Query
 from app.auth import AuthContext, enforce_router_scope, require_auth
 from app.db.queries.gaps import fetch_gaps
 from app.db.queries.history import fetch_history, fetch_journal, fetch_state_events
-from app.deps import get_pool
+from app.deps import get_map_store, get_pool
+from app.mqtt.map_store import MapStore
 from app.schemas.history import (
     GapZone,
     HistoryPoint,
@@ -54,12 +55,20 @@ async def get_journal(
     panel_id: int = Query(...),
     limit: int = Query(500, ge=10, le=2000),
     pool: asyncpg.Pool = Depends(get_pool),
+    map_store: MapStore = Depends(get_map_store),
     ctx: AuthContext = Depends(require_auth),
 ):
     """Журнал состояний (все discrete/enum регистры оборудования)."""
     enforce_router_scope(ctx, router_sn)
     result = await fetch_journal(pool, router_sn, equip_type, panel_id, limit=limit)
-    return JournalResponse(events=[JournalEvent(**e) for e in result["events"]])
+    events = []
+    for e in result["events"]:
+        meta = map_store.get(equip_type, e["addr"])
+        events.append(JournalEvent(
+            **e,
+            name=meta.get("name") if meta else None,
+        ))
+    return JournalResponse(events=events)
 
 
 @router.get("/state-events", response_model=StateEventsResponse)

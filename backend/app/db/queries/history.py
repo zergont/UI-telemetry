@@ -196,16 +196,10 @@ async def fetch_journal(
             SELECT
                 se.ts,
                 se.addr,
-                ls.name,
                 se.raw,
                 se.text,
                 se.write_reason
             FROM state_events se
-            LEFT JOIN latest_state ls
-                ON ls.router_sn  = se.router_sn
-               AND ls.equip_type = se.equip_type
-               AND ls.panel_id   = se.panel_id
-               AND ls.addr       = se.addr
             WHERE se.router_sn  = $1
               AND se.equip_type = $2
               AND se.panel_id   = $3

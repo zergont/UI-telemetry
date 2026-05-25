@@ -10,8 +10,10 @@ from app.db.queries.equipment import (
     fetch_key_metrics,
     update_equipment_name,
 )
-from app.deps import get_pool
+from app.deps import get_map_store, get_pool
+from app.mqtt.map_store import MapStore
 from app.schemas.equipment import EquipmentNameUpdate, EquipmentOut
+from app.services.enrichment import enrich_register
 from app.services.telemetry import (
     derive_connection_status,
     derive_engine_state,
@@ -82,6 +84,7 @@ def _build_equipment_out(
 async def list_equipment(
     router_sn: str,
     pool: asyncpg.Pool = Depends(get_pool),
+    map_store: MapStore = Depends(get_map_store),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_auth),
 ):
@@ -89,10 +92,16 @@ async def list_equipment(
     equips = await fetch_equipment_by_object(pool, router_sn)
     results = []
     for eq in equips:
+        equip_type = eq["equip_type"]
         metrics = await fetch_key_metrics(
-            pool, router_sn, eq["equip_type"], eq["panel_id"],
+            pool, router_sn, equip_type, eq["panel_id"],
             settings.telemetry.key_registers,
         )
+        # Обогащаем text и unit из MapStore (в БД этих колонок больше нет)
+        for addr, m in metrics.items():
+            enriched = enrich_register(equip_type, addr, m.get("value"), m.get("raw"), map_store)
+            m["text"] = enriched.get("text")
+            m["unit"] = enriched.get("unit")
         results.append(_build_equipment_out(
             eq, metrics, settings.telemetry.key_registers,
             settings.telemetry.offline_timeout_sec,
