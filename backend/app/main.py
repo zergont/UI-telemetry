@@ -11,6 +11,7 @@ from app.config import APP_VERSION, get_settings
 from app.db.pool import close_pool, create_pool
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
+from app.mqtt.map_store import MapStore
 from app.routers import admin_proxy, chart_settings, dgu_card_settings, equipment, events, history, notifications, objects, registers, share, system, tiles, ws
 from app.services.nginx_check import log_nginx_status
 from app.services.updater import get_current_version
@@ -39,12 +40,14 @@ async def lifespan(app: FastAPI):
         logger.error("Database connection failed: %s", exc)
         app.state.db_pool = None
 
-    # 2. Create telemetry hub
+    # 2. Create telemetry hub and map store
     hub = TelemetryHub()
     app.state.hub = hub
+    map_store = MapStore()
+    app.state.map_store = map_store
 
     # 3. Start MQTT listener
-    mqtt_task = asyncio.create_task(mqtt_listener(settings.mqtt, hub))
+    mqtt_task = asyncio.create_task(mqtt_listener(settings.mqtt, hub, map_store))
 
     # 4. Start offline tracker
     offline_task = asyncio.create_task(

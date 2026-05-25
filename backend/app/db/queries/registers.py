@@ -13,14 +13,11 @@ async def fetch_registers(
 ) -> list[dict[str, Any]]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT ls.addr, ls.name, ls.value, ls.raw, ls.text,
-                   ls.unit, ls.reason, ls.ts, ls.updated_at
+            SELECT ls.addr, ls.value, ls.raw, ls.reason, ls.ts, ls.updated_at
             FROM latest_state ls
             WHERE ls.router_sn = $1
               AND ls.equip_type = $2
               AND ls.panel_id = $3
-              AND ls.unit IS NOT NULL
-              AND ls.unit NOT ILIKE '%bitmap%'
             ORDER BY ls.addr
         """, router_sn, equip_type, panel_id)
     return [dict(r) for r in rows]

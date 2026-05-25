@@ -8,7 +8,7 @@ import yaml
 from pydantic import BaseModel
 
 # Версия из кода — обновляется через git pull (config.yaml НЕ в git!)
-APP_VERSION = "2.2.0"
+APP_VERSION = "3.2.0"
 
 
 class AppConfig(BaseModel):
@@ -39,6 +39,7 @@ class MqttConfig(BaseModel):
     user: str = ""
     password: str = ""
     topic_prefix: str = "cg/v1/decoded/SN"
+    map_topic_prefix: str = "cg/v1/maps"
     client_id: str = "cg-dashboard"
     reconnect_interval: int = 5
     max_reconnect_interval: int = 60
