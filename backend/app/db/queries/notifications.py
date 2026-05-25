@@ -22,9 +22,6 @@ async def fetch_notifications(
             SELECT DISTINCT ON (addr, bit)
                 addr,
                 bit,
-                fault_name,
-                fault_description,
-                severity,
                 fault_start,
                 fault_end,
                 CASE WHEN fault_end IS NOT NULL
