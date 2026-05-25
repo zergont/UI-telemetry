@@ -22,7 +22,10 @@ def _handle_map(payload: dict, map_store: MapStore) -> None:
     if device_type and isinstance(registers, dict):
         map_store.update(device_type, registers)
     else:
-        logger.warning("Map message missing device_type or registers: %s", list(payload.keys()))
+        logger.warning(
+            "Map message missing device_type or registers. Keys: %s",
+            list(payload.keys()),
+        )
 
 
 async def _handle_telemetry(
@@ -41,6 +44,11 @@ async def _handle_telemetry(
     equip_type = topic_parts[5] if len(topic_parts) > 5 else "pcc"
 
     raw_registers: list[dict] = payload.get("registers", [])
+    map_ready = map_store.has(equip_type)
+    logger.debug(
+        "Telemetry: router_sn=%s equip_type=%s regs=%d map_ready=%s",
+        router_sn, equip_type, len(raw_registers), map_ready,
+    )
     enriched = []
     for r in raw_registers:
         addr = r["addr"]
