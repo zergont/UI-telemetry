@@ -84,12 +84,7 @@ export default function EquipmentPage() {
   function getMetricValue(addr: number): number | null {
     const live = liveRegs?.get(addr);
     if (live) {
-      if (
-        live.raw === 65535 ||
-        live.raw === 32767 ||
-        (live.reason && live.reason.toUpperCase().includes("NA"))
-      )
-        return null;
+      if (live.raw === 65535 || live.raw === 32767) return null;
       return live.value;
     }
     const reg = registers?.find((r) => r.addr === addr);

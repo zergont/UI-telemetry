@@ -4,11 +4,13 @@ import type { WsMessage, TelemetryItem } from "@/lib/ws";
 export interface RegisterValue {
   addr: number;
   name: string;
+  name_en?: string | null;
   value: number | null;
   text: string | null;
   unit: string | null;
   raw: number | null;
-  reason: string | null;
+  reason?: string | null;
+  faults?: Array<{ bit: number; name: string; severity: string }> | null;
   ts: string | null;
   /** Время получения данных браузером (ISO) */
   receivedAt: string;

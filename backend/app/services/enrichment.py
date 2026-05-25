@@ -23,6 +23,7 @@ def enrich_register(
         return {
             "addr": addr,
             "name": f"reg {addr}",
+            "name_en": f"reg {addr}",
             "value": value,
             "raw": raw,
             "text": None,
@@ -32,9 +33,11 @@ def enrich_register(
         }
 
     unit = meta.get("unit") or ""
+    name_en = meta.get("name", f"reg {addr}")
     result: dict = {
         "addr": addr,
-        "name": meta.get("name", f"reg {addr}"),
+        "name": meta.get("name_ru") or name_en,   # русское имя (основное)
+        "name_en": name_en,                         # английское (для tooltip)
         "value": value,
         "raw": raw,
         "text": None,

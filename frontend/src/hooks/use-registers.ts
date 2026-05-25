@@ -1,16 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
+export interface FaultItem {
+  bit: number;
+  name: string;
+  severity: string;
+}
+
 export interface RegisterOut {
   addr: number;
   name: string | null;
+  name_en?: string | null;
   value: number | null;
   raw: number | null;
   text: string | null;
   unit: string | null;
-  reason: string | null;
-  ts: string | null;
-  updated_at: string | null;
+  faults?: FaultItem[] | null;
+  reason?: string | null;
+  ts?: string | null;
+  updated_at?: string | null;
 }
 
 export function useRegisters(

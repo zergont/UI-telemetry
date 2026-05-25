@@ -13,17 +13,25 @@ import {
 import { formatRelativeTime } from "@/lib/format";
 import FlashCell from "./FlashCell";
 
+/* ── Types ─────────────────────────────────────────────────────────────────── */
+
+interface FaultItem {
+  bit: number;
+  name: string;
+  severity: string;
+}
+
 interface RegisterRow {
   addr: number;
   name: string | null;
+  name_en?: string | null;
   value: number | null;
   raw: number | null;
   text: string | null;
   unit: string | null;
-  reason: string | null;
-  ts: string | null;
+  faults?: FaultItem[] | null;
   receivedAt?: string;
-  updated_at: string | null;
+  ts?: string | null;
 }
 
 interface RegistersTabProps {
@@ -33,6 +41,79 @@ interface RegistersTabProps {
   wsConnected: boolean;
   lastWsUpdate: number | undefined;
 }
+
+/* ── Helpers ────────────────────────────────────────────────────────────────── */
+
+/** Единицы для отображения в колонке «Ед.» */
+function displayUnit(unit: string | null): string {
+  if (!unit || unit === "fault_bitmap") return "";
+  if (unit === "enum") return "enum";
+  return unit;
+}
+
+/** Цвет бэйджа по severity */
+function severityClass(severity: string): string {
+  switch (severity) {
+    case "warning":
+      return "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400";
+    case "derate":
+      return "bg-orange-500/15 text-orange-600 dark:text-orange-400";
+    case "shutdown":
+    case "shutdown_cooldown":
+      return "bg-red-500/15 text-red-500";
+    default:
+      return "bg-slate-500/15 text-slate-400";
+  }
+}
+
+/** Содержимое колонки «Текст» */
+function TextContent({ r }: { r: RegisterRow }) {
+  const { unit, text, faults, raw } = r;
+
+  if (unit === "fault_bitmap") {
+    // Нет описания битов — показываем hex
+    if (text) {
+      return <span className="font-mono text-xs text-muted-foreground">{text}</span>;
+    }
+    // Есть описание битов
+    if (faults != null) {
+      if (faults.length === 0) {
+        return raw != null ? (
+          <span className="text-xs text-green-500 dark:text-green-400">OK</span>
+        ) : null;
+      }
+      return (
+        <div className="flex flex-wrap gap-1">
+          {faults.map((f) => (
+            <span
+              key={f.bit}
+              title={`bit ${f.bit} · ${f.severity}`}
+              className={`rounded px-1.5 py-0.5 text-xs font-medium ${severityClass(f.severity)}`}
+            >
+              {f.name}
+            </span>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  }
+
+  // enum или числовой с текстом
+  return text ? (
+    <span className="text-xs text-muted-foreground">{text}</span>
+  ) : null;
+}
+
+/** Ключ для FlashCell текстовой колонки */
+function textFlashKey(r: RegisterRow): unknown {
+  if (r.unit === "fault_bitmap" && r.faults != null) {
+    return r.faults.map((f) => f.bit).join(",");
+  }
+  return r.text;
+}
+
+/* ── Component ──────────────────────────────────────────────────────────────── */
 
 export default function RegistersTab({
   registers,
@@ -48,18 +129,16 @@ export default function RegistersTab({
     let result = registers;
     if (!showNA) {
       result = result.filter(
-        (r) =>
-          !(
-            r.raw === 65535 ||
-            r.raw === 32767 ||
-            (r.reason && r.reason.toUpperCase().includes("NA"))
-          ),
+        (r) => r.raw !== 65535 && r.raw !== 32767,
       );
     }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
-        (r) => String(r.addr).includes(q) || (r.name && r.name.toLowerCase().includes(q)),
+        (r) =>
+          String(r.addr).includes(q) ||
+          (r.name && r.name.toLowerCase().includes(q)) ||
+          (r.name_en && r.name_en.toLowerCase().includes(q)),
       );
     }
     return result;
@@ -77,6 +156,7 @@ export default function RegistersTab({
 
   return (
     <div className="space-y-3">
+      {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Input
@@ -85,7 +165,7 @@ export default function RegistersTab({
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-xs"
           />
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-2 text-sm select-none">
             <input
               type="checkbox"
               checked={showNA}
@@ -105,50 +185,73 @@ export default function RegistersTab({
             {wsConnected ? "WS подключён" : "WS отключён"}
             {liveCount > 0 && ` · ${liveCount} live`}
           </span>
-          {lastWsUpdate && <span>· {formatRelativeTime(new Date(lastWsUpdate))}</span>}
+          {lastWsUpdate && (
+            <span>· {formatRelativeTime(new Date(lastWsUpdate))}</span>
+          )}
         </div>
       </div>
 
+      {/* Table */}
       <div className="max-h-[600px] overflow-auto rounded-xl border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-20">Адрес</TableHead>
               <TableHead>Имя</TableHead>
-              <TableHead>Значение</TableHead>
+              <TableHead className="w-28">Значение</TableHead>
               <TableHead>Текст</TableHead>
-              <TableHead className="w-16">Ед.</TableHead>
-              <TableHead className="hidden lg:table-cell">Обновлено</TableHead>
+              <TableHead className="w-20">Ед.</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((r) => (
               <TableRow key={r.addr}>
-                <TableCell className="font-mono text-xs">{r.addr}</TableCell>
-                <TableCell className="text-sm">{r.name || "\u2014"}</TableCell>
-                <FlashCell value={r.value} className="font-semibold tabular-nums">
-                  {r.value != null
-                    ? (() => { const n = +r.value; return Number.isInteger(n) ? n : parseFloat(n.toFixed(4)); })()
-                    : "\u2014"}
-                </FlashCell>
-                <FlashCell value={r.text} className="text-xs text-muted-foreground">
-                  {r.text || ""}
-                </FlashCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {r.unit || ""}
+                {/* Адрес */}
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {r.addr}
                 </TableCell>
-                <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
-                  {r.receivedAt
-                    ? formatRelativeTime(r.receivedAt)
-                    : r.ts
-                      ? formatRelativeTime(r.ts)
-                      : "\u2014"}
+
+                {/* Имя (русское) + tooltip с английским */}
+                <TableCell className="text-sm">
+                  {r.name_en && r.name_en !== r.name ? (
+                    <span
+                      title={r.name_en}
+                      className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+                    >
+                      {r.name || `reg ${r.addr}`}
+                    </span>
+                  ) : (
+                    <span>{r.name || `reg ${r.addr}`}</span>
+                  )}
+                </TableCell>
+
+                {/* Значение (с flash при изменении) */}
+                <FlashCell value={r.value} className="font-semibold tabular-nums text-sm">
+                  {r.value != null
+                    ? (() => {
+                        const n = +r.value;
+                        return Number.isInteger(n) ? n : parseFloat(n.toFixed(4));
+                      })()
+                    : "—"}
+                </FlashCell>
+
+                {/* Текст: enum-лейбл / fault-бэйджи / hex */}
+                <FlashCell value={textFlashKey(r)}>
+                  <TextContent r={r} />
+                </FlashCell>
+
+                {/* Единицы: числовая / "enum" / пусто для fault_bitmap */}
+                <TableCell className="text-xs text-muted-foreground">
+                  {displayUnit(r.unit)}
                 </TableCell>
               </TableRow>
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={5}
+                  className="py-8 text-center text-muted-foreground"
+                >
                   Регистры не найдены
                 </TableCell>
               </TableRow>

@@ -15,6 +15,7 @@ class FaultItem(BaseModel):
 class RegisterOut(BaseModel):
     addr: int
     name: Optional[str] = None
+    name_en: Optional[str] = None
     value: Optional[float] = None
     raw: Optional[int] = None
     text: Optional[str] = None
