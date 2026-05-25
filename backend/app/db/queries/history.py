@@ -97,8 +97,8 @@ async def _query_raw(
                 value                        AS open_value,
                 value                        AS close_value,
                 1::bigint                    AS sample_count,
-                text,
-                reason
+                NULL::text                   AS text,
+                NULL::text                   AS reason
             FROM history
             WHERE router_sn = $1
               AND equip_type = $2
@@ -197,8 +197,8 @@ async def fetch_journal(
                 se.ts,
                 se.addr,
                 se.raw,
-                se.text,
-                se.write_reason
+                NULL::text AS text,
+                NULL::text AS write_reason
             FROM state_events se
             WHERE se.router_sn  = $1
               AND se.equip_type = $2
@@ -227,8 +227,8 @@ async def fetch_state_events(
             SELECT
                 ts,
                 raw,
-                text,
-                write_reason
+                NULL::text AS text,
+                NULL::text AS write_reason
             FROM state_events
             WHERE router_sn  = $1
               AND equip_type = $2
