@@ -30,10 +30,5 @@ async def get_registers(
     result = []
     for r in rows:
         enriched = enrich_register(equip_type, r["addr"], r["value"], r["raw"], map_store)
-        result.append(RegisterOut(
-            **enriched,
-            reason=r.get("reason"),
-            ts=r.get("ts"),
-            updated_at=r.get("updated_at"),
-        ))
+        result.append(RegisterOut(**enriched))
     return result

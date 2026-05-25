@@ -33,7 +33,7 @@ def _build_equipment_out(
 ) -> EquipmentOut:
     def _val(addr: int) -> float | None:
         m = metrics.get(addr)
-        if not m or is_na(m.get("raw"), m.get("reason")):
+        if not m or is_na(m.get("raw"), None):
             return None
         return m.get("value")
 
@@ -56,8 +56,8 @@ def _build_equipment_out(
     pressure = _val(key_regs.oil_pressure)
 
     state_m = metrics.get(key_regs.engine_state)
-    state_text = state_m["text"] if state_m else None
-    last_upd = state_m["updated_at"] if state_m else None
+    state_text = state_m.get("text") if state_m else None
+    last_upd = state_m.get("updated_at") if state_m else None
 
     state = derive_engine_state(state_text, last_upd, offline_timeout)
     conn_status = derive_connection_status(eq.get("last_seen_at"), offline_timeout)
