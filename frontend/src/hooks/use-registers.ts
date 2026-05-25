@@ -16,6 +16,7 @@ export interface RegisterOut {
   text: string | null;
   unit: string | null;
   faults?: FaultItem[] | null;
+  notes_ru?: string | null;
   reason?: string | null;
   ts?: string | null;
   updated_at?: string | null;

@@ -11,6 +11,7 @@ export interface RegisterValue {
   raw: number | null;
   reason?: string | null;
   faults?: Array<{ bit: number; name: string; severity: string }> | null;
+  notes_ru?: string | null;
   ts: string | null;
   /** Время получения данных браузером (ISO) */
   receivedAt: string;

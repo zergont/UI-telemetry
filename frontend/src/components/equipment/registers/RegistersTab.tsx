@@ -25,6 +25,7 @@ interface RegisterRow {
   addr: number;
   name: string | null;
   name_en?: string | null;
+  notes_ru?: string | null;
   value: number | null;
   raw: number | null;
   text: string | null;
@@ -212,18 +213,24 @@ export default function RegistersTab({
                   {r.addr}
                 </TableCell>
 
-                {/* Имя (русское) + tooltip с английским */}
+                {/* Имя (русское) + tooltip: английское имя + notes_ru */}
                 <TableCell className="text-sm">
-                  {r.name_en && r.name_en !== r.name ? (
-                    <span
-                      title={r.name_en}
-                      className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
-                    >
-                      {r.name || `reg ${r.addr}`}
-                    </span>
-                  ) : (
-                    <span>{r.name || `reg ${r.addr}`}</span>
-                  )}
+                  {(() => {
+                    const parts: string[] = [];
+                    if (r.name_en && r.name_en !== r.name) parts.push(r.name_en);
+                    if (r.notes_ru) parts.push(r.notes_ru);
+                    const tooltip = parts.join("\n");
+                    return tooltip ? (
+                      <span
+                        title={tooltip}
+                        className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+                      >
+                        {r.name || `reg ${r.addr}`}
+                      </span>
+                    ) : (
+                      <span>{r.name || `reg ${r.addr}`}</span>
+                    );
+                  })()}
                 </TableCell>
 
                 {/* Значение (с flash при изменении) */}
