@@ -75,6 +75,7 @@ async def get_journal(
             raw=e.get("value"),
             text=text,
             state_end=e.get("state_end"),
+            duration_seconds=e.get("duration_seconds"),
         ))
     return JournalResponse(events=events)
 

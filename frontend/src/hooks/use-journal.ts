@@ -7,7 +7,8 @@ export interface JournalEvent {
   name: string | null;
   raw: number | null;   // enum value code
   text: string | null;  // label_ru ?? label ?? str(value)
-  state_end: string | null;  // null = текущее активное состояние
+  state_end: string | null;     // null = текущее активное состояние
+  duration_seconds: number | null;
 }
 
 export interface JournalResponse {

@@ -38,6 +38,7 @@ class JournalEvent(BaseModel):
     raw: Optional[int] = None         # enum value code
     text: Optional[str] = None        # label_ru ?? label ?? str(value)
     state_end: Optional[datetime] = None  # None = текущее активное состояние
+    duration_seconds: Optional[int] = None
 
 
 class JournalResponse(BaseModel):

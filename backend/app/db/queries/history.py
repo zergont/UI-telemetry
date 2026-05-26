@@ -203,7 +203,10 @@ async def fetch_journal(
             r.states_json->'labels'   ->> e.value::text AS label,
             r.states_json->'labels_ru'->> e.value::text AS label_ru,
             e.state_start,
-            e.state_end
+            e.state_end,
+            EXTRACT(EPOCH FROM (
+                COALESCE(e.state_end, now()) - e.state_start
+            ))::int                                      AS duration_seconds
         FROM enum_history e
         LEFT JOIN register_catalog r
             ON r.equip_type = e.equip_type AND r.addr = e.addr
@@ -221,7 +224,10 @@ async def fetch_journal(
             r.states_json->'labels'   ->> e.value::text AS label,
             NULL::text                                   AS label_ru,
             e.state_start,
-            e.state_end
+            e.state_end,
+            EXTRACT(EPOCH FROM (
+                COALESCE(e.state_end, now()) - e.state_start
+            ))::int                                      AS duration_seconds
         FROM enum_history e
         LEFT JOIN register_catalog r
             ON r.equip_type = e.equip_type AND r.addr = e.addr
