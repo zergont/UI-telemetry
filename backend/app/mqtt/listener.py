@@ -1,7 +1,7 @@
 """MQTT subscriber: decoded telemetry → TelemetryHub.
 
-Maps topic (cg/v1/maps/+) is no longer subscribed — register metadata
-is now loaded from register_catalog DB table at startup (see main.py).
+Sends raw register values (addr, value, raw) only — no metadata enrichment.
+Register metadata is available via DB (register_catalog) and HTTP API.
 """
 from __future__ import annotations
 
@@ -13,50 +13,11 @@ import aiomqtt
 
 from app.config import MqttConfig
 from app.mqtt.hub import TelemetryHub
-from app.mqtt.map_store import MapStore
-from app.services.enrichment import enrich_register
 
 logger = logging.getLogger(__name__)
 
 
-async def _handle_telemetry(
-    topic_str: str,
-    payload: dict,
-    hub: TelemetryHub,
-    map_store: MapStore,
-) -> None:
-    """Enrich registers from MapStore and publish to TelemetryHub."""
-    router_sn = payload["router_sn"]
-    bserver_id = payload.get("bserver_id", 0)
-
-    # cg/v1/decoded/SN/<router_sn>/<equip_type>/<panel>
-    # Indices:        0  1  2       3   4            5             6
-    topic_parts = topic_str.split("/")
-    equip_type = topic_parts[5] if len(topic_parts) > 5 else "pcc"
-
-    raw_registers: list[dict] = payload.get("registers", [])
-    logger.debug(
-        "Telemetry: router_sn=%s equip_type=%s regs=%d",
-        router_sn, equip_type, len(raw_registers),
-    )
-
-    enriched = [
-        enrich_register(equip_type, r["addr"], r.get("value"), r.get("raw"), map_store)
-        for r in raw_registers
-    ]
-
-    ws_message = {
-        "type": "telemetry",
-        "router_sn": router_sn,
-        "equip_type": equip_type,
-        "panel_id": bserver_id,
-        "timestamp": payload.get("timestamp"),
-        "registers": enriched,
-    }
-    await hub.publish(router_sn, ws_message)
-
-
-async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub, map_store: MapStore) -> None:
+async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub) -> None:
     telemetry_topic = f"{cfg.topic_prefix}/+/pcc/+"
     reconnect_interval = cfg.reconnect_interval
 
@@ -80,7 +41,7 @@ async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub, map_store: MapStore)
                     topic_str = str(message.topic)
                     try:
                         payload = json.loads(message.payload)
-                        await _handle_telemetry(topic_str, payload, hub, map_store)
+                        await _handle_telemetry(topic_str, payload, hub)
                     except (json.JSONDecodeError, KeyError, TypeError) as exc:
                         logger.warning("Bad MQTT message on %s: %s", topic_str, exc)
 
@@ -96,3 +57,34 @@ async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub, map_store: MapStore)
         except Exception as exc:
             logger.exception("Unexpected error in MQTT listener: %s", exc)
             await asyncio.sleep(reconnect_interval)
+
+
+async def _handle_telemetry(
+    topic_str: str,
+    payload: dict,
+    hub: TelemetryHub,
+) -> None:
+    router_sn: str = payload["router_sn"]
+    bserver_id: int = payload.get("bserver_id", 0)
+
+    # cg/v1/decoded/SN/<router_sn>/<equip_type>/<panel>
+    topic_parts = topic_str.split("/")
+    equip_type = topic_parts[5] if len(topic_parts) > 5 else "pcc"
+
+    raw_registers: list[dict] = payload.get("registers", [])
+    logger.debug(
+        "Telemetry: router_sn=%s equip_type=%s regs=%d",
+        router_sn, equip_type, len(raw_registers),
+    )
+
+    await hub.publish(router_sn, {
+        "type": "telemetry",
+        "router_sn": router_sn,
+        "equip_type": equip_type,
+        "panel_id": bserver_id,
+        "timestamp": payload.get("timestamp"),
+        "registers": [
+            {"addr": r["addr"], "value": r.get("value"), "raw": r.get("raw")}
+            for r in raw_registers
+        ],
+    })

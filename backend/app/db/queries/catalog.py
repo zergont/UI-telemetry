@@ -7,7 +7,7 @@ import asyncpg
 def catalog_to_meta(row: dict) -> dict:
     """Convert a register_catalog row to the enrichment meta dict format.
 
-    The result is compatible with enrich_register() and MapStore expectations.
+    The result is compatible with enrich_from_catalog_row() expectations.
     """
     unit: str = row.get("unit_default") or ""
     states_json: dict = row.get("states_json") or {}

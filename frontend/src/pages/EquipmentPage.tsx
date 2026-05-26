@@ -68,15 +68,14 @@ export default function EquipmentPage() {
     panelId!,
   );
 
-  // Merge REST registers with live data
+  // Merge REST registers (metadata) with live WS data (value + raw only)
   const mergedRegisters = useMemo(() => {
     if (!registers) return [];
     return registers.map((r) => {
       const live = liveRegs?.get(r.addr);
-      if (live) {
-        return { ...r, ...live };
-      }
-      return r;
+      if (!live) return r;
+      // Keep all HTTP metadata (name, text, unit, faults, …), only update numeric fields
+      return { ...r, value: live.value, raw: live.raw, ts: live.ts, receivedAt: live.receivedAt };
     });
   }, [registers, liveRegs]);
 
@@ -103,8 +102,8 @@ export default function EquipmentPage() {
       case 40063: {
         const raw = getMetricValue(40063);
         if (raw == null) return null;
-        const reg = liveRegs?.get(40063) || registers?.find((r) => r.addr === 40063);
-        const unit = reg?.unit ?? "";
+        // unit comes from HTTP metadata (mergedRegisters has it from /api/registers)
+        const unit = mergedRegisters.find((r) => r.addr === 40063)?.unit ?? "";
         return unit.toLowerCase().includes("f")
           ? fahrenheitToCelsius(raw)
           : Math.round(raw * 10) / 10;
@@ -117,8 +116,8 @@ export default function EquipmentPage() {
   // liveStatus = ONLINE/OFFLINE (статус связи из telemetry-store)
   const connectionStatus = liveStatus ?? "OFFLINE";
 
-  // Состояние двигателя из регистра 46109
-  const stateReg = liveRegs?.get(46109) || registers?.find((r) => r.addr === 46109);
+  // Состояние двигателя из регистра 46109 (берём из merged — там есть text из HTTP)
+  const stateReg = mergedRegisters.find((r) => r.addr === 46109);
   let engineState: string | null = null;
   if (stateReg?.text) {
     const t = stateReg.text.toLowerCase();

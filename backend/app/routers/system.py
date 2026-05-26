@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, Request
 
 from app.auth import AuthContext, require_admin, require_auth
 from app.config import APP_VERSION, get_settings
-from app.deps import get_map_store, get_pool
-from app.mqtt.map_store import MapStore
+from app.deps import get_pool
 from app.services.updater import (
     check_for_updates,
     get_current_version,
@@ -53,13 +52,25 @@ async def update_status(ctx: AuthContext = Depends(require_admin)):
 async def diagnostics(
     request: Request,
     pool: asyncpg.Pool = Depends(get_pool),
-    map_store: MapStore = Depends(get_map_store),
     ctx: AuthContext = Depends(require_auth),
 ):
-    """Диагностика: состояние register_catalog (MapStore), БД, кэша телеметрии."""
+    """Диагностика: состояние register_catalog, БД, кэша телеметрии."""
 
-    # 1. MapStore — загружен ли каталог регистров из БД
-    maps_stats = map_store.stats()
+    # 1. register_catalog — сколько типов и регистров загружено
+    catalog_stats: dict = {}
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT equip_type, COUNT(*) AS register_count
+                FROM register_catalog
+                GROUP BY equip_type
+                ORDER BY equip_type
+                """
+            )
+        catalog_stats = {r["equip_type"]: {"register_count": r["register_count"]} for r in rows}
+    except Exception as exc:
+        catalog_stats = {"error": str(exc)}
 
     # 2. DB — простая проверка соединения
     db_ok = False
@@ -77,7 +88,7 @@ async def diagnostics(
     hub_cache_size = len(hub.cache)
 
     return {
-        "maps": maps_stats,          # {} если карты ещё не пришли
+        "catalog": catalog_stats,
         "db": {
             "ok": db_ok,
             "latest_state_rows": db_row_count,

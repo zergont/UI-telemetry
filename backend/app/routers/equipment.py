@@ -10,10 +10,8 @@ from app.db.queries.equipment import (
     fetch_key_metrics,
     update_equipment_name,
 )
-from app.deps import get_map_store, get_pool
-from app.mqtt.map_store import MapStore
+from app.deps import get_pool
 from app.schemas.equipment import EquipmentNameUpdate, EquipmentOut
-from app.services.enrichment import enrich_register
 from app.services.telemetry import (
     derive_connection_status,
     derive_engine_state,
@@ -84,7 +82,6 @@ def _build_equipment_out(
 async def list_equipment(
     router_sn: str,
     pool: asyncpg.Pool = Depends(get_pool),
-    map_store: MapStore = Depends(get_map_store),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_auth),
 ):
@@ -97,11 +94,16 @@ async def list_equipment(
             pool, router_sn, equip_type, eq["panel_id"],
             settings.telemetry.key_registers,
         )
-        # Обогащаем text и unit из MapStore (в БД этих колонок больше нет)
-        for addr, m in metrics.items():
-            enriched = enrich_register(equip_type, addr, m.get("value"), m.get("raw"), map_store)
-            m["text"] = enriched.get("text")
-            m["unit"] = enriched.get("unit")
+        # Enrich text and unit from register_catalog JOIN (done in fetch_key_metrics)
+        for m in metrics.values():
+            unit: str = m.get("unit_default") or ""
+            states_json: dict = m.get("states_json") or {}
+            m["unit"] = unit or None
+            raw = m.get("raw")
+            if unit == "enum" and raw is not None:
+                m["text"] = states_json.get(str(int(raw)))
+            else:
+                m["text"] = None
         results.append(_build_equipment_out(
             eq, metrics, settings.telemetry.key_registers,
             settings.telemetry.offline_timeout_sec,

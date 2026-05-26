@@ -4,17 +4,11 @@ export type TelemetryItem = {
   equip_type?: string;
   panel_id?: number;
   timestamp?: string;
+  /** Raw register values only — metadata comes from HTTP API (/api/registers) */
   registers?: Array<{
     addr: number;
-    name: string;
-    name_en?: string | null;
     value: number | null;
-    text: string | null;
-    unit: string | null;
     raw: number | null;
-    reason?: string | null;
-    faults?: Array<{ bit: number; name: string; severity: string }> | null;
-    notes_ru?: string | null;
     ts?: string | null;
   }>;
   status?: string;

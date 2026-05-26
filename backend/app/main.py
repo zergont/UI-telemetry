@@ -9,10 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import APP_VERSION, get_settings
 from app.db.pool import close_pool, create_pool
-from app.db.queries.catalog import load_catalog_all
 from app.mqtt.hub import TelemetryHub
 from app.mqtt.listener import mqtt_listener
-from app.mqtt.map_store import MapStore
 from app.routers import admin_proxy, chart_settings, dgu_card_settings, equipment, events, history, notifications, objects, registers, share, system, tiles, ws
 from app.services.nginx_check import log_nginx_status
 from app.services.updater import get_current_version
@@ -41,25 +39,12 @@ async def lifespan(app: FastAPI):
         logger.error("Database connection failed: %s", exc)
         app.state.db_pool = None
 
-    # 2. Create telemetry hub and map store; pre-load catalog from DB
+    # 2. Create telemetry hub
     hub = TelemetryHub()
     app.state.hub = hub
-    map_store = MapStore()
-    app.state.map_store = map_store
 
-    if app.state.db_pool:
-        try:
-            catalog = await load_catalog_all(app.state.db_pool)
-            for equip_type, registers_meta in catalog.items():
-                map_store.update(equip_type, registers_meta)
-            logger.info(
-                "MapStore loaded from register_catalog: %d device types", len(catalog)
-            )
-        except Exception as exc:
-            logger.warning("Failed to load register_catalog into MapStore: %s", exc)
-
-    # 3. Start MQTT listener (telemetry only — maps no longer via MQTT)
-    mqtt_task = asyncio.create_task(mqtt_listener(settings.mqtt, hub, map_store))
+    # 3. Start MQTT listener (raw telemetry only)
+    mqtt_task = asyncio.create_task(mqtt_listener(settings.mqtt, hub))
 
     # 4. Start offline tracker
     offline_task = asyncio.create_task(

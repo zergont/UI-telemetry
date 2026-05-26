@@ -37,12 +37,21 @@ async def fetch_key_metrics(
         key_regs.engine_state,
     ]
     async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT addr, value, raw
-            FROM latest_state
-            WHERE router_sn = $1 AND equip_type = $2 AND panel_id = $3
-              AND addr = ANY($4::int[])
-        """, router_sn, equip_type, panel_id, addrs)
+        rows = await conn.fetch(
+            """
+            SELECT ls.addr, ls.value, ls.raw,
+                   rc.unit_default,
+                   rc.states_json
+            FROM latest_state ls
+            LEFT JOIN register_catalog rc
+                   ON rc.equip_type = $2 AND rc.addr = ls.addr
+            WHERE ls.router_sn  = $1
+              AND ls.equip_type = $2
+              AND ls.panel_id   = $3
+              AND ls.addr = ANY($4::int[])
+            """,
+            router_sn, equip_type, panel_id, addrs,
+        )
 
     return {r["addr"]: dict(r) for r in rows}
 

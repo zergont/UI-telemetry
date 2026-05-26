@@ -1,19 +1,14 @@
 import { create } from "zustand";
 import type { WsMessage, TelemetryItem } from "@/lib/ws";
 
+/** Live register snapshot from WebSocket — raw values only.
+ *  Metadata (name, text, unit, faults) comes from the HTTP /api/registers response.
+ */
 export interface RegisterValue {
   addr: number;
-  name: string;
-  name_en?: string | null;
   value: number | null;
-  text: string | null;
-  unit: string | null;
   raw: number | null;
-  reason?: string | null;
-  faults?: Array<{ bit: number; name: string; severity: string }> | null;
-  notes_ru?: string | null;
   ts: string | null;
-  /** Время получения данных браузером (ISO) */
   receivedAt: string;
 }
 
@@ -46,14 +41,12 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   connected: false,
 
   handleMessage(msg: WsMessage) {
-    // Snapshot — массив закэшированных сообщений при подключении
     if (msg.type === "snapshot" && "items" in msg) {
       for (const item of msg.items) {
         get()._applyTelemetryItem(item);
       }
       return;
     }
-
     get()._applyTelemetryItem(msg as TelemetryItem);
   },
 
@@ -68,23 +61,28 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       const receivedAt = new Date().toISOString();
       const current = get().registers;
       const regMap = new Map(current.get(key) || []);
+
       for (const r of msg.registers) {
-        regMap.set(r.addr, { ...r, ts: r.ts ?? ts, receivedAt });
+        regMap.set(r.addr, {
+          addr: r.addr,
+          value: r.value,
+          raw: r.raw,
+          ts: r.ts ?? ts,
+          receivedAt,
+        });
       }
+
       const newRegs = new Map(current);
       newRegs.set(key, regMap);
 
       const newUpdate = new Map(get().lastUpdate);
       newUpdate.set(key, Date.now());
 
-      // Данные пришли — оборудование на связи
       const newStatuses = new Map(get().statuses);
       newStatuses.set(key, "ONLINE");
 
-      // Drift: разница часов сервера и браузера (по router_sn)
       const serverTime = msg.timestamp ? new Date(msg.timestamp).getTime() : null;
-      const browserTime = Date.now();
-      const driftSec = serverTime ? Math.round((browserTime - serverTime) / 1000) : null;
+      const driftSec = serverTime ? Math.round((Date.now() - serverTime) / 1000) : null;
       const newDrifts = new Map(get().drifts);
       if (driftSec !== null) {
         newDrifts.set(msg.router_sn, driftSec);
@@ -97,6 +95,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       }
 
       set({ registers: newRegs, lastUpdate: newUpdate, statuses: newStatuses, drifts: newDrifts });
+
     } else if (msg.type === "status_change" && msg.status) {
       const key = makeEquipKey(
         msg.router_sn,
