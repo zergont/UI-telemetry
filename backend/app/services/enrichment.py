@@ -1,16 +1,19 @@
-"""Register enrichment helpers for HTTP layer.
+"""Обогащение регистров метаданными из register_catalog (HTTP-слой).
 
-Uses register_catalog DB columns returned via SQL JOIN — no in-memory state.
+Использует колонки из SQL JOIN — никакого состояния в памяти.
 """
 from __future__ import annotations
 
 
 def enrich_from_catalog_row(row: dict) -> dict:
-    """Build an enriched register dict from a DB row that already has catalog columns.
+    """Собрать обогащённый dict из строки БД с присоединёнными колонками каталога.
 
-    Expected row keys (from LEFT JOIN register_catalog):
+    Ожидаемые ключи (из LEFT JOIN register_catalog):
       addr, value, raw,
-      name_default, unit_default, register_kind, states_json  (all nullable)
+      name_default, unit_default, register_kind, states_json  (все nullable)
+
+    states_json для enum:   {"labels_ru": {"0": "АВТО"}, "labels": {"0": "AUTO"}}
+    states_json для bitmap: {"0": {"name": "...", "name_ru": "...", "severity": "..."}}
     """
     addr: int = row["addr"]
     value = row.get("value")
@@ -32,7 +35,10 @@ def enrich_from_catalog_row(row: dict) -> dict:
     }
 
     if unit == "enum" and value is not None:
-        result["text"] = states_json.get(str(int(value)))
+        key = str(int(value))
+        labels_ru: dict = states_json.get("labels_ru") or {}
+        labels: dict = states_json.get("labels") or {}
+        result["text"] = labels_ru.get(key) or labels.get(key)
 
     elif unit == "fault_bitmap" and raw is not None:
         faults = []
@@ -41,7 +47,7 @@ def enrich_from_catalog_row(row: dict) -> dict:
                 bit_info: dict = states_json.get(str(bit)) or {}
                 faults.append({
                     "bit": bit,
-                    "name": bit_info.get("name") or f"bit {bit}",
+                    "name": bit_info.get("name_ru") or bit_info.get("name") or f"bit {bit}",
                     "severity": bit_info.get("severity", "unknown"),
                 })
         result["faults"] = faults
@@ -52,18 +58,25 @@ def enrich_from_catalog_row(row: dict) -> dict:
 
 
 def _text_from_catalog(unit: str, raw, states_json: dict) -> str | None:
-    """Compute display text for journal events using catalog metadata."""
+    """Вычислить текст для события журнала по метаданным каталога."""
     if unit == "enum" and raw is not None:
-        return states_json.get(str(int(raw)))
+        key = str(int(raw))
+        labels_ru: dict = states_json.get("labels_ru") or {}
+        labels: dict = states_json.get("labels") or {}
+        return labels_ru.get(key) or labels.get(key)
+
     if unit == "fault_bitmap" and raw is not None:
         active = []
         for bit in range(16):
             if (int(raw) >> bit) & 1:
                 bit_info: dict = states_json.get(str(bit)) or {}
-                active.append(bit_info.get("name") or f"bit {bit}")
+                active.append(
+                    bit_info.get("name_ru") or bit_info.get("name") or f"bit {bit}"
+                )
         if active:
             return ", ".join(active)
         if states_json:
             return "OK"
         return f"0x{int(raw):04X}"
+
     return None

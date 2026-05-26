@@ -28,7 +28,10 @@ async def fetch_notifications(
                     THEN EXTRACT(EPOCH FROM (f.fault_end - f.fault_start))::int
                     ELSE NULL
                 END AS duration_seconds,
-                rc.states_json -> f.bit::text ->> 'name'     AS fault_name,
+                COALESCE(
+                    rc.states_json -> f.bit::text ->> 'name_ru',
+                    rc.states_json -> f.bit::text ->> 'name'
+                )                                             AS fault_name,
                 rc.states_json -> f.bit::text ->> 'severity' AS severity
             FROM fault_history f
             LEFT JOIN register_catalog rc

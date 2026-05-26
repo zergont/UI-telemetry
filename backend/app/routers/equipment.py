@@ -94,14 +94,17 @@ async def list_equipment(
             pool, router_sn, equip_type, eq["panel_id"],
             settings.telemetry.key_registers,
         )
-        # Enrich text and unit from register_catalog JOIN (done in fetch_key_metrics)
+        # Обогащаем text и unit из JOIN с register_catalog
         for m in metrics.values():
             unit: str = m.get("unit_default") or ""
             states_json: dict = m.get("states_json") or {}
             m["unit"] = unit or None
             raw = m.get("raw")
             if unit == "enum" and raw is not None:
-                m["text"] = states_json.get(str(int(raw)))
+                key = str(int(raw))
+                labels_ru: dict = states_json.get("labels_ru") or {}
+                labels: dict = states_json.get("labels") or {}
+                m["text"] = labels_ru.get(key) or labels.get(key)
             else:
                 m["text"] = None
         results.append(_build_equipment_out(
