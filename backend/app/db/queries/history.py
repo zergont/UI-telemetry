@@ -189,43 +189,46 @@ async def fetch_journal(
     panel_id: int,
     limit: int = 500,
 ) -> dict[str, Any]:
-    """Журнал состояний: все state_events оборудования (все адреса).
+    """Журнал enum-состояний из enum_history, обогащённый register_catalog.
 
-    Обогащается именем и метаданными из register_catalog.
+    Читает из enum_history (каждая строка — один период состояния).
+    label_ru / label — расшифровки из states_json.
     Gracefully degrades to name_default if name_ru column is absent.
     """
     _sql_ru = """
         SELECT
-            se.ts,
-            se.addr,
-            se.raw,
-            COALESCE(rc.name_ru, rc.name_default) AS name,
-            rc.unit_default,
-            rc.states_json
-        FROM state_events se
-        LEFT JOIN register_catalog rc
-               ON rc.equip_type = $2 AND rc.addr = se.addr
-        WHERE se.router_sn  = $1
-          AND se.equip_type = $2
-          AND se.panel_id   = $3
-        ORDER BY se.ts DESC
+            e.addr,
+            COALESCE(r.name_ru, r.name_default)         AS name,
+            e.value,
+            r.states_json->'labels'   ->> e.value::text AS label,
+            r.states_json->'labels_ru'->> e.value::text AS label_ru,
+            e.state_start,
+            e.state_end
+        FROM enum_history e
+        LEFT JOIN register_catalog r
+            ON r.equip_type = e.equip_type AND r.addr = e.addr
+        WHERE e.router_sn  = $1
+          AND e.equip_type = $2
+          AND e.panel_id   = $3
+        ORDER BY e.state_start DESC
         LIMIT $4
     """
     _sql_fallback = """
         SELECT
-            se.ts,
-            se.addr,
-            se.raw,
-            rc.name_default AS name,
-            rc.unit_default,
-            rc.states_json
-        FROM state_events se
-        LEFT JOIN register_catalog rc
-               ON rc.equip_type = $2 AND rc.addr = se.addr
-        WHERE se.router_sn  = $1
-          AND se.equip_type = $2
-          AND se.panel_id   = $3
-        ORDER BY se.ts DESC
+            e.addr,
+            r.name_default                               AS name,
+            e.value,
+            r.states_json->'labels'   ->> e.value::text AS label,
+            NULL::text                                   AS label_ru,
+            e.state_start,
+            e.state_end
+        FROM enum_history e
+        LEFT JOIN register_catalog r
+            ON r.equip_type = e.equip_type AND r.addr = e.addr
+        WHERE e.router_sn  = $1
+          AND e.equip_type = $2
+          AND e.panel_id   = $3
+        ORDER BY e.state_start DESC
         LIMIT $4
     """
     async with pool.acquire() as conn:

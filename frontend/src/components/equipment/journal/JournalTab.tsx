@@ -20,6 +20,10 @@ interface JournalTabProps {
 const LIMIT_STEP = 500;
 const LIMIT_MAX = 2000;
 
+function formatTs(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU");
+}
+
 export default function JournalTab({ routerSn, equipType, panelId }: JournalTabProps) {
   const [limit, setLimit] = useState(LIMIT_STEP);
   const [search, setSearch] = useState("");
@@ -66,28 +70,37 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="hidden lg:table-cell w-44">Время</TableHead>
+              <TableHead className="hidden lg:table-cell w-44">Начало</TableHead>
+              <TableHead className="hidden lg:table-cell w-44">Конец</TableHead>
               <TableHead className="w-20">Адрес</TableHead>
               <TableHead>Имя</TableHead>
               <TableHead>Состояние</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((e, idx) => (
-              <TableRow key={idx}>
-                <TableCell className="hidden text-xs text-muted-foreground lg:table-cell whitespace-nowrap">
-                  {new Date(e.ts).toLocaleString("ru-RU")}
-                </TableCell>
-                <TableCell className="font-mono text-xs">{e.addr}</TableCell>
-                <TableCell className="text-sm">{e.name || `reg ${e.addr}`}</TableCell>
-                <TableCell className="font-semibold text-sm">
-                  {e.text ?? (e.raw != null ? String(e.raw) : "—")}
-                </TableCell>
-              </TableRow>
-            ))}
+            {filtered.map((e, idx) => {
+              const isActive = e.state_end === null;
+              return (
+                <TableRow key={idx} className={isActive ? "bg-blue-500/5" : ""}>
+                  <TableCell className="hidden text-xs text-muted-foreground lg:table-cell whitespace-nowrap">
+                    {formatTs(e.ts)}
+                  </TableCell>
+                  <TableCell className="hidden text-xs text-muted-foreground lg:table-cell whitespace-nowrap">
+                    {e.state_end
+                      ? formatTs(e.state_end)
+                      : <span className="text-blue-500 font-medium">активно</span>}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{e.addr}</TableCell>
+                  <TableCell className="text-sm">{e.name || `reg ${e.addr}`}</TableCell>
+                  <TableCell className="font-semibold text-sm">
+                    {e.text ?? (e.raw != null ? String(e.raw) : "—")}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   Событий не найдено
                 </TableCell>
               </TableRow>

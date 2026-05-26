@@ -8,7 +8,7 @@ import yaml
 from pydantic import BaseModel
 
 # Версия из кода — обновляется через git pull (config.yaml НЕ в git!)
-APP_VERSION = "3.5.4"
+APP_VERSION = "3.5.5"
 
 
 class AppConfig(BaseModel):

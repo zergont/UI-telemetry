@@ -32,12 +32,12 @@ class HistoryResponse(BaseModel):
 # ── Journal (все state_events оборудования) ──────────────────────────────────
 
 class JournalEvent(BaseModel):
-    ts: datetime
+    ts: datetime                      # state_start
     addr: int
     name: Optional[str] = None
-    raw: Optional[int] = None
-    text: Optional[str] = None
-    write_reason: Optional[str] = None
+    raw: Optional[int] = None         # enum value code
+    text: Optional[str] = None        # label_ru ?? label ?? str(value)
+    state_end: Optional[datetime] = None  # None = текущее активное состояние
 
 
 class JournalResponse(BaseModel):

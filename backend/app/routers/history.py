@@ -18,7 +18,6 @@ from app.schemas.history import (
     StateEvent,
     StateEventsResponse,
 )
-from app.services.enrichment import _text_from_catalog
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -65,15 +64,17 @@ async def get_journal(
     result = await fetch_journal(pool, router_sn, equip_type, panel_id, limit=limit)
     events = []
     for e in result["events"]:
-        unit: str = e.get("unit_default") or ""
-        states_json: dict = e.get("states_json") or {}
+        # label_ru — русский, label — английский, fallback → str(value)
+        text = e.get("label_ru") or e.get("label") or (
+            str(e["value"]) if e.get("value") is not None else None
+        )
         events.append(JournalEvent(
-            ts=e["ts"],
+            ts=e["state_start"],
             addr=e["addr"],
             name=e.get("name"),
-            raw=e["raw"],
-            text=_text_from_catalog(unit, e["raw"], states_json),
-            write_reason="change",   # state_events only records actual changes
+            raw=e.get("value"),
+            text=text,
+            state_end=e.get("state_end"),
         ))
     return JournalResponse(events=events)
 
