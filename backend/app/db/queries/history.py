@@ -192,28 +192,47 @@ async def fetch_journal(
     """Журнал состояний: все state_events оборудования (все адреса).
 
     Обогащается именем и метаданными из register_catalog.
+    Gracefully degrades to name_default if name_ru column is absent.
+    """
+    _sql_ru = """
+        SELECT
+            se.ts,
+            se.addr,
+            se.raw,
+            COALESCE(rc.name_ru, rc.name_default) AS name,
+            rc.unit_default,
+            rc.states_json
+        FROM state_events se
+        LEFT JOIN register_catalog rc
+               ON rc.equip_type = $2 AND rc.addr = se.addr
+        WHERE se.router_sn  = $1
+          AND se.equip_type = $2
+          AND se.panel_id   = $3
+        ORDER BY se.ts DESC
+        LIMIT $4
+    """
+    _sql_fallback = """
+        SELECT
+            se.ts,
+            se.addr,
+            se.raw,
+            rc.name_default AS name,
+            rc.unit_default,
+            rc.states_json
+        FROM state_events se
+        LEFT JOIN register_catalog rc
+               ON rc.equip_type = $2 AND rc.addr = se.addr
+        WHERE se.router_sn  = $1
+          AND se.equip_type = $2
+          AND se.panel_id   = $3
+        ORDER BY se.ts DESC
+        LIMIT $4
     """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT
-                se.ts,
-                se.addr,
-                se.raw,
-                COALESCE(rc.name_ru, rc.name_default) AS name,
-                rc.unit_default,
-                rc.states_json
-            FROM state_events se
-            LEFT JOIN register_catalog rc
-                   ON rc.equip_type = $2 AND rc.addr = se.addr
-            WHERE se.router_sn  = $1
-              AND se.equip_type = $2
-              AND se.panel_id   = $3
-            ORDER BY se.ts DESC
-            LIMIT $4
-            """,
-            router_sn, equip_type, panel_id, limit,
-        )
+        try:
+            rows = await conn.fetch(_sql_ru, router_sn, equip_type, panel_id, limit)
+        except asyncpg.UndefinedColumnError:
+            rows = await conn.fetch(_sql_fallback, router_sn, equip_type, panel_id, limit)
     return {"events": [dict(r) for r in rows]}
 
 
