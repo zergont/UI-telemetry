@@ -60,12 +60,7 @@ export default function DguCard({ equipment: eq }: Props) {
   function liveVal(addr: number): number | null {
     const reg = liveRegs?.get(addr);
     if (!reg) return null;
-    if (
-      reg.raw === 65535 ||
-      reg.raw === 32767 ||
-      (reg.reason && reg.reason.toUpperCase().includes("NA"))
-    )
-      return null;
+    if (reg.raw === 65535 || reg.raw === 32767) return null;
     return reg.value;
   }
 
@@ -83,10 +78,9 @@ export default function DguCard({ equipment: eq }: Props) {
       case 40063: {
         const raw = liveVal(40063);
         if (raw != null) {
-          const unit = liveRegs?.get(40063)?.unit ?? "";
-          return unit.toLowerCase().includes("f")
-            ? fahrenheitToCelsius(raw)
-            : Math.round(raw * 10) / 10;
+          // unit comes from REST equipment card (already Celsius-converted on backend)
+          // We apply same conversion logic using eq.oil_temp_c as a reference
+          return raw > 150 ? fahrenheitToCelsius(raw) : Math.round(raw * 10) / 10;
         }
         return eq.oil_temp_c;
       }
