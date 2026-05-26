@@ -124,14 +124,12 @@ export default function RegistersTab({
   lastWsUpdate,
 }: RegistersTabProps) {
   const [search, setSearch] = useState("");
-  const [showNA, setShowNA] = useState(true);
+  const [hideZero, setHideZero] = useState(false);
 
   const filtered = useMemo(() => {
     let result = registers;
-    if (!showNA) {
-      result = result.filter(
-        (r) => r.raw !== 65535 && r.raw !== 32767,
-      );
+    if (hideZero) {
+      result = result.filter((r) => r.raw !== 0);
     }
     if (search) {
       const q = search.toLowerCase();
@@ -143,7 +141,7 @@ export default function RegistersTab({
       );
     }
     return result;
-  }, [registers, search, showNA]);
+  }, [registers, search, hideZero]);
 
   if (isLoading) {
     return (
@@ -169,11 +167,11 @@ export default function RegistersTab({
           <label className="flex cursor-pointer items-center gap-2 text-sm select-none">
             <input
               type="checkbox"
-              checked={showNA}
-              onChange={(e) => setShowNA(e.target.checked)}
+              checked={hideZero}
+              onChange={(e) => setHideZero(e.target.checked)}
               className="rounded"
             />
-            Показывать NA
+            Скрывать нулевые
           </label>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
