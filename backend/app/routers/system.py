@@ -56,9 +56,9 @@ async def diagnostics(
     map_store: MapStore = Depends(get_map_store),
     ctx: AuthContext = Depends(require_auth),
 ):
-    """Диагностика: состояние MQTT-карт, БД, кэша телеметрии."""
+    """Диагностика: состояние register_catalog (MapStore), БД, кэша телеметрии."""
 
-    # 1. MapStore — получены ли карты от брокера
+    # 1. MapStore — загружен ли каталог регистров из БД
     maps_stats = map_store.stats()
 
     # 2. DB — простая проверка соединения

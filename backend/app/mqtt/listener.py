@@ -1,4 +1,8 @@
-"""MQTT subscriber: decoded telemetry + device maps → TelemetryHub."""
+"""MQTT subscriber: decoded telemetry → TelemetryHub.
+
+Maps topic (cg/v1/maps/+) is no longer subscribed — register metadata
+is now loaded from register_catalog DB table at startup (see main.py).
+"""
 from __future__ import annotations
 
 import asyncio
@@ -15,45 +19,31 @@ from app.services.enrichment import enrich_register
 logger = logging.getLogger(__name__)
 
 
-def _handle_map(payload: dict, map_store: MapStore) -> None:
-    """Обновить MapStore из retained map-сообщения."""
-    device_type = payload.get("device_type")
-    registers = payload.get("registers")
-    if device_type and isinstance(registers, dict):
-        map_store.update(device_type, registers)
-    else:
-        logger.warning(
-            "Map message missing device_type or registers. Keys: %s",
-            list(payload.keys()),
-        )
-
-
 async def _handle_telemetry(
     topic_str: str,
     payload: dict,
     hub: TelemetryHub,
     map_store: MapStore,
 ) -> None:
-    """Обогатить регистры из map и опубликовать в TelemetryHub."""
+    """Enrich registers from MapStore and publish to TelemetryHub."""
     router_sn = payload["router_sn"]
     bserver_id = payload.get("bserver_id", 0)
 
     # cg/v1/decoded/SN/<router_sn>/<equip_type>/<panel>
-    # Индексы:        0  1  2       3   4            5             6
+    # Indices:        0  1  2       3   4            5             6
     topic_parts = topic_str.split("/")
     equip_type = topic_parts[5] if len(topic_parts) > 5 else "pcc"
 
     raw_registers: list[dict] = payload.get("registers", [])
-    map_ready = map_store.has(equip_type)
     logger.debug(
-        "Telemetry: router_sn=%s equip_type=%s regs=%d map_ready=%s",
-        router_sn, equip_type, len(raw_registers), map_ready,
+        "Telemetry: router_sn=%s equip_type=%s regs=%d",
+        router_sn, equip_type, len(raw_registers),
     )
-    enriched = []
-    for r in raw_registers:
-        addr = r["addr"]
-        meta = enrich_register(equip_type, addr, r.get("value"), r.get("raw"), map_store)
-        enriched.append(meta)
+
+    enriched = [
+        enrich_register(equip_type, r["addr"], r.get("value"), r.get("raw"), map_store)
+        for r in raw_registers
+    ]
 
     ws_message = {
         "type": "telemetry",
@@ -68,7 +58,6 @@ async def _handle_telemetry(
 
 async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub, map_store: MapStore) -> None:
     telemetry_topic = f"{cfg.topic_prefix}/+/pcc/+"
-    map_topic = f"{cfg.map_topic_prefix}/+"
     reconnect_interval = cfg.reconnect_interval
 
     while True:
@@ -81,27 +70,24 @@ async def mqtt_listener(cfg: MqttConfig, hub: TelemetryHub, map_store: MapStore)
                 identifier=cfg.client_id,
             ) as client:
                 logger.info(
-                    "MQTT connected to %s:%s, subscribing to %s and %s",
-                    cfg.host, cfg.port, telemetry_topic, map_topic,
+                    "MQTT connected to %s:%s, subscribing to %s",
+                    cfg.host, cfg.port, telemetry_topic,
                 )
                 await client.subscribe(telemetry_topic)
-                await client.subscribe(map_topic)
                 reconnect_interval = cfg.reconnect_interval
 
                 async for message in client.messages:
                     topic_str = str(message.topic)
                     try:
                         payload = json.loads(message.payload)
-                        if topic_str.startswith(cfg.map_topic_prefix + "/"):
-                            # Топик вида cg/v1/maps/<device_type>
-                            _handle_map(payload, map_store)
-                        else:
-                            await _handle_telemetry(topic_str, payload, hub, map_store)
+                        await _handle_telemetry(topic_str, payload, hub, map_store)
                     except (json.JSONDecodeError, KeyError, TypeError) as exc:
                         logger.warning("Bad MQTT message on %s: %s", topic_str, exc)
 
         except aiomqtt.MqttError as exc:
-            logger.error("MQTT connection lost: %s — reconnecting in %ds", exc, reconnect_interval)
+            logger.error(
+                "MQTT connection lost: %s — reconnecting in %ds", exc, reconnect_interval
+            )
             await asyncio.sleep(reconnect_interval)
             reconnect_interval = min(reconnect_interval * 2, cfg.max_reconnect_interval)
         except asyncio.CancelledError:

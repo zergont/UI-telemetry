@@ -189,7 +189,10 @@ async def fetch_journal(
     panel_id: int,
     limit: int = 500,
 ) -> dict[str, Any]:
-    """Журнал состояний: все state_events оборудования (все адреса)."""
+    """Журнал состояний: все state_events оборудования (все адреса).
+
+    Обогащается именем и метаданными из register_catalog.
+    """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -197,9 +200,12 @@ async def fetch_journal(
                 se.ts,
                 se.addr,
                 se.raw,
-                NULL::text AS text,
-                NULL::text AS write_reason
+                rc.name_default    AS name,
+                rc.unit_default,
+                rc.states_json
             FROM state_events se
+            LEFT JOIN register_catalog rc
+                   ON rc.equip_type = $2 AND rc.addr = se.addr
             WHERE se.router_sn  = $1
               AND se.equip_type = $2
               AND se.panel_id   = $3

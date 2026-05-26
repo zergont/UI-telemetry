@@ -8,8 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from app.auth import AuthContext, enforce_router_scope, require_auth
 from app.db.queries.gaps import fetch_gaps
 from app.db.queries.history import fetch_history, fetch_journal, fetch_state_events
-from app.deps import get_map_store, get_pool
-from app.mqtt.map_store import MapStore
+from app.deps import get_pool
 from app.schemas.history import (
     GapZone,
     HistoryPoint,
@@ -19,6 +18,7 @@ from app.schemas.history import (
     StateEvent,
     StateEventsResponse,
 )
+from app.services.enrichment import _text_from_catalog
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -55,48 +55,25 @@ async def get_journal(
     panel_id: int = Query(...),
     limit: int = Query(500, ge=10, le=2000),
     pool: asyncpg.Pool = Depends(get_pool),
-    map_store: MapStore = Depends(get_map_store),
     ctx: AuthContext = Depends(require_auth),
 ):
-    """Журнал состояний (все discrete/enum регистры оборудования)."""
+    """Журнал состояний (все discrete/enum регистры оборудования).
+
+    Имя и text берутся из register_catalog через SQL JOIN.
+    """
     enforce_router_scope(ctx, router_sn)
     result = await fetch_journal(pool, router_sn, equip_type, panel_id, limit=limit)
     events = []
     for e in result["events"]:
-        meta = map_store.get(equip_type, e["addr"])
-        name: str | None = None
-        text: str | None = None
-        if meta:
-            name = meta.get("name_ru") or meta.get("name")
-            unit = meta.get("unit") or ""
-            raw = e["raw"]
-            if unit == "enum" and raw is not None:
-                key = str(int(raw))
-                labels_ru = meta.get("labels_ru") or {}
-                labels = meta.get("labels") or {}
-                text = labels_ru.get(key) or labels.get(key)
-            elif unit == "fault_bitmap" and raw is not None:
-                bits_def = meta.get("bits") or {}
-                active = []
-                for bit in range(16):
-                    if (int(raw) >> bit) & 1:
-                        bit_info = bits_def.get(str(bit)) or {}
-                        active.append(
-                            bit_info.get("name_ru") or bit_info.get("name") or f"bit {bit}"
-                        )
-                if active:
-                    text = ", ".join(active)
-                elif bits_def:
-                    text = "OK"
-                else:
-                    text = f"0x{int(raw):04X}"
+        unit: str = e.get("unit_default") or ""
+        states_json: dict = e.get("states_json") or {}
         events.append(JournalEvent(
             ts=e["ts"],
             addr=e["addr"],
-            name=name,
+            name=e.get("name"),
             raw=e["raw"],
-            text=text,
-            write_reason="change",  # state_events records only actual changes
+            text=_text_from_catalog(unit, e["raw"], states_json),
+            write_reason="change",   # state_events only records actual changes
         ))
     return JournalResponse(events=events)
 

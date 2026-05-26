@@ -5,10 +5,9 @@ from fastapi import APIRouter, Depends
 
 from app.auth import AuthContext, enforce_router_scope, require_auth
 from app.db.queries.registers import fetch_registers
-from app.deps import get_map_store, get_pool
-from app.mqtt.map_store import MapStore
+from app.deps import get_pool
 from app.schemas.registers import RegisterOut
-from app.services.enrichment import enrich_register
+from app.services.enrichment import enrich_from_catalog_row
 
 router = APIRouter(prefix="/api/registers", tags=["registers"])
 
@@ -22,13 +21,8 @@ async def get_registers(
     equip_type: str,
     panel_id: int,
     pool: asyncpg.Pool = Depends(get_pool),
-    map_store: MapStore = Depends(get_map_store),
     ctx: AuthContext = Depends(require_auth),
 ):
     enforce_router_scope(ctx, router_sn)
     rows = await fetch_registers(pool, router_sn, equip_type, panel_id)
-    result = []
-    for r in rows:
-        enriched = enrich_register(equip_type, r["addr"], r["value"], r["raw"], map_store)
-        result.append(RegisterOut(**enriched))
-    return result
+    return [RegisterOut(**enrich_from_catalog_row(r)) for r in rows]
