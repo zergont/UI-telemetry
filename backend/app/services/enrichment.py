@@ -18,14 +18,15 @@ def enrich_from_catalog_row(row: dict) -> dict:
     addr: int = row["addr"]
     value = row.get("value")
     raw = row.get("raw")
-    name: str = row.get("name_default") or f"reg {addr}"
+    name_en: str = row.get("name_default") or f"reg {addr}"
+    name: str = row.get("name_ru") or name_en   # русское, fallback на английское
     unit: str = row.get("unit_default") or ""
     states_json: dict = row.get("states_json") or {}
 
     result: dict = {
         "addr": addr,
         "name": name,
-        "name_en": name,
+        "name_en": name_en,
         "value": value,
         "raw": raw,
         "text": None,

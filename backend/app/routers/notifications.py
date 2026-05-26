@@ -32,8 +32,8 @@ async def get_notifications(
         NotificationOut(
             addr=r["addr"],
             bit=r["bit"],
-            fault_name=r["fault_name"],
-            fault_description=None,   # not in catalog yet
+            fault_name=r["fault_name_en"],          # English → тултип
+            fault_description=r["fault_name_ru"],   # Русский → основной текст
             severity=r["severity"],
             fault_start=r["fault_start"],
             fault_end=r["fault_end"],

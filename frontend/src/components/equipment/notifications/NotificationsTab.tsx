@@ -91,10 +91,17 @@ export default function NotificationsTab({ routerSn, equipType, panelId }: Notif
     </TableHeader>
   );
 
-  const renderRow = (n: NotificationOut, idx: number) => (
+  const renderRow = (n: NotificationOut, idx: number) => {
+    const displayName = n.fault_description || n.fault_name || "—";
+    const tooltip = n.fault_name && n.fault_name !== displayName ? n.fault_name : undefined;
+    return (
     <TableRow key={idx} className={rowClass(n)}>
-      <TableCell className="font-medium text-sm" title={n.fault_name ?? undefined}>
-        {n.fault_description || n.fault_name || "—"}
+      <TableCell className="font-medium text-sm">
+        {tooltip ? (
+          <span title={tooltip} className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
+            {displayName}
+          </span>
+        ) : displayName}
       </TableCell>
       <TableCell><SeverityBadge severity={n.severity} /></TableCell>
       <TableCell className="hidden sm:table-cell font-mono text-xs text-muted-foreground">
@@ -113,6 +120,7 @@ export default function NotificationsTab({ routerSn, equipType, panelId }: Notif
       </TableCell>
     </TableRow>
   );
+  };
 
   const isEmpty = active.length === 0 && historical.length === 0;
 

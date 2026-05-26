@@ -20,6 +20,7 @@ async def fetch_registers(
                 ls.value,
                 ls.raw,
                 rc.name_default,
+                rc.name_ru,
                 rc.unit_default,
                 rc.register_kind,
                 rc.states_json

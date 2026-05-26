@@ -200,7 +200,7 @@ async def fetch_journal(
                 se.ts,
                 se.addr,
                 se.raw,
-                rc.name_default    AS name,
+                COALESCE(rc.name_ru, rc.name_default) AS name,
                 rc.unit_default,
                 rc.states_json
             FROM state_events se
