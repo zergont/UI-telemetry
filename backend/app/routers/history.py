@@ -72,6 +72,7 @@ async def get_journal(
             ts=e["state_start"],
             addr=e["addr"],
             name=e.get("name"),
+            name_en=e.get("name_en"),
             raw=e.get("value"),
             text=text,
             state_end=e.get("state_end"),

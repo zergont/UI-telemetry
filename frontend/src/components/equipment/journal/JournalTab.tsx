@@ -111,7 +111,13 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
                     {formatDuration(e.duration_seconds)}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{e.addr}</TableCell>
-                  <TableCell className="text-sm">{e.name || `reg ${e.addr}`}</TableCell>
+                  <TableCell className="text-sm">
+                    {e.name_en && e.name_en !== e.name ? (
+                      <span title={e.name_en} className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
+                        {e.name || `reg ${e.addr}`}
+                      </span>
+                    ) : (e.name || `reg ${e.addr}`)}
+                  </TableCell>
                   <TableCell className="font-semibold text-sm">
                     {e.text ?? (e.raw != null ? String(e.raw) : "—")}
                   </TableCell>

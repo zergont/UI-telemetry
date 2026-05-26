@@ -4,7 +4,8 @@ import { apiFetch } from "@/lib/api";
 export interface JournalEvent {
   ts: string;           // state_start
   addr: number;
-  name: string | null;
+  name: string | null;      // русское имя (основное)
+  name_en: string | null;   // английское (тултип)
   raw: number | null;   // enum value code
   text: string | null;  // label_ru ?? label ?? str(value)
   state_end: string | null;     // null = текущее активное состояние

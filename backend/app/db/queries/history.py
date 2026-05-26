@@ -199,6 +199,7 @@ async def fetch_journal(
         SELECT
             e.addr,
             COALESCE(r.name_ru, r.name_default)         AS name,
+            r.name_default                               AS name_en,
             e.value,
             r.states_json->'labels'   ->> e.value::text AS label,
             r.states_json->'labels_ru'->> e.value::text AS label_ru,
@@ -220,6 +221,7 @@ async def fetch_journal(
         SELECT
             e.addr,
             r.name_default                               AS name,
+            r.name_default                               AS name_en,
             e.value,
             r.states_json->'labels'   ->> e.value::text AS label,
             NULL::text                                   AS label_ru,

@@ -34,7 +34,8 @@ class HistoryResponse(BaseModel):
 class JournalEvent(BaseModel):
     ts: datetime                      # state_start
     addr: int
-    name: Optional[str] = None
+    name: Optional[str] = None        # русское имя (основное)
+    name_en: Optional[str] = None     # английское (тултип)
     raw: Optional[int] = None         # enum value code
     text: Optional[str] = None        # label_ru ?? label ?? str(value)
     state_end: Optional[datetime] = None  # None = текущее активное состояние
