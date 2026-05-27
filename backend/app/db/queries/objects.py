@@ -122,9 +122,27 @@ async def delete_object_cascade(pool: asyncpg.Pool, router_sn: str) -> bool:
     """Каскадное удаление объекта и всех связанных данных в одной транзакции."""
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Порядок: от вложенных к корню
+            # ── Телеметрия (сырые и агрегированные данные) ───────────────────
             await conn.execute(
                 "DELETE FROM history WHERE router_sn = $1", router_sn)
+            # history_1min / history_1hour — continuous aggregates TimescaleDB,
+            # обновятся автоматически после удаления из history
+
+            # ── Дискретные состояния ──────────────────────────────────────────
+            await conn.execute(
+                "DELETE FROM state_events WHERE router_sn = $1", router_sn)
+            await conn.execute(
+                "DELETE FROM enum_history WHERE router_sn = $1", router_sn)
+
+            # ── Аварии ───────────────────────────────────────────────────────
+            await conn.execute(
+                "DELETE FROM fault_history WHERE router_sn = $1", router_sn)
+
+            # ── Пропуски связи ────────────────────────────────────────────────
+            await conn.execute(
+                "DELETE FROM data_gaps WHERE router_sn = $1", router_sn)
+
+            # ── Текущие состояния / события / оборудование ────────────────────
             await conn.execute(
                 "DELETE FROM latest_state WHERE router_sn = $1", router_sn)
             await conn.execute(
@@ -133,12 +151,15 @@ async def delete_object_cascade(pool: asyncpg.Pool, router_sn: str) -> bool:
                 "DELETE FROM equipment WHERE router_sn = $1", router_sn)
             await conn.execute(
                 "DELETE FROM gps_latest_filtered WHERE router_sn = $1", router_sn)
-            # Ревокнуть share-ссылки (soft-delete)
+
+            # ── Ревокнуть share-ссылки (soft-delete) ─────────────────────────
             await conn.execute(
                 "UPDATE share_links SET revoked_at = now() "
                 "WHERE scope_type = 'site' AND scope_id = $1 AND revoked_at IS NULL",
                 router_sn,
             )
+
+            # ── Корень ────────────────────────────────────────────────────────
             result = await conn.execute(
                 "DELETE FROM objects WHERE router_sn = $1", router_sn)
     return result == "DELETE 1"
