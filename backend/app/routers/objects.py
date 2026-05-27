@@ -170,12 +170,12 @@ async def delete_object(
                 ),
             )
 
-    ok = await delete_object_cascade(pool, router_sn)
-    if not ok:
+    summary = await delete_object_cascade(pool, router_sn)
+    if summary is None:
         raise HTTPException(status_code=404, detail="Object not found")
 
     logger.info(
-        "Объект %s удалён администратором (IP: %s)",
-        router_sn, ctx.client_ip,
+        "Объект %s удалён администратором (IP: %s), итого: %s",
+        router_sn, ctx.client_ip, summary,
     )
-    return {"ok": True, "deleted": router_sn}
+    return {"deleted": summary}

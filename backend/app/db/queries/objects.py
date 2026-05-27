@@ -118,48 +118,22 @@ async def check_object_last_activity(
     return dict(row)
 
 
-async def delete_object_cascade(pool: asyncpg.Pool, router_sn: str) -> bool:
-    """Каскадное удаление объекта и всех связанных данных в одной транзакции."""
+async def delete_object_cascade(
+    pool: asyncpg.Pool, router_sn: str
+) -> dict[str, int] | None:
+    """Каскадное удаление через хранимую процедуру delete_device().
+
+    Возвращает словарь {table_name: deleted_rows} или None если объект не найден.
+    Процедура сама знает все таблицы и выполняется в одной транзакции.
+    """
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            # ── Телеметрия (сырые и агрегированные данные) ───────────────────
-            await conn.execute(
-                "DELETE FROM history WHERE router_sn = $1", router_sn)
-            # history_1min / history_1hour — continuous aggregates TimescaleDB,
-            # обновятся автоматически после удаления из history
+        rows = await conn.fetch("SELECT * FROM delete_device($1)", router_sn)
 
-            # ── Дискретные состояния ──────────────────────────────────────────
-            await conn.execute(
-                "DELETE FROM state_events WHERE router_sn = $1", router_sn)
-            await conn.execute(
-                "DELETE FROM enum_history WHERE router_sn = $1", router_sn)
+    if not rows:
+        return None
 
-            # ── Аварии ───────────────────────────────────────────────────────
-            await conn.execute(
-                "DELETE FROM fault_history WHERE router_sn = $1", router_sn)
-
-            # ── Пропуски связи ────────────────────────────────────────────────
-            await conn.execute(
-                "DELETE FROM data_gaps WHERE router_sn = $1", router_sn)
-
-            # ── Текущие состояния / события / оборудование ────────────────────
-            await conn.execute(
-                "DELETE FROM latest_state WHERE router_sn = $1", router_sn)
-            await conn.execute(
-                "DELETE FROM events WHERE router_sn = $1", router_sn)
-            await conn.execute(
-                "DELETE FROM equipment WHERE router_sn = $1", router_sn)
-            await conn.execute(
-                "DELETE FROM gps_latest_filtered WHERE router_sn = $1", router_sn)
-
-            # ── Ревокнуть share-ссылки (soft-delete) ─────────────────────────
-            await conn.execute(
-                "UPDATE share_links SET revoked_at = now() "
-                "WHERE scope_type = 'site' AND scope_id = $1 AND revoked_at IS NULL",
-                router_sn,
-            )
-
-            # ── Корень ────────────────────────────────────────────────────────
-            result = await conn.execute(
-                "DELETE FROM objects WHERE router_sn = $1", router_sn)
-    return result == "DELETE 1"
+    summary = {r["table_name"]: r["deleted_rows"] for r in rows}
+    # Объект не найден если objects=0
+    if summary.get("objects", 0) == 0:
+        return None
+    return summary
