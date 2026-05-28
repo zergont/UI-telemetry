@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,13 +10,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useJournal } from "@/hooks/use-journal";
+import { useJournal, type JournalEvent } from "@/hooks/use-journal";
 
 interface JournalTabProps {
   routerSn: string;
   equipType: string;
   panelId: string;
 }
+
+type SortKey = "ts" | "state_end" | "duration_seconds" | "addr";
+type SortDir = "asc" | "desc";
 
 const LIMIT_STEP = 500;
 const LIMIT_MAX = 2000;
@@ -33,23 +36,58 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(seconds / 86400)} д ${Math.floor((seconds % 86400) / 3600)} ч`;
 }
 
+function sortValue(e: JournalEvent, key: SortKey): number {
+  switch (key) {
+    case "ts":              return new Date(e.ts).getTime();
+    case "state_end":       return e.state_end ? new Date(e.state_end).getTime() : Infinity;
+    case "duration_seconds": return e.duration_seconds ?? -1;
+    case "addr":            return e.addr;
+  }
+}
+
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ArrowUpDown className="ml-1 h-3 w-3 opacity-40" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="ml-1 h-3 w-3" />
+    : <ArrowDown className="ml-1 h-3 w-3" />;
+}
+
 export default function JournalTab({ routerSn, equipType, panelId }: JournalTabProps) {
   const [limit, setLimit] = useState(LIMIT_STEP);
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("ts");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data, isLoading, refetch, isFetching } = useJournal(routerSn, equipType, panelId, limit);
 
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
+
   const filtered = useMemo(() => {
     const events = data?.events ?? [];
-    if (!search) return events;
-    const q = search.toLowerCase();
-    return events.filter(
-      (e) =>
-        String(e.addr).includes(q) ||
-        (e.name && e.name.toLowerCase().includes(q)) ||
-        (e.text && e.text.toLowerCase().includes(q)),
-    );
-  }, [data, search]);
+    const searched = search
+      ? (() => {
+          const q = search.toLowerCase();
+          return events.filter(
+            (e) =>
+              String(e.addr).includes(q) ||
+              (e.name && e.name.toLowerCase().includes(q)) ||
+              (e.text && e.text.toLowerCase().includes(q)),
+          );
+        })()
+      : events;
+
+    return [...searched].sort((a, b) => {
+      const diff = sortValue(a, sortKey) - sortValue(b, sortKey);
+      return sortDir === "asc" ? diff : -diff;
+    });
+  }, [data, search, sortKey, sortDir]);
 
   if (isLoading) {
     return (
@@ -58,6 +96,20 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
           <Skeleton key={i} className="h-10 w-full" />
         ))}
       </div>
+    );
+  }
+
+  function SortHead({ col, label, className }: { col: SortKey; label: string; className?: string }) {
+    return (
+      <TableHead
+        className={`cursor-pointer select-none hover:text-foreground ${className ?? ""}`}
+        onClick={() => handleSort(col)}
+      >
+        <span className="inline-flex items-center">
+          {label}
+          <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+        </span>
+      </TableHead>
     );
   }
 
@@ -86,10 +138,10 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="hidden lg:table-cell w-44">Начало</TableHead>
-              <TableHead className="hidden lg:table-cell w-44">Конец</TableHead>
-              <TableHead className="hidden md:table-cell w-28">Длительность</TableHead>
-              <TableHead className="w-20">Адрес</TableHead>
+              <SortHead col="ts"               label="Начало"       className="hidden lg:table-cell w-44" />
+              <SortHead col="state_end"        label="Конец"        className="hidden lg:table-cell w-44" />
+              <SortHead col="duration_seconds" label="Длительность" className="hidden md:table-cell w-28" />
+              <SortHead col="addr"             label="Адрес"        className="w-20" />
               <TableHead>Имя</TableHead>
               <TableHead>Состояние</TableHead>
             </TableRow>
