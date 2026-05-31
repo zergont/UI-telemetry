@@ -12,16 +12,19 @@ export interface NotificationOut {
   duration_seconds: number | null;
 }
 
+export type NotificationsMode = "latest" | "all";
+
 export function useNotifications(
   routerSn: string,
   equipType: string,
   panelId: number | string,
+  mode: NotificationsMode = "latest",
 ) {
   return useQuery({
-    queryKey: ["notifications", routerSn, equipType, panelId],
+    queryKey: ["notifications", routerSn, equipType, panelId, mode],
     queryFn: () =>
       apiFetch<NotificationOut[]>(
-        `/api/notifications/${routerSn}/${equipType}/${panelId}`,
+        `/api/notifications/${routerSn}/${equipType}/${panelId}?mode=${mode}`,
       ),
     enabled: !!routerSn && !!equipType,
     refetchInterval: 30_000,

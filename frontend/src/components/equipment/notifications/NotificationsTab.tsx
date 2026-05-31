@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, ShieldAlert, Info, RefreshCw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useNotifications, type NotificationOut } from "@/hooks/use-notifications";
+import { useNotifications, type NotificationOut, type NotificationsMode } from "@/hooks/use-notifications";
 
 interface NotificationsTabProps {
   routerSn: string;
@@ -58,7 +58,8 @@ function rowClass(n: NotificationOut): string {
 }
 
 export default function NotificationsTab({ routerSn, equipType, panelId }: NotificationsTabProps) {
-  const { data, isLoading, refetch, isFetching } = useNotifications(routerSn, equipType, panelId);
+  const [mode, setMode] = useState<NotificationsMode>("latest");
+  const { data, isLoading, refetch, isFetching } = useNotifications(routerSn, equipType, panelId, mode);
 
   const { active, historical } = useMemo(() => {
     const all = data ?? [];
@@ -126,7 +127,7 @@ export default function NotificationsTab({ routerSn, equipType, panelId }: Notif
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           {active.length > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2.5 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
@@ -138,13 +139,38 @@ export default function NotificationsTab({ routerSn, equipType, panelId }: Notif
             <span className="text-sm text-muted-foreground">Активных уведомлений нет</span>
           )}
         </div>
-        <button
-          onClick={() => refetch()}
-          className="inline-flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/80"
-        >
-          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-          Обновить
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Переключатель режима */}
+          <div className="inline-flex rounded-md border bg-muted p-0.5 text-xs">
+            <button
+              onClick={() => setMode("latest")}
+              className={`rounded px-2.5 py-1 transition-colors ${
+                mode === "latest"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Последние
+            </button>
+            <button
+              onClick={() => setMode("all")}
+              className={`rounded px-2.5 py-1 transition-colors ${
+                mode === "all"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Все инциденты
+            </button>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/80"
+          >
+            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+            Обновить
+          </button>
+        </div>
       </div>
 
       {isEmpty ? (
