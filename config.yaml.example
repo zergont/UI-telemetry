@@ -53,6 +53,10 @@ access:
   cookie_secure: true                           # false для dev без HTTPS
   cors_origins: []                              # пустой = вычисляется из public_base_url
 
+cg_analytics:
+  enabled: true                 # false — дашборд работает без блоков ИИ-аналитики
+  url: "http://127.0.0.1:8090"  # cg-analytics API (внутренняя сеть)
+
 telemetry:
   offline_timeout_sec: 300
   key_registers:

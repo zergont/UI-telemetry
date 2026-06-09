@@ -15,8 +15,10 @@ import { motion } from "framer-motion";
 import { Wifi, WifiOff } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
+import { useMachineAnalytics, type SeverityLevel } from "@/hooks/use-analytics";
 import MetricDisplay from "./MetricDisplay";
 import EngineStatusBadges from "./EngineStatusBadges";
+import AnalyticsStrip from "./AnalyticsStrip";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
 import { formatRelativeTime } from "@/lib/format";
 import {
@@ -31,6 +33,25 @@ import {
 /** Порог «нет данных» для отдельной панели, мс */
 const PANEL_STALE_MS = 30_000;
 
+/** Акцент карточки по severity_level из cg-analytics */
+const CARD_ACCENT: Record<
+  SeverityLevel,
+  { bar: string; card: string }
+> = {
+  норма: {
+    bar: "via-emerald-500/60",
+    card: "hover:border-emerald-500/25 hover:shadow-emerald-500/10",
+  },
+  внимание: {
+    bar: "via-amber-400/80",
+    card: "border-amber-500/25 shadow-amber-500/5 hover:border-amber-500/40 hover:shadow-amber-500/15",
+  },
+  тревога: {
+    bar: "via-red-500/80",
+    card: "border-red-500/30 shadow-red-500/10 hover:border-red-500/50 hover:shadow-red-500/25",
+  },
+};
+
 interface Props {
   equipment: EquipmentOut;
 }
@@ -44,6 +65,12 @@ export default function DguCard({ equipment: eq }: Props) {
   const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
 
   const { data: cardParams = DEFAULT_DGU_PARAMS } = useDguCardSettings();
+
+  // ИИ-аналитика из cg-analytics (undefined — сервис недоступен или машина не наблюдается)
+  const analytics = useMachineAnalytics(eq.router_sn, eq.equip_type, eq.panel_id);
+  const accent = analytics
+    ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
+    : null;
 
   // Тик каждые 5 сек для обновления относительного времени и свежести
   const [now, setNow] = useState(Date.now);
@@ -110,13 +137,20 @@ export default function DguCard({ equipment: eq }: Props) {
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
       <Card
-        className="cursor-pointer border transition-shadow hover:shadow-lg"
+        className={`relative cursor-pointer overflow-hidden border transition-all duration-300 hover:shadow-lg ${accent?.card ?? "hover:border-foreground/15"}`}
         onClick={() =>
           navigate(
             `/objects/${eq.router_sn}/equipment/${eq.equip_type}/${eq.panel_id}`,
           )
         }
       >
+        {/* Акцентная линия severity по верхней кромке */}
+        {accent && (
+          <div
+            aria-hidden
+            className={`pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent ${accent.bar} to-transparent`}
+          />
+        )}
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <div>
             <h3 className="font-semibold text-base">{displayName}</h3>
@@ -159,6 +193,7 @@ export default function DguCard({ equipment: eq }: Props) {
             ))}
           </div>
         </CardContent>
+        {analytics && <AnalyticsStrip analytics={analytics} />}
       </Card>
     </motion.div>
   );

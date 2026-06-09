@@ -17,7 +17,7 @@ import yaml
 from pydantic import BaseModel
 
 # Версия из кода — обновляется через git pull (config.yaml НЕ в git!)
-APP_VERSION = "3.6.0"
+APP_VERSION = "3.7.0"
 
 
 class AppConfig(BaseModel):
@@ -92,6 +92,11 @@ class CgAdminConfig(BaseModel):
     github_repo: str = "zergont/cg-admin"   # owner/repo на GitHub для проверки обновлений
 
 
+class CgAnalyticsConfig(BaseModel):
+    enabled: bool = True                     # False — дашборд работает без блоков аналитики
+    url: str = "http://127.0.0.1:8090"      # cg-analytics API (внутренняя сеть, без авторизации)
+
+
 class AccessConfig(BaseModel):
     lan_subnets: list[str] = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.0/8"]
     public_base_url: str = "https://localhost:9443"
@@ -113,6 +118,7 @@ class Settings(BaseModel):
     telemetry: TelemetryConfig = TelemetryConfig()
     access: AccessConfig = AccessConfig()
     cg_admin: CgAdminConfig = CgAdminConfig()
+    cg_analytics: CgAnalyticsConfig = CgAnalyticsConfig()
 
 
 def _find_config_path() -> Path:
