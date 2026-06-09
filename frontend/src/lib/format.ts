@@ -21,6 +21,15 @@ export function formatMetric(
   return { display: `${value.toFixed(decimals)} ${unit}` };
 }
 
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return "—";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h === 0 && m === 0) return "< 1 мин";
+  if (h === 0) return `${m} мин`;
+  return `${h} ч ${String(m).padStart(2, "0")} мин`;
+}
+
 export function formatRelativeTime(ts: string | Date): string {
   const date = typeof ts === "string" ? new Date(ts) : ts;
   const now = new Date();

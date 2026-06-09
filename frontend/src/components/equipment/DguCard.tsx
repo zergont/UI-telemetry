@@ -19,6 +19,7 @@ import { useMachineAnalytics, type SeverityLevel } from "@/hooks/use-analytics";
 import MetricDisplay from "./MetricDisplay";
 import EngineStatusBadges from "./EngineStatusBadges";
 import AnalyticsStrip from "./AnalyticsStrip";
+import AnalyticsCalendarDialog from "./AnalyticsCalendarDialog";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
 import { formatRelativeTime } from "@/lib/format";
 import {
@@ -71,6 +72,7 @@ export default function DguCard({ equipment: eq }: Props) {
   const accent = analytics
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   // Тик каждые 5 сек для обновления относительного времени и свежести
   const [now, setNow] = useState(Date.now);
@@ -193,8 +195,22 @@ export default function DguCard({ equipment: eq }: Props) {
             ))}
           </div>
         </CardContent>
-        {analytics && <AnalyticsStrip analytics={analytics} />}
+        {analytics && (
+          <AnalyticsStrip
+            analytics={analytics}
+            onOpenCalendar={() => setCalendarOpen(true)}
+          />
+        )}
       </Card>
+      {/* Диалог вне Card: клики из портала не должны всплывать в onClick карточки */}
+      {analytics && (
+        <AnalyticsCalendarDialog
+          open={calendarOpen}
+          onOpenChange={setCalendarOpen}
+          machine={analytics}
+          displayName={displayName}
+        />
+      )}
     </motion.div>
   );
 }

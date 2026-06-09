@@ -10,7 +10,7 @@
  */
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Flame } from "lucide-react";
+import { Sparkles, Flame, ChevronRight } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -66,10 +66,12 @@ const COKING_META = {
 
 interface Props {
   analytics: MachineAnalytics;
+  /** Открыть календарь истории аналитики; строка становится кликабельной */
+  onOpenCalendar?: () => void;
 }
 
 /** Нижняя строка карточки ДГУ: живая сводка ИИ-аналитики из cg-analytics. */
-export default function AnalyticsStrip({ analytics }: Props) {
+export default function AnalyticsStrip({ analytics, onOpenCalendar }: Props) {
   const severity = analytics.severity_level ?? "норма";
   const meta = SEVERITY_META[severity] ?? SEVERITY_META["норма"];
   const coking =
@@ -78,7 +80,23 @@ export default function AnalyticsStrip({ analytics }: Props) {
       : null;
 
   return (
-    <div className="border-t border-border/60 px-6 pt-3 -mt-2">
+    <div
+      className={`group/strip border-t border-border/60 px-6 pt-3 -mt-2 ${
+        onOpenCalendar
+          ? "-mb-6 cursor-pointer rounded-b-xl pb-6 transition-colors hover:bg-accent/40"
+          : ""
+      }`}
+      role={onOpenCalendar ? "button" : undefined}
+      title={onOpenCalendar ? "История аналитики" : undefined}
+      onClick={
+        onOpenCalendar
+          ? (e) => {
+              e.stopPropagation();
+              onOpenCalendar();
+            }
+          : undefined
+      }
+    >
       <div className="flex items-center gap-2">
         <span
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${meta.iconBg}`}
@@ -117,6 +135,9 @@ export default function AnalyticsStrip({ analytics }: Props) {
             <span className="text-[11px] text-muted-foreground">
               {formatRelativeTime(new Date(analytics.status_updated))}
             </span>
+          )}
+          {onOpenCalendar && (
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 transition-all group-hover/strip:translate-x-0.5 group-hover/strip:text-foreground/70" />
           )}
         </span>
       </div>

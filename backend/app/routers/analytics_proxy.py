@@ -52,3 +52,28 @@ async def _proxy_get(path: str):
 async def get_machines(ctx: AuthContext = Depends(require_auth)):
     """Текущее состояние машин: severity_level, status_text, coking_risk."""
     return await _proxy_get("/api/machines")
+
+
+@router.get("/machine/{router_sn}/{equip_type}/{panel_id}/segments")
+async def get_machine_segments(
+    router_sn: str,
+    equip_type: str,
+    panel_id: int,
+    year: int | None = None,
+    month: int | None = None,
+    limit: int = 200,
+    ctx: AuthContext = Depends(require_auth),
+):
+    """История сегментов машины — для календаря аналитики."""
+    query = f"?limit={limit}"
+    if year and month:
+        query += f"&year={year}&month={month}"
+    return await _proxy_get(
+        f"/api/machine/{router_sn}/{equip_type}/{panel_id}/segments{query}"
+    )
+
+
+@router.get("/segment/{seg_id}")
+async def get_segment(seg_id: int, ctx: AuthContext = Depends(require_auth)):
+    """Детальный отчёт по сегменту: report_md + заключение ИИ."""
+    return await _proxy_get(f"/api/segment/{seg_id}")
