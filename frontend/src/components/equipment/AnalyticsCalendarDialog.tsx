@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Sparkles,
   Loader2,
+  X,
 } from "lucide-react";
 import {
   Dialog,
@@ -49,36 +50,28 @@ const CAUSE_LABELS: Record<string, string> = {
   OPERATOR_STOP: "Остановка оператором",
 };
 
-/** Ранг severity для выбора максимума за день */
-const SEVERITY_RANK: Record<string, number> = {
-  SHUTDOWN: 4,
-  ALARM: 3,
-  WARNING: 2,
-  INFO: 1,
-};
-
 const SEVERITY_META: Record<
   string,
-  { label: string; day: string; badge: string }
+  { label: string; cell: string; badge: string }
 > = {
   SHUTDOWN: {
     label: "Авар. останов",
-    day: "bg-red-500/15 text-red-500 hover:bg-red-500/25",
+    cell: "border-l-red-500",
     badge: "bg-red-500/15 text-red-500 border-red-500/20",
   },
   ALARM: {
     label: "Тревога",
-    day: "bg-red-500/15 text-red-500 hover:bg-red-500/25",
+    cell: "border-l-red-500",
     badge: "bg-red-500/15 text-red-500 border-red-500/20",
   },
   WARNING: {
     label: "Внимание",
-    day: "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25",
+    cell: "border-l-amber-400",
     badge: "bg-amber-500/15 text-amber-500 border-amber-500/20",
   },
   NORM: {
     label: "Норма",
-    day: "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25",
+    cell: "border-l-emerald-500",
     badge: "bg-emerald-500/15 text-emerald-500 border-emerald-500/20",
   },
 };
@@ -119,7 +112,6 @@ export default function AnalyticsCalendarDialog({
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1–12
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [segId, setSegId] = useState<number | null>(null);
 
   const { data: segments, isLoading } = useMachineSegments(
@@ -129,7 +121,7 @@ export default function AnalyticsCalendarDialog({
     open,
   );
 
-  // Группировка сегментов по локальной дате t_start
+  // Группировка по локальной дате t_start; внутри дня — хронологически (старые сверху)
   const byDay = useMemo(() => {
     const map = new Map<string, SegmentOut[]>();
     for (const seg of segments ?? []) {
@@ -139,15 +131,11 @@ export default function AnalyticsCalendarDialog({
       list.push(seg);
       map.set(key, list);
     }
+    for (const list of map.values()) {
+      list.sort((a, b) => (a.t_start! < b.t_start! ? -1 : 1));
+    }
     return map;
   }, [segments]);
-
-  // Без явного выбора показываем самый свежий день с сегментами
-  const latestDay = useMemo(() => {
-    const first = segments?.find((s) => s.t_start);
-    return first ? localDateKey(first.t_start!) : null;
-  }, [segments]);
-  const effectiveDay = selectedDay ?? latestDay;
 
   function shiftMonth(delta: number) {
     let m = month + delta;
@@ -156,7 +144,6 @@ export default function AnalyticsCalendarDialog({
     if (m > 12) { m = 1; y += 1; }
     setMonth(m);
     setYear(y);
-    setSelectedDay(null);
   }
 
   // Сетка месяца: смещение первого дня (Пн = 0) + число дней
@@ -166,22 +153,44 @@ export default function AnalyticsCalendarDialog({
   const isCurrentMonth =
     year === now.getFullYear() && month === now.getMonth() + 1;
 
-  const daySegments = effectiveDay ? byDay.get(effectiveDay) ?? [] : [];
-
   function handleClose(next: boolean) {
     onOpenChange(next);
-    if (!next) {
-      setSegId(null);
-      setSelectedDay(null);
-    }
+    if (!next) setSegId(null);
+  }
+
+  // Крестик и Escape из анализа возвращают в календарь, а не закрывают диалог
+  function handleDismiss() {
+    if (segId != null) setSegId(null);
+    else handleClose(false);
   }
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className="sm:max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+        className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-5xl"
+        showCloseButton={false}
         onClick={(e) => e.stopPropagation()}
+        onEscapeKeyDown={(e) => {
+          if (segId != null) {
+            e.preventDefault();
+            setSegId(null);
+          }
+        }}
+        onInteractOutside={(e) => {
+          if (segId != null) {
+            e.preventDefault();
+            setSegId(null);
+          }
+        }}
       >
+        <button
+          onClick={handleDismiss}
+          aria-label={segId != null ? "Назад к календарю" : "Закрыть"}
+          className="absolute top-4 right-4 z-10 rounded-xs opacity-70 transition-opacity hover:opacity-100"
+        >
+          <X className="size-4" />
+        </button>
+
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10">
@@ -205,7 +214,7 @@ export default function AnalyticsCalendarDialog({
                 transition={{ duration: 0.18 }}
               >
                 {/* Навигация по месяцам */}
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex items-center justify-center gap-4">
                   <button
                     className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     onClick={() => shiftMonth(-1)}
@@ -213,7 +222,7 @@ export default function AnalyticsCalendarDialog({
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
-                  <span className="text-sm font-semibold">
+                  <span className="min-w-36 text-center text-sm font-semibold">
                     {MONTHS[month - 1]} {year}
                   </span>
                   <button
@@ -226,66 +235,86 @@ export default function AnalyticsCalendarDialog({
                   </button>
                 </div>
 
-                {/* Календарная сетка */}
-                <div className="grid grid-cols-7 gap-1.5 text-center">
-                  {WEEKDAYS.map((wd) => (
-                    <div
-                      key={wd}
-                      className="pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-                    >
-                      {wd}
-                    </div>
-                  ))}
-                  {Array.from({ length: firstOffset }).map((_, i) => (
-                    <div key={`pad-${i}`} />
-                  ))}
-                  {Array.from({ length: daysInMonth }).map((_, i) => {
-                    const day = i + 1;
-                    const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                    const segs = byDay.get(key);
-                    const maxSev = segs?.reduce(
-                      (acc, s) =>
-                        (SEVERITY_RANK[s.severity ?? ""] ?? 1) >
-                        (SEVERITY_RANK[acc ?? ""] ?? 1)
-                          ? s.severity
-                          : acc,
-                      null as SegmentSeverity,
-                    );
-                    const meta = segs
-                      ? SEVERITY_META[severityKey(maxSev ?? null)]
-                      : null;
-                    const hasClaude = segs?.some((s) => s.has_claude);
-                    const isToday = key === todayKey;
-                    const isSelected = key === effectiveDay;
-
-                    return (
-                      <button
-                        key={key}
-                        disabled={!segs}
-                        onClick={() => setSelectedDay(key)}
-                        className={`relative flex aspect-square flex-col items-center justify-center rounded-lg text-xs font-medium transition-all ${
-                          meta
-                            ? `cursor-pointer ${meta.day}`
-                            : "text-muted-foreground/40"
-                        } ${isSelected ? "ring-2 ring-ring" : ""} ${
-                          isToday && !meta ? "text-foreground" : ""
-                        }`}
+                {/* Календарная сетка с сегментами в ячейках */}
+                <div className="overflow-x-auto">
+                  <div className="grid min-w-[640px] grid-cols-7 gap-1.5">
+                    {WEEKDAYS.map((wd) => (
+                      <div
+                        key={wd}
+                        className="pb-1 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
                       >
-                        {isLoading && !segments ? (
-                          <Skeleton className="h-4 w-4 rounded" />
-                        ) : (
-                          <>
-                            <span className={isToday ? "underline underline-offset-2" : ""}>
-                              {day}
-                            </span>
-                            {hasClaude && (
-                              <Sparkles className="absolute right-1 top-1 h-2.5 w-2.5 opacity-80" />
-                            )}
-                          </>
-                        )}
-                      </button>
-                    );
-                  })}
+                        {wd}
+                      </div>
+                    ))}
+                    {Array.from({ length: firstOffset }).map((_, i) => (
+                      <div key={`pad-${i}`} />
+                    ))}
+                    {Array.from({ length: daysInMonth }).map((_, i) => {
+                      const day = i + 1;
+                      const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const segs = byDay.get(key);
+                      const isToday = key === todayKey;
+
+                      return (
+                        <div
+                          key={key}
+                          className={`min-h-16 rounded-lg border p-1 ${
+                            segs
+                              ? "border-border/60"
+                              : "border-border/25"
+                          } ${isToday ? "bg-accent/30" : ""}`}
+                        >
+                          <div
+                            className={`px-1 pb-1 text-[10px] font-medium tabular-nums ${
+                              isToday
+                                ? "text-foreground"
+                                : segs
+                                  ? "text-muted-foreground"
+                                  : "text-muted-foreground/40"
+                            }`}
+                          >
+                            {day}
+                          </div>
+                          {isLoading && !segments ? (
+                            <Skeleton className="h-8 w-full rounded-md" />
+                          ) : (
+                            <div className="space-y-1">
+                              {segs?.map((seg) => {
+                                const meta =
+                                  SEVERITY_META[severityKey(seg.severity)];
+                                return (
+                                  <button
+                                    key={seg.id}
+                                    onClick={() => setSegId(seg.id)}
+                                    className={`block w-full rounded-md border-l-2 bg-accent/40 px-1.5 py-1 text-left transition-colors hover:bg-accent ${meta.cell}`}
+                                  >
+                                    <span className="flex items-center justify-between gap-1">
+                                      <span className="font-mono text-[10px] leading-tight tabular-nums text-foreground/85">
+                                        {timeHM(seg.t_start)}–
+                                        {seg.is_open ? "сейчас" : timeHM(seg.t_end)}
+                                      </span>
+                                      {seg.is_open ? (
+                                        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+                                      ) : (
+                                        seg.has_claude && (
+                                          <Sparkles className="h-2.5 w-2.5 shrink-0 text-primary/70" />
+                                        )
+                                      )}
+                                    </span>
+                                    <span className="block truncate text-[10px] leading-tight text-muted-foreground">
+                                      {seg.run_state_label ?? "—"}
+                                      {seg.duration_sec != null &&
+                                        ` · ${formatDuration(seg.duration_sec)}`}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Легенда */}
@@ -302,52 +331,11 @@ export default function AnalyticsCalendarDialog({
                   <span className="flex items-center gap-1.5">
                     <Sparkles className="h-3 w-3" /> есть заключение ИИ
                   </span>
-                </div>
-
-                {/* Сегменты выбранного дня */}
-                <div className="mt-4 border-t border-border/60 pt-3">
-                  {!effectiveDay || daySegments.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-muted-foreground">
-                      {segments?.length
-                        ? "Выберите день с записями"
-                        : isLoading
-                          ? "Загрузка…"
-                          : "В этом месяце записей нет"}
-                    </p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {daySegments.map((seg) => {
-                        const meta = SEVERITY_META[severityKey(seg.severity)];
-                        return (
-                          <button
-                            key={seg.id}
-                            onClick={() => setSegId(seg.id)}
-                            className="flex w-full items-center gap-3 rounded-lg border border-border/60 px-3 py-2 text-left transition-colors hover:border-border hover:bg-accent/50"
-                          >
-                            <span className="font-mono text-xs tabular-nums text-foreground/80">
-                              {timeHM(seg.t_start)}–{seg.is_open ? "сейчас" : timeHM(seg.t_end)}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {seg.run_state_label ?? "—"}
-                              {seg.duration_sec != null &&
-                                ` · ${formatDuration(seg.duration_sec)}`}
-                            </span>
-                            <span className="ml-auto flex items-center gap-1.5">
-                              {seg.has_claude && (
-                                <Sparkles className="h-3 w-3 text-primary/70" />
-                              )}
-                              {seg.is_open && (
-                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-                              )}
-                              <Badge variant="outline" className={`${meta.badge} text-[10px]`}>
-                                {meta.label}
-                              </Badge>
-                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" /> идёт сейчас
+                  </span>
+                  {!isLoading && !segments?.length && (
+                    <span className="ml-auto">В этом месяце записей нет</span>
                   )}
                 </div>
               </motion.div>
