@@ -108,9 +108,9 @@ export default function AnalyticsStrip({ analytics, onOpenCalendar }: Props) {
     >
       <div className="flex items-center gap-2">
         <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${meta.iconBg}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${meta.iconBg}`}
         >
-          <RobotMoodIcon severity={severity} className={`h-4 w-4 ${meta.text}`} />
+          <RobotMoodIcon severity={severity} className={`h-8 w-8 ${meta.text}`} />
         </span>
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           ИИ-аналитика
@@ -162,7 +162,7 @@ export default function AnalyticsStrip({ analytics, onOpenCalendar }: Props) {
           </motion.p>
         </AnimatePresence>
         {onOpenCalendar && (
-          <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-colors group-hover/strip:text-foreground/80" />
+          <CalendarDays className="h-8 w-8 shrink-0 text-muted-foreground/50 transition-colors group-hover/strip:text-foreground/80" />
         )}
       </div>
     </div>
