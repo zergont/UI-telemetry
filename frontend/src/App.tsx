@@ -37,9 +37,9 @@ function AppContent() {
   useWebSocket(subscribe);
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans antialiased">
+    <div className="flex min-h-screen flex-col bg-background text-foreground font-sans antialiased">
       <Header />
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto w-full flex-1 px-4 py-6">
         <Suspense fallback={<div className="min-h-[60vh]" />}>
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
@@ -87,6 +87,11 @@ function AppContent() {
         </AnimatePresence>
         </Suspense>
       </main>
+      <footer className="border-t border-border/40 py-3">
+        <p className="text-center text-[11px] text-muted-foreground/60 select-none">
+          © 2026 ООО «НГ-ЭНЕРГОСЕРВИС» · Программный комплекс «Честная Генерация» · Все права защищены
+        </p>
+      </footer>
       <span className="fixed bottom-1.5 right-2.5 text-[10px] text-muted-foreground/30 select-none pointer-events-none">
         v{__APP_VERSION__}
       </span>
