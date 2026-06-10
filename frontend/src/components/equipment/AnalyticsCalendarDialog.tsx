@@ -270,10 +270,12 @@ export default function AnalyticsCalendarDialog({
                         <div
                           key={key}
                           className={`min-h-20 rounded-lg border p-1.5 ${
-                            segs
-                              ? "border-border/60"
-                              : "border-border/25"
-                          } ${isToday ? "bg-accent/30" : ""}`}
+                            isToday
+                              ? "border-border/70 bg-muted/70"
+                              : segs
+                                ? "border-border/60 bg-muted/50"
+                                : "border-border/30 bg-muted/25"
+                          }`}
                         >
                           <div
                             className={`px-1 pb-1.5 text-[11px] font-medium tabular-nums ${
@@ -281,7 +283,7 @@ export default function AnalyticsCalendarDialog({
                                 ? "text-foreground"
                                 : segs
                                   ? "text-muted-foreground"
-                                  : "text-muted-foreground/40"
+                                  : "text-muted-foreground/50"
                             }`}
                           >
                             {day}

@@ -12,7 +12,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
-export type SeverityLevel = "норма" | "внимание" | "тревога";
+/** Итоговый уровень (4 уровня, cg-analytics v4.1.0): максимум панели и аналитики */
+export type SeverityLevel = "норма" | "внимание" | "предупреждение" | "авария";
+/** Сигналы панели управления (CONTROLLER_FAULT) */
+export type PanelSeverity = "норма" | "предупреждение" | "авария";
+/** Сигналы аналитического движка */
+export type AnalyticsSeverity = "норма" | "внимание";
 export type CokingRisk = "GREEN" | "YELLOW" | "RED";
 
 export interface MachineAnalytics {
@@ -26,8 +31,11 @@ export interface MachineAnalytics {
   run_state: number | null;
   run_state_label: string | null;
   severity_level: SeverityLevel | null;
+  panel_severity: PanelSeverity | null;
+  analytics_severity: AnalyticsSeverity | null;
   status_text: string | null;
   status_updated: string | null;
+  warning_analysis_md: string | null;
   coking_risk: CokingRisk | null;
 }
 

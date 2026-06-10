@@ -34,7 +34,7 @@ import {
 /** Порог «нет данных» для отдельной панели, мс */
 const PANEL_STALE_MS = 30_000;
 
-/** Акцент карточки по severity_level из cg-analytics */
+/** Акцент карточки по severity_level (4 уровня, cg-analytics v4.1.0) */
 const CARD_ACCENT: Record<
   SeverityLevel,
   { bar: string; card: string }
@@ -44,10 +44,14 @@ const CARD_ACCENT: Record<
     card: "hover:border-emerald-500/25 hover:shadow-emerald-500/10",
   },
   внимание: {
-    bar: "via-amber-400/80",
-    card: "border-amber-500/25 shadow-amber-500/5 hover:border-amber-500/40 hover:shadow-amber-500/15",
+    bar: "via-yellow-400/80",
+    card: "border-yellow-500/25 shadow-yellow-500/5 hover:border-yellow-500/40 hover:shadow-yellow-500/15",
   },
-  тревога: {
+  предупреждение: {
+    bar: "via-orange-500/80",
+    card: "border-orange-500/30 shadow-orange-500/5 hover:border-orange-500/45 hover:shadow-orange-500/20",
+  },
+  авария: {
     bar: "via-red-500/80",
     card: "border-red-500/30 shadow-red-500/10 hover:border-red-500/50 hover:shadow-red-500/25",
   },
