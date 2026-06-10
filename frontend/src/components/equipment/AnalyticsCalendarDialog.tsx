@@ -13,6 +13,7 @@ import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
+  Bot,
   ChevronLeft,
   ChevronRight,
   Sparkles,
@@ -50,47 +51,48 @@ const CAUSE_LABELS: Record<string, string> = {
   OPERATOR_STOP: "Остановка оператором",
 };
 
-const SEVERITY_META: Record<string, { label: string; badge: string }> = {
+/** Severity сегмента → 4-ступенчатая градация: авария / предупреждение / внимание / норма */
+const SEVERITY_META: Record<string, { label: string; badge: string; border: string }> = {
   SHUTDOWN: {
     label: "Авар. останов",
     badge: "bg-red-500/15 text-red-500 border-red-500/20",
+    border: "border-l-red-500",
   },
   ALARM: {
-    label: "Тревога",
+    label: "Авария",
     badge: "bg-red-500/15 text-red-500 border-red-500/20",
+    border: "border-l-red-500",
   },
   WARNING: {
+    label: "Предупреждение",
+    badge: "bg-orange-500/15 text-orange-500 border-orange-500/20",
+    border: "border-l-orange-500",
+  },
+  INFO: {
     label: "Внимание",
-    badge: "bg-amber-500/15 text-amber-500 border-amber-500/20",
+    badge: "bg-yellow-500/15 text-yellow-500 border-yellow-500/20",
+    border: "border-l-yellow-400",
   },
   NORM: {
     label: "Норма",
     badge: "bg-emerald-500/15 text-emerald-500 border-emerald-500/20",
+    border: "border-l-emerald-500",
   },
 };
 
-/** Плашка сегмента: кромка и заливка одним цветом по режиму работы (run_state) */
-const RUN_STATE_PLAQUE: Record<number, string> = {
-  0: "border-l-slate-500 bg-slate-500/10 hover:bg-slate-500/20",     // Стоп
-  1: "border-l-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20",  // Задержка пуска
-  2: "border-l-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20",  // Прогрев
-  3: "border-l-green-500 bg-green-500/10 hover:bg-green-500/20",     // Работа
-  4: "border-l-orange-500 bg-orange-500/10 hover:bg-orange-500/20",  // Разгрузка
-  5: "border-l-sky-500 bg-sky-500/10 hover:bg-sky-500/20",           // Охлаждение на х.х.
-  6: "border-l-sky-500 bg-sky-500/10 hover:bg-sky-500/20",           // Переход на х.х.
-};
-
-/** При отклонениях severity перекрашивает плашку целиком — тревога важнее режима */
-const SEVERITY_PLAQUE: Record<string, string> = {
-  WARNING: "border-l-amber-400 bg-amber-400/10 hover:bg-amber-400/20",
-  ALARM: "border-l-red-500 bg-red-500/10 hover:bg-red-500/20",
-  SHUTDOWN: "border-l-red-500 bg-red-500/10 hover:bg-red-500/20",
+/** Заливка плашки по режиму работы (run_state); состояние подписано на самой плашке */
+const RUN_STATE_TINT: Record<number, string> = {
+  0: "bg-slate-500/10 hover:bg-slate-500/20",      // Стоп
+  1: "bg-yellow-500/10 hover:bg-yellow-500/20",    // Задержка пуска
+  2: "bg-yellow-500/10 hover:bg-yellow-500/20",    // Прогрев
+  3: "bg-green-500/10 hover:bg-green-500/20",      // Работа
+  4: "bg-orange-500/10 hover:bg-orange-500/20",    // Разгрузка
+  5: "bg-sky-500/10 hover:bg-sky-500/20",          // Охлаждение на х.х.
+  6: "bg-sky-500/10 hover:bg-sky-500/20",          // Переход на х.х.
 };
 
 function severityKey(sev: SegmentSeverity): string {
-  return sev === "SHUTDOWN" || sev === "ALARM" || sev === "WARNING"
-    ? sev
-    : "NORM";
+  return sev != null && sev in SEVERITY_META ? sev : "NORM";
 }
 
 /** Локальная дата yyyy-mm-dd из ISO-метки (UTC) */
@@ -293,17 +295,17 @@ export default function AnalyticsCalendarDialog({
                           ) : (
                             <div className="space-y-1">
                               {segs?.map((seg) => {
-                                const plaque =
-                                  SEVERITY_PLAQUE[seg.severity ?? ""] ??
+                                const tint =
                                   (seg.run_state != null
-                                    ? RUN_STATE_PLAQUE[seg.run_state]
-                                    : undefined) ??
-                                  "border-l-border bg-accent/40 hover:bg-accent";
+                                    ? RUN_STATE_TINT[seg.run_state]
+                                    : undefined) ?? "bg-accent/40 hover:bg-accent";
+                                const sevBorder =
+                                  SEVERITY_META[severityKey(seg.severity)].border;
                                 return (
                                   <button
                                     key={seg.id}
                                     onClick={() => setSegId(seg.id)}
-                                    className={`block w-full rounded-r-md border-l-2 px-2 py-1.5 text-left transition-colors ${plaque}`}
+                                    className={`block w-full rounded-r-md border-l-4 px-2 py-1.5 text-left transition-colors ${tint} ${sevBorder}`}
                                   >
                                     <span className="flex items-center justify-between gap-1">
                                       <span className="font-mono text-xs leading-tight tabular-nums text-foreground/85">
@@ -314,7 +316,7 @@ export default function AnalyticsCalendarDialog({
                                         <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-blue-500" />
                                       ) : (
                                         seg.has_claude && (
-                                          <Sparkles className="h-3 w-3 shrink-0 text-primary/70" />
+                                          <Bot className="h-3.5 w-3.5 shrink-0 text-primary/70" />
                                         )
                                       )}
                                     </span>
@@ -337,28 +339,19 @@ export default function AnalyticsCalendarDialog({
                 {/* Легенда */}
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-green-500" /> работа
+                    <span className="h-3 w-1 rounded-sm bg-emerald-500" /> норма
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-slate-500" /> стоп
+                    <span className="h-3 w-1 rounded-sm bg-yellow-400" /> внимание
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-yellow-500" /> прогрев
+                    <span className="h-3 w-1 rounded-sm bg-orange-500" /> предупреждение
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-orange-500" /> разгрузка
+                    <span className="h-3 w-1 rounded-sm bg-red-500" /> авария
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-sky-500" /> охлаждение / х.х.
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-amber-400" /> внимание
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-red-500" /> тревога
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Sparkles className="h-3 w-3" /> есть заключение ИИ
+                    <Bot className="h-3.5 w-3.5" /> есть заключение ИИ
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" /> идёт сейчас
@@ -467,7 +460,7 @@ function SegmentDetailView({
           {/* Заключение ИИ */}
           <section className="rounded-xl border border-border/60 bg-accent/30 p-4">
             <h4 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-primary/70" />
+              <Bot className="h-3.5 w-3.5 text-primary/70" />
               Заключение ИИ
             </h4>
             {seg.analysis?.conclusion_md ? (
