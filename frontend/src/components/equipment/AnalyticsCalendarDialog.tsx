@@ -76,6 +76,17 @@ const SEVERITY_META: Record<
   },
 };
 
+/** Мягкая подсветка плашки сегмента по режиму работы (run_state) */
+const RUN_STATE_TINT: Record<number, string> = {
+  0: "bg-slate-500/10 hover:bg-slate-500/20",      // Стоп
+  1: "bg-yellow-500/10 hover:bg-yellow-500/20",    // Задержка пуска
+  2: "bg-yellow-500/10 hover:bg-yellow-500/20",    // Прогрев
+  3: "bg-green-500/10 hover:bg-green-500/20",      // Работа
+  4: "bg-orange-500/10 hover:bg-orange-500/20",    // Разгрузка
+  5: "bg-sky-500/10 hover:bg-sky-500/20",          // Охлаждение на х.х.
+  6: "bg-sky-500/10 hover:bg-sky-500/20",          // Переход на х.х.
+};
+
 function severityKey(sev: SegmentSeverity): string {
   return sev === "SHUTDOWN" || sev === "ALARM" || sev === "WARNING"
     ? sev
@@ -282,11 +293,15 @@ export default function AnalyticsCalendarDialog({
                               {segs?.map((seg) => {
                                 const meta =
                                   SEVERITY_META[severityKey(seg.severity)];
+                                const tint =
+                                  (seg.run_state != null
+                                    ? RUN_STATE_TINT[seg.run_state]
+                                    : undefined) ?? "bg-accent/40 hover:bg-accent";
                                 return (
                                   <button
                                     key={seg.id}
                                     onClick={() => setSegId(seg.id)}
-                                    className={`block w-full rounded-md border-l-2 bg-accent/40 px-2 py-1.5 text-left transition-colors hover:bg-accent ${meta.cell}`}
+                                    className={`block w-full rounded-md border-l-2 px-2 py-1.5 text-left transition-colors ${tint} ${meta.cell}`}
                                   >
                                     <span className="flex items-center justify-between gap-1">
                                       <span className="font-mono text-xs leading-tight tabular-nums text-foreground/85">
