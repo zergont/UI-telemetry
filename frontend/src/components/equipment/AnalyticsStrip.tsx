@@ -10,7 +10,8 @@
  */
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Flame, ChevronRight } from "lucide-react";
+import { Flame, CalendarDays } from "lucide-react";
+import RobotMoodIcon from "./RobotMoodIcon";
 import {
   Tooltip,
   TooltipContent,
@@ -107,9 +108,9 @@ export default function AnalyticsStrip({ analytics, onOpenCalendar }: Props) {
     >
       <div className="flex items-center gap-2">
         <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${meta.iconBg}`}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${meta.iconBg}`}
         >
-          <Sparkles className={`h-3 w-3 ${meta.text}`} />
+          <RobotMoodIcon severity={severity} className={`h-4 w-4 ${meta.text}`} />
         </span>
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           ИИ-аналитика
@@ -144,24 +145,26 @@ export default function AnalyticsStrip({ analytics, onOpenCalendar }: Props) {
               {formatRelativeTime(new Date(analytics.status_updated))}
             </span>
           )}
-          {onOpenCalendar && (
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 transition-all group-hover/strip:translate-x-0.5 group-hover/strip:text-foreground/70" />
-          )}
         </span>
       </div>
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.p
-          key={analytics.status_text ?? "pending"}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          className="mt-2 line-clamp-2 text-xs leading-relaxed text-foreground/75"
-        >
-          {analytics.status_text ??
-            "Наблюдение запущено, ожидание первой сводки…"}
-        </motion.p>
-      </AnimatePresence>
+      <div className="mt-2 flex items-start justify-between gap-3">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.p
+            key={analytics.status_text ?? "pending"}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="line-clamp-2 text-xs leading-relaxed text-foreground/75"
+          >
+            {analytics.status_text ??
+              "Наблюдение запущено, ожидание первой сводки…"}
+          </motion.p>
+        </AnimatePresence>
+        {onOpenCalendar && (
+          <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-colors group-hover/strip:text-foreground/80" />
+        )}
+      </div>
     </div>
   );
 }

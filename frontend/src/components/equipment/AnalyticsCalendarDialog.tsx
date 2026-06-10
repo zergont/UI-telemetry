@@ -16,7 +16,6 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Loader2,
   X,
 } from "lucide-react";
@@ -207,7 +206,7 @@ export default function AnalyticsCalendarDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <Bot className="h-4 w-4 text-primary" />
             </span>
             {segId == null ? "История аналитики" : "Анализ сегмента"}
           </DialogTitle>
@@ -216,7 +215,7 @@ export default function AnalyticsCalendarDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto pr-2">
           <AnimatePresence mode="wait" initial={false}>
             {segId == null ? (
               <motion.div
