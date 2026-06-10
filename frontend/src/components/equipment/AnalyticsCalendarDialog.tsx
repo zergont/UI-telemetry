@@ -167,7 +167,7 @@ export default function AnalyticsCalendarDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-5xl"
+        className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-[85vw]"
         showCloseButton={false}
         onClick={(e) => e.stopPropagation()}
         onEscapeKeyDown={(e) => {
@@ -241,7 +241,7 @@ export default function AnalyticsCalendarDialog({
                     {WEEKDAYS.map((wd) => (
                       <div
                         key={wd}
-                        className="pb-1 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+                        className="pb-1 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
                       >
                         {wd}
                       </div>
@@ -258,14 +258,14 @@ export default function AnalyticsCalendarDialog({
                       return (
                         <div
                           key={key}
-                          className={`min-h-16 rounded-lg border p-1 ${
+                          className={`min-h-20 rounded-lg border p-1.5 ${
                             segs
                               ? "border-border/60"
                               : "border-border/25"
                           } ${isToday ? "bg-accent/30" : ""}`}
                         >
                           <div
-                            className={`px-1 pb-1 text-[10px] font-medium tabular-nums ${
+                            className={`px-1 pb-1.5 text-[11px] font-medium tabular-nums ${
                               isToday
                                 ? "text-foreground"
                                 : segs
@@ -286,22 +286,22 @@ export default function AnalyticsCalendarDialog({
                                   <button
                                     key={seg.id}
                                     onClick={() => setSegId(seg.id)}
-                                    className={`block w-full rounded-md border-l-2 bg-accent/40 px-1.5 py-1 text-left transition-colors hover:bg-accent ${meta.cell}`}
+                                    className={`block w-full rounded-md border-l-2 bg-accent/40 px-2 py-1.5 text-left transition-colors hover:bg-accent ${meta.cell}`}
                                   >
                                     <span className="flex items-center justify-between gap-1">
-                                      <span className="font-mono text-[10px] leading-tight tabular-nums text-foreground/85">
+                                      <span className="font-mono text-xs leading-tight tabular-nums text-foreground/85">
                                         {timeHM(seg.t_start)}–
                                         {seg.is_open ? "сейчас" : timeHM(seg.t_end)}
                                       </span>
                                       {seg.is_open ? (
-                                        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+                                        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-blue-500" />
                                       ) : (
                                         seg.has_claude && (
-                                          <Sparkles className="h-2.5 w-2.5 shrink-0 text-primary/70" />
+                                          <Sparkles className="h-3 w-3 shrink-0 text-primary/70" />
                                         )
                                       )}
                                     </span>
-                                    <span className="block truncate text-[10px] leading-tight text-muted-foreground">
+                                    <span className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground">
                                       {seg.run_state_label ?? "—"}
                                       {seg.duration_sec != null &&
                                         ` · ${formatDuration(seg.duration_sec)}`}
