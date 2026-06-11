@@ -46,7 +46,8 @@ export interface GapMs {
 }
 
 interface DataCache {
-  points: ChartPoint[];
+  /** Точки по каждому регистру (порядок = addrs) */
+  series: ChartPoint[][];
   gaps: GapMs[];
   loadedFrom: number;
   loadedTo: number;
@@ -57,7 +58,8 @@ interface UseChartEngineOpts {
   routerSn: string;
   equipType: string;
   panelId: string;
-  addr: number;
+  /** Регистры графика; несколько — мультисерийный режим (фазы, масло P+t) */
+  addrs: number[];
 }
 
 /** Интервал автосдвига viewport в live-режиме (мс) */
@@ -66,8 +68,8 @@ const LIVE_SHIFT_INTERVAL_MS = 60_000;
 interface UseChartEngineResult {
   /** Текущий видимый диапазон (ms) */
   viewport: ViewportRange;
-  /** Все загруженные точки (кумулятивно) */
-  data: ChartPoint[];
+  /** Загруженные точки по каждому регистру (порядок = addrs) */
+  series: ChartPoint[][];
   /** Gap-зоны (разрывы связи) */
   gaps: GapMs[];
   /** Загрузка в процессе */
@@ -85,7 +87,7 @@ interface UseChartEngineResult {
   refresh: () => void;
 }
 
-/* ── Fetch helper ───────────────────────────────────────────────────────── */
+/* ── Fetch helpers ──────────────────────────────────────────────────────── */
 
 function parseGaps(gaps: GapZone[]): GapMs[] {
   return gaps.map((g) => ({
@@ -127,6 +129,39 @@ async function fetchRange(
   }
 }
 
+/** Параллельный fetch всех регистров за один диапазон */
+async function fetchRangeMulti(
+  routerSn: string,
+  equipType: string,
+  panelId: string,
+  addrs: number[],
+  from: number,
+  to: number,
+  points: number,
+  signal?: AbortSignal,
+): Promise<{ series: ChartPoint[][]; gaps: GapMs[]; firstDataAt: number | null } | null> {
+  const results = await Promise.all(
+    addrs.map((addr) =>
+      fetchRange(routerSn, equipType, panelId, addr, from, to, points, signal),
+    ),
+  );
+  if (signal?.aborted) return null;
+  if (results.every((r) => r == null)) return null;
+
+  // Gap-зоны — разрывы связи, одинаковы для всех регистров панели
+  let gaps: GapMs[] = [];
+  for (const r of results) {
+    if (r) { gaps = r.gaps; break; }
+  }
+  let firstDataAt: number | null = null;
+  for (const r of results) {
+    if (r?.firstDataAt != null) {
+      firstDataAt = firstDataAt == null ? r.firstDataAt : Math.min(firstDataAt, r.firstDataAt);
+    }
+  }
+  return { series: results.map((r) => r?.points ?? []), gaps, firstDataAt };
+}
+
 /* ── Hook ───────────────────────────────────────────────────────────────── */
 
 /** Объединить два списка gap'ов без дубликатов (по gap_start) */
@@ -146,11 +181,11 @@ export function useChartEngine({
   routerSn,
   equipType,
   panelId,
-  addr,
+  addrs,
 }: UseChartEngineOpts): UseChartEngineResult {
   /* ── state ─────────────────────────────────────────────────────────────── */
   const [viewport, setViewportRaw] = useState<ViewportRange>(makeDefaultViewport);
-  const [data, setData] = useState<ChartPoint[]>([]);
+  const [series, setSeries] = useState<ChartPoint[][]>(() => addrs.map(() => []));
   const [gaps, setGaps] = useState<GapMs[]>([]);
   const [firstDataAt, setFirstDataAt] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -162,22 +197,28 @@ export function useChartEngine({
   const viewportRef = useRef(viewport);
   const firstDataAtRef = useRef(firstDataAt);
   const isLiveRef = useRef(isLive);
+  const addrsRef = useRef(addrs);
 
+  const addrsKey = addrs.join(",");
+
+  // Обновляется первым — последующие эффекты этого же коммита видят свежий список
+  useEffect(() => { addrsRef.current = addrs; }, [addrs]);
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
   useEffect(() => { firstDataAtRef.current = firstDataAt; }, [firstDataAt]);
   useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
 
-  // Сброс кэша при смене параметра (другой регистр, другое оборудование)
-  const paramKey = `${routerSn}/${equipType}/${panelId}/${addr}`;
+  // Сброс кэша при смене параметра (другие регистры, другое оборудование)
+  const paramKey = `${routerSn}/${equipType}/${panelId}/${addrsKey}`;
   const prevParamKey = useRef(paramKey);
   useEffect(() => {
     if (prevParamKey.current !== paramKey) {
       prevParamKey.current = paramKey;
       cacheRef.current = null;
-      setData([]);
+      setSeries(addrsRef.current.map(() => []));
       setGaps([]);
       setFirstDataAt(null);
       setIsLoading(true);
+      setIsLive(true);
       setViewportRaw(makeDefaultViewport());
     }
   }, [paramKey]);
@@ -192,6 +233,7 @@ export function useChartEngine({
       const bucket = zoomBucket(span);
       const cache = cacheRef.current;
       const needsFullRefetch = !cache || cache.bucket !== bucket;
+      const curAddrs = addrsRef.current;
 
       // Отменяем предыдущий запрос
       abortRef.current?.abort();
@@ -206,11 +248,11 @@ export function useChartEngine({
         const pts = calcTargetPoints(span) * PREFETCH_SCREENS;
 
         setIsLoading(true);
-        fetchRange(routerSn, equipType, panelId, addr, fetchFrom, fetchTo, pts, ac.signal)
+        fetchRangeMulti(routerSn, equipType, panelId, curAddrs, fetchFrom, fetchTo, pts, ac.signal)
           .then((res) => {
             if (!res || ac.signal.aborted) return;
-            cacheRef.current = { points: res.points, gaps: res.gaps, loadedFrom: fetchFrom, loadedTo: fetchTo, bucket };
-            setData(res.points);
+            cacheRef.current = { series: res.series, gaps: res.gaps, loadedFrom: fetchFrom, loadedTo: fetchTo, bucket };
+            setSeries(res.series);
             setGaps(res.gaps);
             if (res.firstDataAt != null) setFirstDataAt(res.firstDataAt);
             setIsLoading(false);
@@ -230,15 +272,14 @@ export function useChartEngine({
           const edgeFrom = edgeTo - span * 1.5;
           const edgePts = Math.round(ptsPerScreen * 1.5);
           setIsLoading(true);
-          promise = fetchRange(routerSn, equipType, panelId, addr, edgeFrom, edgeTo, edgePts, ac.signal)
+          promise = fetchRangeMulti(routerSn, equipType, panelId, curAddrs, edgeFrom, edgeTo, edgePts, ac.signal)
             .then((res) => {
               if (!res || ac.signal.aborted) return;
-              const merged = mergePoints(res.points, cache.points);
-              cache.points = merged;
+              cache.series = cache.series.map((pts, i) => mergePoints(res.series[i] ?? [], pts));
               cache.gaps = mergeGaps(res.gaps, cache.gaps);
               cache.loadedFrom = edgeFrom;
               if (res.firstDataAt != null) setFirstDataAt(res.firstDataAt);
-              setData(merged);
+              setSeries(cache.series);
               setGaps(cache.gaps);
             });
         }
@@ -250,14 +291,13 @@ export function useChartEngine({
           const edgePts = Math.round(ptsPerScreen * 1.5);
           promise = promise.then(() => {
             if (ac.signal.aborted) return;
-            return fetchRange(routerSn, equipType, panelId, addr, edgeFrom, edgeTo, edgePts, ac.signal)
+            return fetchRangeMulti(routerSn, equipType, panelId, curAddrs, edgeFrom, edgeTo, edgePts, ac.signal)
               .then((res) => {
                 if (!res || ac.signal.aborted) return;
-                const merged = mergePoints(cache.points, res.points);
-                cache.points = merged;
+                cache.series = cache.series.map((pts, i) => mergePoints(pts, res.series[i] ?? []));
                 cache.gaps = mergeGaps(cache.gaps, res.gaps);
                 cache.loadedTo = edgeTo;
-                setData(merged);
+                setSeries(cache.series);
                 setGaps(cache.gaps);
               });
           });
@@ -268,8 +308,8 @@ export function useChartEngine({
     }, FETCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timerRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewport, routerSn, equipType, panelId, addr]);
+     
+  }, [viewport, routerSn, equipType, panelId, addrsKey]);
 
   /* ── zoom к курсору ────────────────────────────────────────────────────── */
   const zoomAtCursor = useCallback((cursorTimeMs: number, zoomIn: boolean) => {
@@ -347,7 +387,7 @@ export function useChartEngine({
   const refresh = useCallback(() => {
     abortRef.current?.abort();
     cacheRef.current = null;
-    setData([]);
+    setSeries(addrsRef.current.map(() => []));
     setGaps([]);
     setFirstDataAt(null);
     setIsLoading(true);
@@ -368,38 +408,49 @@ export function useChartEngine({
   }
 
   /* ── Live: подписка на телеметрию из WS (императивная) ────────────────── */
-  const lastLiveTsRef = useRef<number>(0);
   const liveAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!isLive) return;
 
     const key = makeEquipKey(routerSn, equipType, Number(panelId));
+    const lastTsByAddr = new Map<number, number>();
 
     const unsub = useTelemetryStore.subscribe((state) => {
       if (!isLiveRef.current) return;
 
-      const reg = state.registers.get(key)?.get(addr);
-      if (!reg || reg.value == null) return;
+      const regs = state.registers.get(key);
+      if (!regs) return;
 
-      const ts = parseLiveTs(reg.ts);
-      if (ts <= lastLiveTsRef.current) return;
-      lastLiveTsRef.current = ts;
+      const curAddrs = addrsRef.current;
+      const newPts: (ChartPoint | null)[] = curAddrs.map((addr) => {
+        const reg = regs.get(addr);
+        if (!reg || reg.value == null) return null;
+        const ts = parseLiveTs(reg.ts);
+        if (ts <= (lastTsByAddr.get(addr) ?? 0)) return null;
+        lastTsByAddr.set(addr, ts);
+        return { ts, value: reg.value, sampleCount: 1 };
+      });
+      if (newPts.every((p) => p == null)) return;
 
-      const newPt: ChartPoint = { ts, value: reg.value, sampleCount: 1 };
-
-      // Добавляем точку в кэш
+      // Добавляем точки в кэш
       const cache = cacheRef.current;
       if (cache) {
-        cache.points = mergePoints(cache.points, [newPt]);
-        cache.loadedTo = Math.max(cache.loadedTo, ts + 1000);
+        cache.series = cache.series.map((pts, i) =>
+          newPts[i] ? mergePoints(pts, [newPts[i]!]) : pts,
+        );
+        const maxTs = Math.max(...newPts.filter(Boolean).map((p) => p!.ts));
+        cache.loadedTo = Math.max(cache.loadedTo, maxTs + 1000);
       }
 
-      setData((prev) => mergePoints(prev, [newPt]));
+      setSeries((prev) =>
+        prev.map((pts, i) => (newPts[i] ? mergePoints(pts, [newPts[i]!]) : pts)),
+      );
     });
 
     return unsub;
-  }, [isLive, routerSn, equipType, panelId, addr]);
+     
+  }, [isLive, routerSn, equipType, panelId, addrsKey]);
 
   /* ── Live: авто-сдвиг viewport + свежий fetch каждую минуту ─────────── */
   useEffect(() => {
@@ -429,15 +480,17 @@ export function useChartEngine({
 
       const fetchFrom = now - 5 * 60_000;
       const fetchTo = now + FUTURE_PAD_MS;
-      fetchRange(routerSn, equipType, panelId, addr, fetchFrom, fetchTo, 500, ac.signal)
+      fetchRangeMulti(routerSn, equipType, panelId, addrsRef.current, fetchFrom, fetchTo, 500, ac.signal)
         .then((res) => {
           if (!res || ac.signal.aborted || !isLiveRef.current) return;
           if (cache) {
-            cache.points = mergePoints(cache.points, res.points);
+            cache.series = cache.series.map((pts, i) =>
+              mergePoints(pts, res.series[i] ?? []),
+            );
             cache.loadedTo = Math.max(cache.loadedTo, fetchTo);
           }
-          // Обновляем data из кэша (все live + свежие серверные точки)
-          setData(cache ? cache.points : res.points);
+          // Обновляем series из кэша (все live + свежие серверные точки)
+          setSeries(cache ? cache.series : res.series);
         });
 
       // 3. Обновляем viewport state
@@ -448,7 +501,8 @@ export function useChartEngine({
       clearInterval(timer);
       liveAbortRef.current?.abort();
     };
-  }, [isLive, routerSn, equipType, panelId, addr]);
+     
+  }, [isLive, routerSn, equipType, panelId, addrsKey]);
 
-  return { viewport, data, gaps, isLoading, firstDataAt, isLive, zoomAtCursor, setViewport, refresh };
+  return { viewport, series, gaps, isLoading, firstDataAt, isLive, zoomAtCursor, setViewport, refresh };
 }

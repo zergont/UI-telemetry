@@ -18,12 +18,18 @@ import type { GapMs } from "@/hooks/use-chart-engine";
 
 /* ── Props ──────────────────────────────────────────────────────────────── */
 
-interface HistoryChartProps {
-  data: ChartPoint[];
-  gaps: GapMs[];
+/** Серия графика: метаданные + точки */
+export interface ChartSeriesInput {
   label: string;
   unit: string;
   color: string;
+  points: ChartPoint[];
+}
+
+interface HistoryChartProps {
+  /** Одна серия — режим area+band+маркеры; несколько — линии (фазы, масло P+t) */
+  series: ChartSeriesInput[];
+  gaps: GapMs[];
   viewport: ViewportRange;
   isLoading: boolean;
   tzOffsetHours: number;
@@ -42,7 +48,7 @@ function hexToRgba(hex: string, alpha: number): string {
 
 const DAY_SEC = 86_400;
 
-/** Подготовка данных: ChartPoint[] → uPlot aligned data */
+/** Подготовка одной серии: ChartPoint[] → [times, values, mins, maxs] */
 function toUPlotData(
   pts: ChartPoint[],
   tzOffSec: number,
@@ -65,14 +71,40 @@ function toUPlotData(
   return [times, values, mins, maxs];
 }
 
+/** Мультисерийные данные: join таблиц [x, y] по общей оси времени */
+function toUPlotDataMulti(
+  seriesPts: ChartPoint[][],
+  tzOffSec: number,
+): uPlot.AlignedData {
+  const tables: uPlot.AlignedData[] = seriesPts.map((pts) => {
+    const xs = new Array<number>(pts.length);
+    const ys = new Array<number>(pts.length);
+    for (let i = 0; i < pts.length; i++) {
+      xs[i] = pts[i].ts / 1000 + tzOffSec;
+      ys[i] = pts[i].value!;
+    }
+    return [xs, ys] as uPlot.AlignedData;
+  });
+  return uPlot.join(tables);
+}
+
+/** Подпись значения по величине */
+function formatVal(v: number | null | undefined): string {
+  if (v == null) return "—";
+  return v >= 10000 ? (v / 1000).toFixed(2) + "k" : Math.round(v).toString();
+}
+
+interface SeriesMeta {
+  label: string;
+  unit: string;
+  color: string;
+}
+
 /* ── Component ──────────────────────────────────────────────────────────── */
 
 export function HistoryChart({
-  data,
+  series,
   gaps,
-  label,
-  unit,
-  color,
   viewport,
   isLoading,
   tzOffsetHours,
@@ -81,17 +113,22 @@ export function HistoryChart({
 }: HistoryChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<uPlot | null>(null);
-  const prevDataRef = useRef<ChartPoint[] | null>(null);
+  const prevPointsRef = useRef<ChartPoint[][] | null>(null);
   const appliedVpRef = useRef<ViewportRange>(viewport);
   const viewportPropRef = useRef(viewport);
   viewportPropRef.current = viewport;
 
   const onZoomRef = useRef(onZoom);
   const onPanRef = useRef(onPan);
-  const colorRef = useRef(color);
   onZoomRef.current = onZoom;
   onPanRef.current = onPan;
-  colorRef.current = color;
+
+  const metaRef = useRef<SeriesMeta[]>(series);
+  metaRef.current = series.map(({ label, unit, color }) => ({ label, unit, color }));
+  const colorRef = useRef(series[0]?.color ?? "#22c55e");
+  colorRef.current = series[0]?.color ?? "#22c55e";
+  const singleRef = useRef(series.length <= 1);
+  singleRef.current = series.length <= 1;
 
   const tzOffRef = useRef(tzOffsetHours * 3600);
   tzOffRef.current = tzOffsetHours * 3600;
@@ -105,22 +142,29 @@ export function HistoryChart({
   const suppressRef = useRef(false);
   // Drag состояние
   const isDraggingRef = useRef(false);
-  const pendingDataRef = useRef<ChartPoint[] | null>(null);
+  const pendingDataRef = useRef<ChartPoint[][] | null>(null);
+
+  // Сигнатура конфигурации: смена состава серий пересоздаёт график
+  const seriesSig = series
+    .map((s) => `${s.label}|${s.unit}|${s.color}`)
+    .join(";");
 
   /* ── Применение данных к графику ─────────────────────────────────────── */
   const applyDataToChart = useCallback(
-    (pts: ChartPoint[]) => {
+    (ptsArr: ChartPoint[][]) => {
       const u = chartRef.current;
       if (!u) return;
 
-      prevDataRef.current = pts;
+      prevPointsRef.current = ptsArr;
 
-      const uData = toUPlotData(pts, tzOffRef.current);
+      const uData = singleRef.current
+        ? toUPlotData(ptsArr[0] ?? [], tzOffRef.current)
+        : toUPlotDataMulti(ptsArr, tzOffRef.current);
 
       // suppressRef предотвращает лишние pan-события при пересчёте масштабов
       suppressRef.current = true;
       // true → пересчитать ВСЕ оси (включая Y). Без этого Y остаётся 0–1.
-      u.setData(uData, true);
+      u.setData(uData as uPlot.AlignedData, true);
       // Затем переопределяем X нашим viewport (Y остаётся авто)
       const vp = appliedVpRef.current;
       u.setScale("x", {
@@ -134,15 +178,22 @@ export function HistoryChart({
     [],
   );
 
-  /* ── Создание графика (один раз) ───────────────────────────────────────── */
+  /* ── Создание графика (пересоздаётся при смене состава серий) ─────────── */
   useEffect(() => {
     if (!containerRef.current) return;
 
     const el = containerRef.current;
     const W = el.clientWidth;
     const H = 400;
+    const single = series.length <= 1;
+    // Единицы → шкалы: первая единица — правая ось "y", вторая — левая "y2"
+    const primaryUnit = series[0]?.unit ?? "";
+    const hasSecondScale =
+      !single && series.some((s) => s.unit !== primaryUnit);
+    const scaleFor = (unit: string) =>
+      unit === primaryUnit ? "y" : "y2";
 
-    // Gradient fill для area
+    // Gradient fill для area (только одиночный режим)
     function areaFill(u: uPlot, seriesIdx: number) {
       const ctx = u.ctx;
       const s = u.series[seriesIdx];
@@ -172,7 +223,7 @@ export function HistoryChart({
       return grad;
     }
 
-    // Raw точки маркеры (только при zoomLevel < 30)
+    // Raw точки маркеры (только при zoomLevel < 30, одиночный режим)
     function drawRawMarkers(u: uPlot, sidx: number) {
       const fromSec = u.scales.x.min;
       const toSec = u.scales.x.max;
@@ -186,7 +237,7 @@ export function HistoryChart({
       const { left, top, width, height } = u.bbox;
       const dpr = devicePixelRatio || 1;
 
-      const pts = prevDataRef.current;
+      const pts = prevPointsRef.current?.[0];
       if (!pts || pts.length === 0) return;
 
       ctx.save();
@@ -232,7 +283,7 @@ export function HistoryChart({
       // Конвертируем: buffer_x = bbox.left + valToPos(CSS) * DPR
       const xToBuf = (sec: number) => left + u.valToPos(sec, "x", false) * dpr;
 
-      let daySec = midnightBefore(fromSec);
+      const daySec = midnightBefore(fromSec);
       const firstDay = Math.round(daySec / DAY_SEC);
 
       ctx.save();
@@ -364,91 +415,98 @@ export function HistoryChart({
       ctx.restore();
     }
 
-    const opts: uPlot.Options = {
-      id: "history-chart",
-      width: W,
-      height: H,
-      // Наши X-значения = UTC_sec + tzOffset — выглядят как local time в UTC.
-      // Без tzDate uPlot использует часовой пояс браузера для генерации тиков,
-      // что сдвигает границы суток. Форсируем UTC-интерпретацию.
-      tzDate: (ts) => {
-        const d = new Date(ts * 1e3);
-        return new Date(d.getTime() + d.getTimezoneOffset() * 6e4);
-      },
-      cursor: {
-        x: true,
-        y: true,
-        drag: { x: true, y: false, setScale: false },
-        sync: { key: "history" },
-      },
-      select: { show: false, left: 0, top: 0, width: 0, height: 0 },
-      legend: { show: false },
-      axes: [
-        {
-          // X axis (time) — 24-часовой формат
-          stroke: "#94a3b8",
-          grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
-          ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
-          font: "12px system-ui, sans-serif",
-          gap: 8,
-          values: (_u: uPlot, splits: number[]) => {
-            const spanSec = (_u.scales.x.max ?? 0) - (_u.scales.x.min ?? 0);
-            let prev = "";
-            return splits.map((s) => {
-              const d = new Date(s * 1000);
-              const hh = String(d.getUTCHours()).padStart(2, "0");
-              const mm = String(d.getUTCMinutes()).padStart(2, "0");
-              const ss = String(d.getUTCSeconds()).padStart(2, "0");
-              const DD = String(d.getUTCDate()).padStart(2, "0");
-              const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const yRange = (_u: uPlot, min: number, max: number): [number, number] => {
+      const top = max + (max - Math.min(min, 0)) * 0.05 || 1;
+      return [Math.min(0, min), top];
+    };
 
-              let label: string;
-              if (spanSec > 86400) {
-                label = `${DD}.${MM}\n${hh}:${mm}`;
-              } else if (spanSec < 120) {
-                label = `${hh}:${mm}:${ss}`;
-              } else {
-                label = `${hh}:${mm}`;
-              }
+    const yValues = (_u: uPlot, vals: number[]) => {
+      let prev = "";
+      return vals.map((v) => {
+        const label = v >= 10000 ? (v / 1000).toFixed(1) + "k" : Math.round(v).toString();
+        if (label === prev) return "";
+        prev = label;
+        return label;
+      });
+    };
 
-              if (label === prev) return "";
-              prev = label;
-              return label;
-            });
-          },
+    const axes: uPlot.Axis[] = [
+      {
+        // X axis (time) — 24-часовой формат
+        stroke: "#94a3b8",
+        grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+        ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+        font: "12px system-ui, sans-serif",
+        gap: 8,
+        values: (_u: uPlot, splits: number[]) => {
+          const spanSec = (_u.scales.x.max ?? 0) - (_u.scales.x.min ?? 0);
+          let prev = "";
+          return splits.map((s) => {
+            const d = new Date(s * 1000);
+            const hh = String(d.getUTCHours()).padStart(2, "0");
+            const mm = String(d.getUTCMinutes()).padStart(2, "0");
+            const ss = String(d.getUTCSeconds()).padStart(2, "0");
+            const DD = String(d.getUTCDate()).padStart(2, "0");
+            const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+
+            let label: string;
+            if (spanSec > 86400) {
+              label = `${DD}.${MM}\n${hh}:${mm}`;
+            } else if (spanSec < 120) {
+              label = `${hh}:${mm}:${ss}`;
+            } else {
+              label = `${hh}:${mm}`;
+            }
+
+            if (label === prev) return "";
+            prev = label;
+            return label;
+          });
         },
-        {
-          // Y axis — целые числа, справа
-          side: 1,
-          stroke: "#94a3b8",
-          grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
-          ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
-          font: "12px system-ui, sans-serif",
-          size: 60,
-          gap: 8,
-          values: (_u: uPlot, vals: number[]) => {
-            let prev = "";
-            return vals.map((v) => {
-              const label = v >= 10000 ? (v / 1000).toFixed(1) + "k" : Math.round(v).toString();
-              if (label === prev) return "";
-              prev = label;
-              return label;
-            });
-          },
-        },
-      ],
-      scales: {
-        x: { time: true },
-        y: { auto: true, range: (_u, min, max) => {
-          const top = max + (max - Math.min(min, 0)) * 0.05 || 1;
-          return [Math.min(0, min), top];
-        }},
       },
-      series: [
-        {}, // x series (timestamps)
+      {
+        // Y axis — целые числа, справа
+        side: 1,
+        scale: "y",
+        stroke: "#94a3b8",
+        grid: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+        ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+        font: "12px system-ui, sans-serif",
+        size: 60,
+        gap: 8,
+        values: yValues,
+      },
+    ];
+
+    if (hasSecondScale) {
+      axes.push({
+        // Вторая ось Y — слева (другая единица измерения, напр. °C)
+        side: 3,
+        scale: "y2",
+        stroke: "#94a3b8",
+        grid: { show: false },
+        ticks: { stroke: "rgba(148,163,184,0.06)", width: 1 },
+        font: "12px system-ui, sans-serif",
+        size: 54,
+        gap: 8,
+        values: yValues,
+      });
+    }
+
+    const scales: uPlot.Scales = {
+      x: { time: true },
+      y: { auto: true, range: yRange },
+    };
+    if (hasSecondScale) {
+      scales.y2 = { auto: true, range: yRange };
+    }
+
+    const uSeries: uPlot.Series[] = [{}]; // x series (timestamps)
+    if (single) {
+      uSeries.push(
         {
-          label: label,
-          stroke: colorRef.current,
+          label: series[0]?.label ?? "",
+          stroke: () => colorRef.current,
           width: 2,
           fill: areaFill as unknown as string,
           points: { show: false },
@@ -471,10 +529,45 @@ export function HistoryChart({
           spanGaps: true,
           scale: "y",
         },
-      ],
-      bands: [
-        { series: [2, 3], fill: hexToRgba(colorRef.current, 0.08) },
-      ],
+      );
+    } else {
+      for (const s of series) {
+        uSeries.push({
+          label: s.label,
+          stroke: s.color,
+          width: 2,
+          points: { show: false },
+          spanGaps: true,
+          scale: scaleFor(s.unit),
+        });
+      }
+    }
+
+    const opts: uPlot.Options = {
+      id: "history-chart",
+      width: W,
+      height: H,
+      // Наши X-значения = UTC_sec + tzOffset — выглядят как local time в UTC.
+      // Без tzDate uPlot использует часовой пояс браузера для генерации тиков,
+      // что сдвигает границы суток. Форсируем UTC-интерпретацию.
+      tzDate: (ts) => {
+        const d = new Date(ts * 1e3);
+        return new Date(d.getTime() + d.getTimezoneOffset() * 6e4);
+      },
+      cursor: {
+        x: true,
+        y: true,
+        drag: { x: true, y: false, setScale: false },
+        sync: { key: "history" },
+      },
+      select: { show: false, left: 0, top: 0, width: 0, height: 0 },
+      legend: { show: false },
+      axes,
+      scales,
+      series: uSeries,
+      bands: single
+        ? [{ series: [2, 3], fill: hexToRgba(series[0]?.color ?? "#22c55e", 0.08) }]
+        : [],
       hooks: {
         draw: [
           (u: uPlot) => {
@@ -484,7 +577,7 @@ export function HistoryChart({
         ],
         drawSeries: [
           (u: uPlot, sidx: number) => {
-            if (sidx === 1) drawRawMarkers(u, sidx);
+            if (single && sidx === 1) drawRawMarkers(u, sidx);
           },
         ],
         setScale: [
@@ -610,13 +703,18 @@ export function HistoryChart({
         ],
       },
       plugins: [
-        tooltipPlugin(colorRef),
+        tooltipPlugin(metaRef, singleRef),
       ],
     };
 
-    const initData: uPlot.AlignedData = [[], [], [], []];
+    const initData: uPlot.AlignedData = single
+      ? [[], [], [], []]
+      : ([[], ...series.map(() => [])] as unknown as uPlot.AlignedData);
     const u = new uPlot(opts, initData, el);
     chartRef.current = u;
+
+    // После пересоздания (смена состава серий) — переналить уже имеющиеся данные
+    prevPointsRef.current = null;
 
     const ro = new ResizeObserver(() => {
       if (el) {
@@ -630,30 +728,30 @@ export function HistoryChart({
       ro.disconnect();
       u.destroy();
       chartRef.current = null;
-      prevDataRef.current = null; // Сброс для React StrictMode double-mount
+      prevPointsRef.current = null; // Сброс для React StrictMode double-mount
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* ── Обновление цвета ────────────────────────────────────────────────── */
-  useEffect(() => {
-    const u = chartRef.current;
-    if (!u) return;
-    u.series[1].stroke = () => colorRef.current;
-    u.redraw();
-  }, [color]);
+  }, [seriesSig]);
 
   /* ── Загрузка / обновление данных ────────────────────────────────────── */
   useEffect(() => {
-    if (!chartRef.current || data === prevDataRef.current) return;
+    if (!chartRef.current) return;
+
+    const ptsArr = series.map((s) => s.points);
+    const prev = prevPointsRef.current;
+    const same =
+      prev != null &&
+      prev.length === ptsArr.length &&
+      prev.every((p, i) => p === ptsArr[i]);
+    if (same) return;
 
     if (isDraggingRef.current) {
-      pendingDataRef.current = data;
+      pendingDataRef.current = ptsArr;
       return;
     }
 
-    applyDataToChart(data);
-  }, [data, applyDataToChart]);
+    applyDataToChart(ptsArr);
+  }, [series, applyDataToChart]);
 
   /* ── Перерисовка при обновлении gap-зон ──────────────────────────────── */
   useEffect(() => {
@@ -663,19 +761,10 @@ export function HistoryChart({
   /* ── Пересчёт при смене часового пояса ─────────────────────────────── */
   useEffect(() => {
     const u = chartRef.current;
-    if (!u || !prevDataRef.current) return;
+    if (!u || !prevPointsRef.current) return;
 
-    const uData = toUPlotData(prevDataRef.current, tzOffRef.current);
-    suppressRef.current = true;
-    u.setData(uData, true);
-    const vp = appliedVpRef.current;
-    u.setScale("x", {
-      min: vp.from / 1000 + tzOffRef.current,
-      max: vp.to / 1000 + tzOffRef.current,
-    });
-    requestAnimationFrame(() => {
-      suppressRef.current = false;
-    });
+    applyDataToChart(prevPointsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tzOffsetHours]);
 
   /* ── Viewport из engine (zoom, refresh) ──────────────────────────────── */
@@ -694,7 +783,7 @@ export function HistoryChart({
     requestAnimationFrame(() => {
       suppressRef.current = false;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [viewport]);
 
   /* ── Render ───────────────────────────────────────────────────────────── */
@@ -707,9 +796,18 @@ export function HistoryChart({
         </div>
       )}
 
-      {/* Label */}
-      <div className="text-xs text-muted-foreground mb-1">
-        {label} <span className="text-muted-foreground/50">({unit})</span>
+      {/* Легенда серий */}
+      <div className="mb-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+        {series.map((s) => (
+          <span key={s.label} className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ background: s.color }}
+            />
+            {s.label}{" "}
+            <span className="text-muted-foreground/50">({s.unit})</span>
+          </span>
+        ))}
       </div>
 
       {/* Chart */}
@@ -723,7 +821,10 @@ export function HistoryChart({
 
 /* ── Tooltip plugin ────────────────────────────────────────────────────── */
 
-function tooltipPlugin(colorRef: React.RefObject<string>) {
+function tooltipPlugin(
+  metaRef: React.RefObject<SeriesMeta[]>,
+  singleRef: React.RefObject<boolean>,
+) {
   let tooltipEl: HTMLDivElement | null = null;
 
   function init(u: uPlot) {
@@ -764,7 +865,7 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
     }
 
     const { idx } = u.cursor;
-    const val = idx != null ? u.data[1][idx] : null;
+    const meta = metaRef.current ?? [];
 
     const d = new Date(timeSec * 1000);
     const hh = String(d.getUTCHours()).padStart(2, "0");
@@ -775,13 +876,22 @@ function tooltipPlugin(colorRef: React.RefObject<string>) {
     const timeStr = `${hh}:${mm}:${ss}`;
     const dateStr = `${DD}.${MM}`;
 
-    const valStr = val != null
-      ? (val >= 10000 ? (val / 1000).toFixed(2) + "k" : Math.round(val).toString())
-      : "—";
+    let rows: string;
+    if (singleRef.current) {
+      const val = idx != null ? u.data[1]?.[idx] : null;
+      rows = `<div style="color: ${meta[0]?.color ?? "#22c55e"}; font-weight: 600">${formatVal(val)}</div>`;
+    } else {
+      rows = meta
+        .map((m, i) => {
+          const val = idx != null ? u.data[i + 1]?.[idx] : null;
+          return `<div style="color: ${m.color}; font-weight: 600">${m.label}: ${formatVal(val)} <span style="color: rgba(148,163,184,0.6); font-weight: 400">${m.unit}</span></div>`;
+        })
+        .join("");
+    }
 
     tooltipEl.innerHTML = `
       <div style="color: rgba(148,163,184,0.7); margin-bottom: 2px">${dateStr} ${timeStr}</div>
-      <div style="color: ${colorRef.current}; font-weight: 600">${valStr}</div>
+      ${rows}
     `;
     tooltipEl.style.display = "block";
 

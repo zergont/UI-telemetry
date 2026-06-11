@@ -126,8 +126,8 @@ export default function EquipmentPage() {
   // ── Панель управляет графиком ──────────────────────────────────────
   const [tab, setTab] = useState("history");
   const [chartReq, setChartReq] = useState<ChartRequest | null>(null);
-  const openChart = useCallback((addr: number) => {
-    setChartReq((prev) => ({ addr, seq: (prev?.seq ?? 0) + 1 }));
+  const openChart = useCallback((target: string) => {
+    setChartReq((prev) => ({ target, seq: (prev?.seq ?? 0) + 1 }));
     setTab("history");
   }, []);
 
@@ -199,21 +199,21 @@ export default function EquipmentPage() {
           </div>
 
           {/* Шкала нагрузки */}
-          <ChartLink onOpen={() => openChart(REG.LOAD_KW)} title="График нагрузки">
+          <ChartLink onOpen={() => openChart(`a:${REG.LOAD_KW}`)} title="График нагрузки">
             <LoadGauge loadKw={v.loadKw} ratedKw={v.ratedKw} width={150} />
           </ChartLink>
 
           {/* Параметры двигателя */}
           <div className="flex w-60 flex-col gap-2">
             <ChartLink
-              onOpen={() => openChart(REG.OIL_PRESS)}
-              title="График давления масла"
+              onOpen={() => openChart("c:oil")}
+              title="График масла: давление + температура"
             >
               <OilBox pressKpa={v.oilPress} tempC={v.oilTemp} running={v.running} />
             </ChartLink>
             <div className="flex gap-2">
               <ChartLink
-                onOpen={() => openChart(REG.COOLANT_TEMP)}
+                onOpen={() => openChart(`a:${REG.COOLANT_TEMP}`)}
                 title="График температуры ОЖ"
                 className="flex flex-1"
               >
@@ -225,7 +225,7 @@ export default function EquipmentPage() {
                 />
               </ChartLink>
               <ChartLink
-                onOpen={() => openChart(REG.BATTERY_V)}
+                onOpen={() => openChart(`a:${REG.BATTERY_V}`)}
                 title="График напряжения АКБ"
                 className="flex flex-1"
               >
@@ -242,8 +242,8 @@ export default function EquipmentPage() {
 
           {/* Токи фаз */}
           <ChartLink
-            onOpen={() => openChart(REG.CURRENT_L1)}
-            title="График тока фаз"
+            onOpen={() => openChart("c:phases")}
+            title="График токов фаз A·B·C"
             className="flex h-28 w-44"
           >
             <PhaseBars currents={v.currents} nominalA={v.nominalA} />
@@ -252,7 +252,7 @@ export default function EquipmentPage() {
           {/* Цифровые окошки */}
           <div className="flex w-52 flex-col gap-2">
             <ChartLink
-              onOpen={() => openChart(REG.VOLTAGE_LL)}
+              onOpen={() => openChart(`a:${REG.VOLTAGE_LL}`)}
               title="График напряжения"
             >
               <DigitalWindow
@@ -267,7 +267,7 @@ export default function EquipmentPage() {
               />
             </ChartLink>
             <ChartLink
-              onOpen={() => openChart(REG.ENGINE_HOURS)}
+              onOpen={() => openChart(`a:${REG.ENGINE_HOURS}`)}
               title="График наработки"
             >
               <DigitalWindow
@@ -278,7 +278,7 @@ export default function EquipmentPage() {
               />
             </ChartLink>
             <ChartLink
-              onOpen={() => openChart(REG.RPM)}
+              onOpen={() => openChart(`a:${REG.RPM}`)}
               title="График оборотов"
             >
               <DigitalWindow
