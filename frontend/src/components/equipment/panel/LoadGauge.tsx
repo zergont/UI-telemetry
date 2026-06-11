@@ -84,14 +84,14 @@ export default function LoadGauge({ loadKw, ratedKw, width = 158 }: Props) {
         >
           кВт{pct != null ? ` · ${Math.round(pct)}%` : ""}
         </text>
-        <text x="20" y="114" textAnchor="middle" className="fill-muted-foreground/60" fontSize="9">
+        <text x="20" y="114" textAnchor="middle" className="fill-muted-foreground" fontSize="10">
           0
         </text>
-        <text x="180" y="114" textAnchor="middle" className="fill-muted-foreground/60" fontSize="9">
+        <text x="180" y="114" textAnchor="middle" className="fill-muted-foreground" fontSize="10">
           {ratedKw != null ? Math.round(ratedKw) : ""}
         </text>
       </svg>
-      <p className="mt-0.5 text-center text-[8px] tracking-[0.14em] text-muted-foreground">
+      <p className="mt-0.5 text-center text-[9px] tracking-[0.14em] text-muted-foreground">
         НАГРУЗКА
       </p>
     </div>

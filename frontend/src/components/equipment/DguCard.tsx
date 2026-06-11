@@ -221,7 +221,7 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
     <div
       className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-2.5 py-2 ${PANEL_BOX} border-border/60`}
     >
-      <span className="text-[7px] tracking-[0.14em] text-muted-foreground/80">
+      <span className="text-[8px] tracking-[0.14em] text-muted-foreground">
         МОТОЧАСЫ
       </span>
       <span
@@ -307,13 +307,14 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
 
         {variant === "extended" && (
           <div className="mt-3 flex items-stretch gap-2.5 px-6">
-            <div className="min-w-0 flex-[1.2]">
+            <div className="flex min-w-0 flex-[1.2]">
               <PhaseBars currents={currents} nominalA={nominalA} />
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
               <DigitalWindow
                 label="НАПРЯЖЕНИЕ"
-                value={voltage != null ? `${Math.round(voltage)} В` : "—"}
+                value={voltage != null ? String(Math.round(voltage)) : "—"}
+                unit="В"
                 tone={running && voltage != null && voltage > 100 ? "active" : "idle"}
               />
               <DigitalWindow

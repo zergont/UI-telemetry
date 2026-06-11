@@ -39,7 +39,7 @@ function Value({
   return (
     <span className={`font-mono text-[13px] tabular-nums ${cls}`}>
       {value != null ? value.toFixed(decimals) : "—"}
-      <span className="text-[9px] text-muted-foreground"> {unit}</span>
+      <span className="text-[10px] text-muted-foreground"> {unit}</span>
     </span>
   );
 }

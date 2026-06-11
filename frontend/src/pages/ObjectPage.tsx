@@ -27,10 +27,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const VARIANT_STORAGE_KEY = "dgu-card-variant";
 
-const VARIANT_LABELS: { value: DguCardVariant; label: string }[] = [
-  { value: "minimal", label: "Минимал" },
-  { value: "normal", label: "Норм" },
-  { value: "extended", label: "Расширенная" },
+const VARIANT_LABELS: { value: DguCardVariant; label: string; hint: string }[] = [
+  { value: "minimal", label: "Мин", hint: "Минимальные карточки" },
+  { value: "normal", label: "Норм", hint: "Стандартные карточки" },
+  { value: "extended", label: "Расш", hint: "Расширенные карточки" },
 ];
 
 function loadVariant(): DguCardVariant {
@@ -138,15 +138,14 @@ export default function ObjectPage() {
             )}
           </div>
         </div>
-      </div>
 
-      {/* Переключатель вида карточек */}
-      <div className="flex justify-end">
-        <div className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
-          {VARIANT_LABELS.map(({ value, label }) => (
+        {/* Переключатель вида карточек — на одной линии со «Все объекты» */}
+        <div className="inline-flex shrink-0 rounded-lg border border-border/60 bg-muted/40 p-0.5">
+          {VARIANT_LABELS.map(({ value, label, hint }) => (
             <button
               key={value}
               onClick={() => changeVariant(value)}
+              title={hint}
               className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                 variant === value
                   ? "bg-background text-foreground shadow-sm"

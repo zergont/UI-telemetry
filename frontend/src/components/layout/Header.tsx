@@ -11,7 +11,8 @@
 
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Moon, Sun, Zap, ChevronRight, Share2, Settings, Clock } from "lucide-react";
+import { Moon, Sun, ChevronRight, Share2, Settings, Clock } from "lucide-react";
+import CompanyLogo from "@/components/layout/CompanyLogo";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -97,7 +98,7 @@ export default function Header() {
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <Link to="/" className="flex items-center gap-2 font-semibold">
-            <Zap className="h-5 w-5 text-primary" />
+            <CompanyLogo className="h-6 w-6 text-foreground" />
             <span className="hidden sm:inline">Честная Генерация</span>
           </Link>
 

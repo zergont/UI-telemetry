@@ -70,7 +70,7 @@ export default function LedPanel({ modeRaw, stateRaw, faultRaw, size = "md" }: P
   ];
 
   const dot = size === "md" ? "h-2 w-2" : "h-[7px] w-[7px]";
-  const label = size === "md" ? "text-[7px]" : "text-[6.5px]";
+  const label = size === "md" ? "text-[8px]" : "text-[7px]";
   const gap = size === "md" ? "gap-3 px-2.5 py-1.5" : "gap-2.5 px-2 py-1";
 
   return (
@@ -86,7 +86,7 @@ export default function LedPanel({ modeRaw, stateRaw, faultRaw, size = "md" }: P
           />
           <span
             className={`mt-1 block ${label} tracking-[0.08em] ${
-              lamp.on ? lamp.labelOn ?? "text-muted-foreground" : "text-muted-foreground/60"
+              lamp.on ? lamp.labelOn ?? "text-muted-foreground" : "text-muted-foreground/80"
             }`}
           >
             {lamp.label}

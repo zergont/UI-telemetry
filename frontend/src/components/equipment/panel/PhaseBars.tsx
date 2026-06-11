@@ -21,16 +21,16 @@ interface Props {
 }
 
 /**
- * Цвет столбика: градиент зелёный → красный по % от номинала, свыше 100% — бордовый.
- * Яркость по рангу: максимальный ток светлее, минимальный темнее;
- * разрыв яркости пропорционален перекосу фаз.
+ * Цвет столбика: чистый зелёный до 70% номинала, дальше градиент в красный,
+ * свыше 100% — бордовый. Яркость по рангу: максимальный ток светлее,
+ * минимальный темнее; разрыв яркости пропорционален перекосу фаз.
  */
 function barColor(pct: number, rank: -1 | 0 | 1, spreadPct: number): string {
   if (pct > 1) return "#7f1d1d";
-  const hue = 145 * (1 - Math.min(pct, 1));
+  const hue = pct <= 0.7 ? 145 : 145 * (1 - (pct - 0.7) / 0.3);
   const delta = Math.min(12, Math.max(2, spreadPct * 60));
   const light = 38 + rank * delta;
-  return `hsl(${hue.toFixed(0)}, 62%, ${light.toFixed(0)}%)`;
+  return `hsl(${Math.max(0, hue).toFixed(0)}, 62%, ${light.toFixed(0)}%)`;
 }
 
 /** Токи фаз вертикальными столбиками («эквалайзер») */
@@ -42,7 +42,7 @@ export default function PhaseBars({ currents, nominalA }: Props) {
     max != null && min != null && nominalA ? (max - min) / nominalA : 0;
 
   return (
-    <div className={`flex items-end gap-2.5 px-3 pb-2 pt-2.5 ${PANEL_BOX}`}>
+    <div className={`flex h-full w-full items-stretch gap-2.5 px-3 pb-2 pt-2.5 ${PANEL_BOX}`}>
       {LABELS.map((label, i) => {
         const value = currents[i];
         const pct =
@@ -61,8 +61,8 @@ export default function PhaseBars({ currents, nominalA }: Props) {
           pct != null ? barColor(pct, rank, spreadPct) : "var(--muted)";
 
         return (
-          <div key={label} className="flex-1 text-center">
-            <div className="flex h-12 items-end">
+          <div key={label} className="flex min-h-12 flex-1 flex-col text-center">
+            <div className="flex flex-1 items-end">
               <div
                 className="w-full rounded-t-[3px]"
                 style={{
@@ -75,7 +75,7 @@ export default function PhaseBars({ currents, nominalA }: Props) {
             <span className="font-mono text-[11px] tabular-nums text-foreground/90">
               {value != null ? Math.round(value) : "—"}
             </span>
-            <span className="block text-[8px] text-muted-foreground/70">
+            <span className="block text-[9px] text-muted-foreground">
               {label}
             </span>
           </div>
