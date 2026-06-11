@@ -98,7 +98,7 @@ export default function Header() {
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <Link to="/" className="flex items-center gap-2 font-semibold">
-            <CompanyLogo className="h-6 w-6 text-foreground" />
+            <CompanyLogo className="h-6 w-6 text-foreground dark:text-foreground/60" />
             <span className="hidden sm:inline">Честная Генерация</span>
           </Link>
 
