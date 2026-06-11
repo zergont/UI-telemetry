@@ -15,24 +15,54 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useChartEngine } from "@/hooks/use-chart-engine";
-import { useChartSettings, DEFAULT_REGISTERS } from "@/hooks/use-chart-settings";
+import { useChartSettings, DEFAULT_REGISTERS, type ChartRegister } from "@/hooks/use-chart-settings";
 import { HistoryChart } from "./HistoryChart";
 import { MIN_SPAN_MS } from "./constants";
+
+/** Запрос параметра извне (клик по панели ДГУ); seq — для повторных кликов */
+export interface ChartRequest {
+  addr: number;
+  seq: number;
+}
+
+/** Метаданные регистров панели ДГУ, которых может не быть в настройках графика */
+const PANEL_CHART_META: Record<number, Omit<ChartRegister, "addr">> = {
+  40025: { label: "Напряжение (LL)", unit: "В", color: "#f59e0b" },
+  40026: { label: "Ток фаза A", unit: "А", color: "#3b82f6" },
+  40061: { label: "АКБ", unit: "В", color: "#a855f7" },
+  40064: { label: "t ОЖ", unit: "°C", color: "#38bdf8" },
+  40068: { label: "Обороты", unit: "об/мин", color: "#f97316" },
+};
 
 interface HistoryTabProps {
   routerSn: string;
   equipType: string;
   panelId: string;
+  chartRequest?: ChartRequest | null;
 }
 
-export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabProps) {
+export default function HistoryTab({ routerSn, equipType, panelId, chartRequest }: HistoryTabProps) {
   const tzOffsetHours = useSettingsStore((s) => s.tzOffsetHours);
   const { data: registerOptions = DEFAULT_REGISTERS } = useChartSettings();
   const [selectedAddr, setSelectedAddr] = useState<number>(registerOptions[0]?.addr ?? DEFAULT_REGISTERS[0].addr);
 
+  // Клик по элементу панели ДГУ переключает график на его регистр
+  // (подстройка состояния во время рендера — без эффекта)
+  const [appliedSeq, setAppliedSeq] = useState(0);
+  if (chartRequest && chartRequest.seq !== appliedSeq) {
+    setAppliedSeq(chartRequest.seq);
+    setSelectedAddr(chartRequest.addr);
+  }
+
+  // Опции селектора: настроенные + выбранный извне регистр панели
+  const options =
+    registerOptions.some((r) => r.addr === selectedAddr) || !PANEL_CHART_META[selectedAddr]
+      ? registerOptions
+      : [...registerOptions, { addr: selectedAddr, ...PANEL_CHART_META[selectedAddr] }];
+
   // Если сохранённый addr пропал из списка — сбрасываем на первый
-  const selectedReg = registerOptions.find((r) => r.addr === selectedAddr)
-    ?? registerOptions[0]
+  const selectedReg = options.find((r) => r.addr === selectedAddr)
+    ?? options[0]
     ?? DEFAULT_REGISTERS[0];
 
   const engine = useChartEngine({
@@ -71,7 +101,7 @@ export default function HistoryTab({ routerSn, equipType, panelId }: HistoryTabP
           onChange={(e) => setSelectedAddr(Number(e.target.value))}
           className="rounded-md border bg-card px-3 py-1.5 text-sm"
         >
-          {registerOptions.map((opt) => (
+          {options.map((opt) => (
             <option key={opt.addr} value={opt.addr}>
               {opt.label}
             </option>

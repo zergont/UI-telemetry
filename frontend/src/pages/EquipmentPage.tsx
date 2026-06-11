@@ -9,33 +9,65 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Wifi, WifiOff } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import InlineEdit from "@/components/ui/inline-edit";
 import { useIsAdmin } from "@/hooks/use-auth";
 import { useRegisters } from "@/hooks/use-registers";
 import { useEquipment } from "@/hooks/use-equipment";
 import { useRenameEquipment } from "@/hooks/use-rename";
+import { useMachineAnalytics } from "@/hooks/use-analytics";
 import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
-import MetricDisplay from "@/components/equipment/MetricDisplay";
-import EngineStatusBadges from "@/components/equipment/EngineStatusBadges";
-import {
-  fahrenheitToCelsius,
-  secondsToMotohours,
-} from "@/lib/conversions";
 import { formatRelativeTime } from "@/lib/format";
+import { CARD_ACCENT } from "@/components/equipment/panel/severityAccent";
+import AnalyticsStrip from "@/components/equipment/AnalyticsStrip";
+import AnalyticsCalendarDialog from "@/components/equipment/AnalyticsCalendarDialog";
+import LedPanel from "@/components/equipment/panel/LedPanel";
+import LoadGauge from "@/components/equipment/panel/LoadGauge";
+import PhaseBars from "@/components/equipment/panel/PhaseBars";
+import DigitalWindow from "@/components/equipment/panel/DigitalWindow";
+import { OilBox, IconValueBox } from "@/components/equipment/panel/ParamBoxes";
+import { CoolantIcon, BatteryIcon } from "@/components/equipment/panel/PanelIcons";
+import { useDguPanelValues } from "@/components/equipment/panel/useDguPanelValues";
 import {
-  useDguCardSettings,
-  DEFAULT_DGU_PARAMS,
-} from "@/hooks/use-dgu-card-settings";
+  REG,
+  batteryState,
+  coolantState,
+  rpmState,
+  formatHours,
+} from "@/components/equipment/panel/registers";
 import RegistersTab from "@/components/equipment/registers/RegistersTab";
-import HistoryTab from "@/components/equipment/history/HistoryTab";
+import HistoryTab, { type ChartRequest } from "@/components/equipment/history/HistoryTab";
 import JournalTab from "@/components/equipment/journal/JournalTab";
 import NotificationsTab from "@/components/equipment/notifications/NotificationsTab";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+
+/** Кликабельная зона панели: переключает график на свой регистр */
+function ChartLink({
+  onOpen,
+  title,
+  className,
+  children,
+}: {
+  onOpen: () => void;
+  title: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="button"
+      title={title}
+      onClick={onOpen}
+      className={`cursor-pointer transition-opacity hover:opacity-80 ${className ?? ""}`}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function EquipmentPage() {
   const { routerSn, equipType, panelId } = useParams<{
@@ -47,16 +79,7 @@ export default function EquipmentPage() {
   const isAdmin = useIsAdmin();
   const key = makeEquipKey(routerSn!, equipType!, panelId!);
   const liveRegs = useTelemetryStore((s) => s.registers.get(key));
-  const liveStatus = useTelemetryStore((s) => s.statuses.get(key));
-  const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
   const wsConnected = useTelemetryStore((s) => s.connected);
-
-  // Тик каждые 5 сек для обновления относительного времени
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 5_000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Имя оборудования
   const { data: eqList } = useEquipment(routerSn!);
@@ -90,55 +113,23 @@ export default function EquipmentPage() {
     });
   }, [registers, liveRegs]);
 
-  // Key metrics from live or REST
-  function getMetricValue(addr: number): number | null {
-    const live = liveRegs?.get(addr);
-    if (live) {
-      if (live.raw === 65535 || live.raw === 32767) return null;
-      return live.value;
-    }
-    const reg = registers?.find((r) => r.addr === addr);
-    if (!reg || reg.value == null) return null;
-    return reg.value;
-  }
+  // ── Панель ДГУ (живые значения + REST-фолбек) ──────────────────────
+  const v = useDguPanelValues(routerSn!, equipType!, panelId!, eqInfo);
+  const rpmSt = rpmState(v.rpm, v.running);
 
-  const { data: cardParams = DEFAULT_DGU_PARAMS } = useDguCardSettings();
+  const analytics = useMachineAnalytics(routerSn!, equipType!, panelId!);
+  const accent = analytics
+    ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
+    : null;
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
-  function resolveMetric(addr: number): number | null {
-    switch (addr) {
-      case 40070: {
-        const raw = getMetricValue(40070);
-        return raw != null ? secondsToMotohours(raw) : null;
-      }
-      case 40063: {
-        const raw = getMetricValue(40063);
-        if (raw == null) return null;
-        // unit comes from HTTP metadata (mergedRegisters has it from /api/registers)
-        const unit = mergedRegisters.find((r) => r.addr === 40063)?.unit ?? "";
-        return unit.toLowerCase().includes("f")
-          ? fahrenheitToCelsius(raw)
-          : Math.round(raw * 10) / 10;
-      }
-      default:
-        return getMetricValue(addr);
-    }
-  }
-
-  // liveStatus = ONLINE/OFFLINE (статус связи из telemetry-store)
-  const connectionStatus = liveStatus ?? "OFFLINE";
-
-  // Состояние двигателя из регистра 46109 (берём из merged — там есть text из HTTP)
-  const stateReg = mergedRegisters.find((r) => r.addr === 46109);
-  let engineState: string | null = null;
-  if (stateReg?.text) {
-    const t = stateReg.text.toLowerCase();
-    if (t.includes("stopped") || t.includes("stop")) engineState = "STOP";
-    else if (t.includes("shutdown") || t.includes("alarm") || t.includes("fault")) engineState = "ALARM";
-    else engineState = "RUN";
-  }
-
-  // Если есть связь и известно состояние двигателя — показываем его, иначе статус связи
-  const status = connectionStatus === "ONLINE" && engineState ? engineState : connectionStatus;
+  // ── Панель управляет графиком ──────────────────────────────────────
+  const [tab, setTab] = useState("history");
+  const [chartReq, setChartReq] = useState<ChartRequest | null>(null);
+  const openChart = useCallback((addr: number) => {
+    setChartReq((prev) => ({ addr, seq: (prev?.seq ?? 0) + 1 }));
+    setTab("history");
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -151,67 +142,173 @@ export default function EquipmentPage() {
         Назад к объекту
       </Link>
 
-      {/* Hero block */}
-      <Card className="border">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-xl">
+      {/* Hero: горизонтальная панель управления ДВС */}
+      <Card
+        className={`relative gap-0 overflow-hidden border pt-5 pb-4 ${accent?.card ?? ""}`}
+      >
+        {accent && (
+          <div
+            aria-hidden
+            className={`pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent ${accent.bar} to-transparent`}
+          />
+        )}
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-4 px-6">
+          {/* Идентичность + лампы */}
+          <div className="min-w-44">
+            <div className="text-lg font-semibold">
               {isAdmin ? (
                 <InlineEdit
                   value={displayName}
                   placeholder={`${equipType} #${panelId}`}
                   onSave={handleRename}
-                  inputClassName="text-xl font-semibold w-56"
+                  inputClassName="text-lg font-semibold w-52"
                 />
               ) : (
                 displayName
               )}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground font-mono">
+            </div>
+            <p className="font-mono text-[11px] text-muted-foreground">
               {routerSn}
             </p>
-            <div className="flex items-center gap-3 mt-1">
-              {lastUpdate && now - lastUpdate < 30_000 ? (
-                <span className="flex items-center gap-1 text-xs text-blue-500">
+            <div className="mt-1 flex items-center gap-2">
+              {v.panelFresh ? (
+                <span className="flex items-center gap-1 text-[11px] text-green-500">
                   <Wifi className="h-3 w-3" />
                   на связи
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-xs text-slate-400">
+                <span className="flex items-center gap-1 text-[11px] text-red-400">
                   <WifiOff className="h-3 w-3" />
                   нет данных
                 </span>
               )}
-              {lastUpdate && (
-                <span className="text-xs text-muted-foreground">
-                  · {formatRelativeTime(new Date(lastUpdate))}
+              {v.lastUpdate && (
+                <span className="text-[11px] text-muted-foreground">
+                  · {formatRelativeTime(new Date(v.lastUpdate))}
                 </span>
               )}
             </div>
-          </div>
-          <EngineStatusBadges
-            liveRegs={liveRegs}
-            panelFresh={lastUpdate != null && now - lastUpdate < 30_000}
-            fallbackStatus={status}
-          />
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
-            {cardParams.map((param) => (
-              <MetricDisplay
-                key={param.addr}
-                label={param.label}
-                value={resolveMetric(param.addr)}
-                unit={param.unit}
-                decimals={param.decimals}
+            <div className="mt-2 w-fit">
+              <LedPanel
+                modeRaw={v.modeRaw}
+                stateRaw={v.stateRaw}
+                faultRaw={v.faultRaw}
               />
-            ))}
+            </div>
           </div>
-        </CardContent>
+
+          {/* Шкала нагрузки */}
+          <ChartLink onOpen={() => openChart(REG.LOAD_KW)} title="График нагрузки">
+            <LoadGauge loadKw={v.loadKw} ratedKw={v.ratedKw} width={150} />
+          </ChartLink>
+
+          {/* Параметры двигателя */}
+          <div className="flex w-60 flex-col gap-2">
+            <ChartLink
+              onOpen={() => openChart(REG.OIL_PRESS)}
+              title="График давления масла"
+            >
+              <OilBox pressKpa={v.oilPress} tempC={v.oilTemp} running={v.running} />
+            </ChartLink>
+            <div className="flex gap-2">
+              <ChartLink
+                onOpen={() => openChart(REG.COOLANT_TEMP)}
+                title="График температуры ОЖ"
+                className="flex flex-1"
+              >
+                <IconValueBox
+                  icon={<CoolantIcon className="h-5 w-5" />}
+                  value={v.coolant}
+                  unit="°C"
+                  state={coolantState(v.coolant, v.running)}
+                />
+              </ChartLink>
+              <ChartLink
+                onOpen={() => openChart(REG.BATTERY_V)}
+                title="График напряжения АКБ"
+                className="flex flex-1"
+              >
+                <IconValueBox
+                  icon={<BatteryIcon className="h-5 w-5" />}
+                  value={v.battery}
+                  unit="В"
+                  decimals={1}
+                  state={batteryState(v.battery)}
+                />
+              </ChartLink>
+            </div>
+          </div>
+
+          {/* Токи фаз */}
+          <ChartLink
+            onOpen={() => openChart(REG.CURRENT_L1)}
+            title="График тока фаз"
+            className="flex h-28 w-44"
+          >
+            <PhaseBars currents={v.currents} nominalA={v.nominalA} />
+          </ChartLink>
+
+          {/* Цифровые окошки */}
+          <div className="flex w-52 flex-col gap-2">
+            <ChartLink
+              onOpen={() => openChart(REG.VOLTAGE_LL)}
+              title="График напряжения"
+            >
+              <DigitalWindow
+                label="НАПРЯЖЕНИЕ"
+                value={v.voltage != null ? String(Math.round(v.voltage)) : "—"}
+                unit="В"
+                tone={
+                  v.running && v.voltage != null && v.voltage > 100
+                    ? "active"
+                    : "idle"
+                }
+              />
+            </ChartLink>
+            <ChartLink
+              onOpen={() => openChart(REG.ENGINE_HOURS)}
+              title="График наработки"
+            >
+              <DigitalWindow
+                label="МОТОЧАСЫ"
+                value={formatHours(v.hours)}
+                tone={v.hours != null ? "active" : "idle"}
+                wide
+              />
+            </ChartLink>
+            <ChartLink
+              onOpen={() => openChart(REG.RPM)}
+              title="График оборотов"
+            >
+              <DigitalWindow
+                label="ОБОРОТЫ"
+                value={v.rpm != null ? String(Math.round(v.rpm)) : "—"}
+                tone={rpmSt === "crit" ? "crit" : rpmSt === "idle" ? "idle" : "active"}
+              />
+            </ChartLink>
+          </div>
+        </div>
+
+        {analytics && (
+          <AnalyticsStrip
+            analytics={analytics}
+            compact
+            onOpenCalendar={() => setCalendarOpen(true)}
+          />
+        )}
       </Card>
+      {analytics && (
+        <AnalyticsCalendarDialog
+          open={calendarOpen}
+          onOpenChange={setCalendarOpen}
+          machine={analytics}
+          displayName={displayName}
+        />
+      )}
 
       {/* Tabs */}
-      <Tabs defaultValue="history" className="w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList>
           <TabsTrigger value="history">График</TabsTrigger>
           <TabsTrigger value="registers">Регистры</TabsTrigger>
@@ -225,6 +322,7 @@ export default function EquipmentPage() {
               routerSn={routerSn!}
               equipType={equipType!}
               panelId={panelId!}
+              chartRequest={chartReq}
             />
           </ErrorBoundary>
         </TabsContent>
@@ -236,7 +334,7 @@ export default function EquipmentPage() {
               isLoading={regsLoading}
               liveCount={liveRegs?.size ?? 0}
               wsConnected={wsConnected}
-              lastWsUpdate={lastUpdate}
+              lastWsUpdate={v.lastUpdate}
             />
           </ErrorBoundary>
         </TabsContent>

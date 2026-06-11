@@ -9,16 +9,15 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Wifi, WifiOff } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
-import { useMachineAnalytics, type SeverityLevel } from "@/hooks/use-analytics";
-import { useTelemetryStore, makeEquipKey } from "@/stores/telemetry-store";
+import { useMachineAnalytics } from "@/hooks/use-analytics";
 import { formatRelativeTime } from "@/lib/format";
-import { fahrenheitToCelsius, secondsToMotohours } from "@/lib/conversions";
+import { CARD_ACCENT } from "./panel/severityAccent";
 import AnalyticsStrip from "./AnalyticsStrip";
 import AnalyticsCalendarDialog from "./AnalyticsCalendarDialog";
 import LedPanel from "./panel/LedPanel";
@@ -27,44 +26,17 @@ import PhaseBars from "./panel/PhaseBars";
 import DigitalWindow from "./panel/DigitalWindow";
 import { OilBox, IconValueBox } from "./panel/ParamBoxes";
 import { CoolantIcon, BatteryIcon } from "./panel/PanelIcons";
+import { useDguPanelValues } from "./panel/useDguPanelValues";
 import {
-  REG,
   PANEL_BOX,
   batteryState,
   coolantState,
   rpmState,
   loadZoneColor,
-  nominalCurrentA,
   formatHours,
 } from "./panel/registers";
 
-/** Порог «нет данных» для отдельной панели, мс */
-const PANEL_STALE_MS = 30_000;
-
 export type DguCardVariant = "minimal" | "normal" | "extended";
-
-/** Акцент карточки по severity_level (4 уровня, cg-analytics v4.1.0) */
-const CARD_ACCENT: Record<
-  SeverityLevel,
-  { bar: string; card: string }
-> = {
-  норма: {
-    bar: "via-emerald-500/60",
-    card: "hover:border-emerald-500/25 hover:shadow-emerald-500/10",
-  },
-  внимание: {
-    bar: "via-yellow-400/80",
-    card: "border-yellow-500/25 shadow-yellow-500/5 hover:border-yellow-500/40 hover:shadow-yellow-500/15",
-  },
-  предупреждение: {
-    bar: "via-orange-500/80",
-    card: "border-orange-500/30 shadow-orange-500/5 hover:border-orange-500/45 hover:shadow-orange-500/20",
-  },
-  авария: {
-    bar: "via-red-500/80",
-    card: "border-red-500/30 shadow-red-500/10 hover:border-red-500/50 hover:shadow-red-500/25",
-  },
-};
 
 /** Тонкая полоса нагрузки с зонными рисками (вариант «минимал») */
 function MiniLoadBar({ pct }: { pct: number | null }) {
@@ -104,19 +76,27 @@ interface Props {
 
 export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
   const navigate = useNavigate();
-  const key = makeEquipKey(eq.router_sn, eq.equip_type, eq.panel_id);
 
-  const liveRegs = useTelemetryStore((s) => s.registers.get(key));
-  const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
-
-  // Тик каждую секунду — плавное относительное время и свежесть данных
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const panelFresh = lastUpdate != null && now - lastUpdate < PANEL_STALE_MS;
+  const {
+    panelFresh,
+    lastUpdate,
+    modeRaw,
+    stateRaw,
+    faultRaw,
+    running,
+    loadKw,
+    ratedKw,
+    loadPct,
+    oilPress,
+    oilTemp,
+    coolant,
+    battery,
+    rpm,
+    voltage,
+    currents,
+    nominalA,
+    hours,
+  } = useDguPanelValues(eq.router_sn, eq.equip_type, eq.panel_id, eq);
 
   // ИИ-аналитика из cg-analytics (undefined — сервис недоступен или машина не наблюдается)
   const analytics = useMachineAnalytics(eq.router_sn, eq.equip_type, eq.panel_id);
@@ -124,58 +104,6 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;
   const [calendarOpen, setCalendarOpen] = useState(false);
-
-  // Live-значение регистра (null при невалидных данных)
-  function liveVal(addr: number): number | null {
-    const reg = liveRegs?.get(addr);
-    if (!reg) return null;
-    if (reg.raw === 65535 || reg.raw === 32767) return null;
-    return reg.value;
-  }
-  function liveRaw(addr: number): number | null {
-    const reg = liveRegs?.get(addr);
-    if (!reg) return null;
-    if (reg.raw === 65535 || reg.raw === 32767) return null;
-    return reg.raw;
-  }
-
-  // ── Регистры панели ────────────────────────────────────────────────
-  const modeRaw = panelFresh ? liveRaw(REG.MODE) : null;
-  const stateRaw = panelFresh ? liveRaw(REG.RUN_STATE) : null;
-  const faultRaw = panelFresh ? liveRaw(REG.FAULT_TYPE) : null;
-  const running =
-    stateRaw != null
-      ? stateRaw >= 1 && stateRaw <= 6
-      : eq.engine_state === "RUN";
-
-  const loadKw = liveVal(REG.LOAD_KW) ?? eq.current_load_kw;
-  const ratedKw = liveVal(REG.RATED_KW) ?? eq.installed_power_kw;
-  const loadPct =
-    loadKw != null && ratedKw != null && ratedKw > 0
-      ? (loadKw / ratedKw) * 100
-      : null;
-
-  const oilPress = liveVal(REG.OIL_PRESS) ?? eq.oil_pressure_kpa;
-  const oilTempRaw = liveVal(REG.OIL_TEMP);
-  const oilTemp =
-    oilTempRaw != null
-      ? oilTempRaw > 150
-        ? fahrenheitToCelsius(oilTempRaw)
-        : Math.round(oilTempRaw * 10) / 10
-      : eq.oil_temp_c;
-  const coolant = liveVal(REG.COOLANT_TEMP);
-  const battery = liveVal(REG.BATTERY_V);
-  const rpm = liveVal(REG.RPM);
-  const voltage = liveVal(REG.VOLTAGE_LL);
-  const currents = [
-    liveVal(REG.CURRENT_L1),
-    liveVal(REG.CURRENT_L2),
-    liveVal(REG.CURRENT_L3),
-  ];
-  const nominalA = nominalCurrentA(ratedKw, voltage);
-
-  const hoursRaw = liveVal(REG.ENGINE_HOURS);
-  const hours = hoursRaw != null ? secondsToMotohours(hoursRaw) : eq.engine_hours;
 
   const displayName = eq.name || `${eq.equip_type} #${eq.panel_id}`;
   const rpmSt = rpmState(rpm, running);
