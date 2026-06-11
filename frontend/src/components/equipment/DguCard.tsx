@@ -109,10 +109,10 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
   const liveRegs = useTelemetryStore((s) => s.registers.get(key));
   const lastUpdate = useTelemetryStore((s) => s.lastUpdate.get(key));
 
-  // Тик каждые 5 сек для обновления относительного времени и свежести
+  // Тик каждую секунду — плавное относительное время и свежесть данных
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 5_000);
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
 

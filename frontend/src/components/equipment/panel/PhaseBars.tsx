@@ -28,10 +28,13 @@ interface Props {
 function barColor(pct: number, rank: -1 | 0 | 1, spreadPct: number): string {
   if (pct > 1) return "#7f1d1d";
   const hue = pct <= 0.7 ? 145 : 145 * (1 - (pct - 0.7) / 0.3);
-  const delta = Math.min(12, Math.max(2, spreadPct * 60));
+  const delta = Math.min(16, Math.max(3, spreadPct * 120));
   const light = 38 + rank * delta;
   return `hsl(${Math.max(0, hue).toFixed(0)}, 62%, ${light.toFixed(0)}%)`;
 }
+
+/** Перекос фаз свыше 8% от номинала — фаза с максимальным током пульсирует */
+const SKEW_ALARM_PCT = 0.08;
 
 /** Токи фаз вертикальными столбиками («эквалайзер») */
 export default function PhaseBars({ currents, nominalA }: Props) {
@@ -40,6 +43,7 @@ export default function PhaseBars({ currents, nominalA }: Props) {
   const min = valid.length ? Math.min(...valid) : null;
   const spreadPct =
     max != null && min != null && nominalA ? (max - min) / nominalA : 0;
+  const skewAlarm = spreadPct > SKEW_ALARM_PCT;
 
   return (
     <div className={`flex h-full w-full items-stretch gap-2.5 px-3 pb-2 pt-2.5 ${PANEL_BOX}`}>
@@ -64,7 +68,9 @@ export default function PhaseBars({ currents, nominalA }: Props) {
           <div key={label} className="flex min-h-12 flex-1 flex-col text-center">
             <div className="flex flex-1 items-end">
               <div
-                className="w-full rounded-t-[3px]"
+                className={`w-full rounded-t-[3px] ${
+                  skewAlarm && rank === 1 ? "animate-pulse" : ""
+                }`}
                 style={{
                   height: `${height}%`,
                   background: color,

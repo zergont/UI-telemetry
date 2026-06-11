@@ -97,10 +97,20 @@ export default function Header() {
     <header className="sticky top-0 z-50 border-b bg-card/80 backdrop-blur-md">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center gap-2 font-semibold">
-            <CompanyLogo className="h-6 w-6 text-foreground dark:text-foreground/60" />
-            <span className="hidden sm:inline">Честная Генерация</span>
-          </Link>
+          <div className="flex items-center gap-2 font-semibold">
+            <a
+              href="https://ngenergoservice.ru/"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="ООО «НГ-ЭНЕРГОСЕРВИС»"
+              className="transition-opacity hover:opacity-80"
+            >
+              <CompanyLogo className="h-6 w-6 text-foreground dark:text-foreground/40" />
+            </a>
+            <Link to="/" className="hidden sm:inline">
+              Честная Генерация
+            </Link>
+          </div>
 
           {crumbs.length > 0 && (
             <nav className="flex items-center gap-1 text-sm text-muted-foreground">
