@@ -181,17 +181,19 @@ export default function ShareLinksPage() {
                 className="rounded-md border bg-card px-3 py-2 text-sm h-9"
               >
                 <option value="all">Все объекты</option>
-                <option value="site">Один объект</option>
+                <option value="site">Выбранные объекты</option>
               </select>
             </div>
             {scopeType === "site" && (
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Router SN</label>
+                <label className="text-xs text-muted-foreground">
+                  Объекты — SN или имя, через запятую, * — маска
+                </label>
                 <Input
                   value={scopeId}
                   onChange={(e) => setScopeId(e.target.value)}
-                  placeholder="6003790403"
-                  className="w-36 font-mono"
+                  placeholder="6003790403, Сининда*"
+                  className="w-64 font-mono"
                 />
               </div>
             )}
@@ -276,7 +278,7 @@ export default function ShareLinksPage() {
                       <TableCell className="text-sm">
                         {link.scope_type === "all"
                           ? "Все объекты"
-                          : `Объект: ${link.scope_id}`}
+                          : `${/[,*?]/.test(link.scope_id ?? "") ? "Объекты" : "Объект"}: ${link.scope_id}`}
                       </TableCell>
                       <TableCell className="text-sm tabular-nums">
                         {link.use_count}
@@ -332,7 +334,7 @@ export default function ShareLinksPage() {
                       <TableCell className="text-sm">
                         {link.scope_type === "all"
                           ? "Все объекты"
-                          : `Объект: ${link.scope_id}`}
+                          : `${/[,*?]/.test(link.scope_id ?? "") ? "Объекты" : "Объект"}: ${link.scope_id}`}
                       </TableCell>
                       <TableCell className="text-sm">
                         {link.revoked_at

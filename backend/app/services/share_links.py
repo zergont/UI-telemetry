@@ -14,8 +14,10 @@ Cookie подписывается через itsdangerous (session_secret из c
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -79,6 +81,62 @@ def decode_session_cookie(
         return data
     except (BadSignature, Exception):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Scope resolution: список серийников / имён / масок → set[router_sn]
+# ---------------------------------------------------------------------------
+
+# Кэш списка объектов для разворачивания масок (резолвится на каждый запрос)
+_objects_cache: dict[str, Any] = {"ts": 0.0, "rows": []}
+_OBJECTS_CACHE_TTL = 30.0
+
+
+async def _objects_for_scope(pool: asyncpg.Pool) -> list[tuple[str, str]]:
+    now = time.monotonic()
+    if now - _objects_cache["ts"] > _OBJECTS_CACHE_TTL:
+        rows = await pool.fetch(
+            "SELECT router_sn, COALESCE(name, '') AS name FROM objects"
+        )
+        _objects_cache["rows"] = [(r["router_sn"], r["name"]) for r in rows]
+        _objects_cache["ts"] = now
+    return _objects_cache["rows"]
+
+
+def _pattern_matches(pattern: str, router_sn: str, name: str) -> bool:
+    p = pattern.casefold()
+    if fnmatch.fnmatchcase(router_sn.casefold(), p):
+        return True
+    return bool(name) and fnmatch.fnmatchcase(name.casefold(), p)
+
+
+async def resolve_scope_sns(pool: asyncpg.Pool, scope_id: str) -> set[str]:
+    """Развернуть scope_id ссылки в набор разрешённых router_sn.
+
+    scope_id — значения через запятую; каждое значение:
+      - точный router_sn ("6003790403")
+      - точное имя объекта ("Сининда-1")
+      - маска по серийнику или имени, регистронезависимо ("Сининда*", "60037*")
+
+    Точные значения без маски попадают в набор как есть — ссылка на ещё
+    не появившийся в БД объект начнёт работать сразу после его появления.
+    """
+    patterns = [p.strip() for p in scope_id.split(",") if p.strip()]
+    if not patterns:
+        return set()
+
+    allowed = {p for p in patterns if "*" not in p and "?" not in p}
+    try:
+        objects = await _objects_for_scope(pool)
+    except Exception:
+        return allowed
+
+    for sn, name in objects:
+        for p in patterns:
+            if _pattern_matches(p, sn, name):
+                allowed.add(sn)
+                break
+    return allowed
 
 
 # ---------------------------------------------------------------------------

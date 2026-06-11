@@ -25,7 +25,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import AccessConfig, Settings, get_settings
 from app.services.access_log import log_access
-from app.services.share_links import decode_session_cookie, validate_link_by_id
+from app.services.share_links import (
+    decode_session_cookie,
+    resolve_scope_sns,
+    validate_link_by_id,
+)
 
 if TYPE_CHECKING:
     import asyncpg
@@ -136,7 +140,8 @@ async def get_auth_context(
                     scope_id = link.get("scope_id")
                     allowed = None
                     if scope_type == "site" and scope_id:
-                        allowed = {scope_id}
+                        # scope_id: серийники/имена/маски через запятую
+                        allowed = await resolve_scope_sns(pool, scope_id)
 
                     log_access(
                         action="auth", role=link["role"],
@@ -265,7 +270,7 @@ async def get_ws_auth_context(
                     scope_id = link.get("scope_id")
                     allowed = None
                     if scope_type == "site" and scope_id:
-                        allowed = {scope_id}
+                        allowed = await resolve_scope_sns(pool, scope_id)
                     return AuthContext(
                         role=link["role"], method="cookie",
                         scope_type=scope_type, scope_id=scope_id,
