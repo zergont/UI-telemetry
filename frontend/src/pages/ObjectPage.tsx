@@ -35,7 +35,8 @@ const VARIANT_LABELS: { value: DguCardVariant; label: string }[] = [
 
 function loadVariant(): DguCardVariant {
   const saved = localStorage.getItem(VARIANT_STORAGE_KEY);
-  return saved === "minimal" || saved === "extended" ? saved : "normal";
+  // Дефолт — расширенная: машин на объекте обычно немного
+  return saved === "minimal" || saved === "normal" ? saved : "extended";
 }
 
 export default function ObjectPage() {
