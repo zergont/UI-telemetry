@@ -9,7 +9,7 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, MapPin, Clock, Zap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -19,16 +19,35 @@ import { useIsAdmin } from "@/hooks/use-auth";
 import { useRenameObject } from "@/hooks/use-rename";
 import type { ObjectOut } from "@/hooks/use-objects";
 import { useTelemetryStore } from "@/stores/telemetry-store";
-import DguCard from "@/components/equipment/DguCard";
+import DguCard, { type DguCardVariant } from "@/components/equipment/DguCard";
 import DguCardSkeleton from "@/components/equipment/DguCardSkeleton";
 import StatusBadge from "@/components/equipment/StatusBadge";
 import InlineEdit from "@/components/ui/inline-edit";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const VARIANT_STORAGE_KEY = "dgu-card-variant";
+
+const VARIANT_LABELS: { value: DguCardVariant; label: string }[] = [
+  { value: "minimal", label: "Минимал" },
+  { value: "normal", label: "Норм" },
+  { value: "extended", label: "Расширенная" },
+];
+
+function loadVariant(): DguCardVariant {
+  const saved = localStorage.getItem(VARIANT_STORAGE_KEY);
+  return saved === "minimal" || saved === "extended" ? saved : "normal";
+}
+
 export default function ObjectPage() {
   const { routerSn } = useParams<{ routerSn: string }>();
   const isAdmin = useIsAdmin();
   const drift = useTelemetryStore((s) => s.drifts.get(routerSn!));
+
+  const [variant, setVariant] = useState<DguCardVariant>(loadVariant);
+  const changeVariant = useCallback((v: DguCardVariant) => {
+    setVariant(v);
+    localStorage.setItem(VARIANT_STORAGE_KEY, v);
+  }, []);
 
   const { data: object, isLoading: objLoading } = useQuery({
     queryKey: ["object", routerSn],
@@ -120,6 +139,25 @@ export default function ObjectPage() {
         </div>
       </div>
 
+      {/* Переключатель вида карточек */}
+      <div className="flex justify-end">
+        <div className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
+          {VARIANT_LABELS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => changeVariant(value)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                variant === value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Equipment grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {eqLoading
@@ -130,6 +168,7 @@ export default function ObjectPage() {
               <DguCard
                 key={`${eq.equip_type}:${eq.panel_id}`}
                 equipment={eq}
+                variant={variant}
               />
             ))}
         {!eqLoading && equipment?.length === 0 && (
