@@ -33,6 +33,7 @@ from app.services.share_links import (
     create_session_cookie,
     create_share_link,
     list_links,
+    resolve_scope_sns,
     revoke_link,
     validate_token,
 )
@@ -114,13 +115,15 @@ async def view_entry(
         scope_id=link.get("scope_id"),
     )
 
-    # Определяем redirect URL
+    # Определяем redirect URL: ровно один объект — сразу в него,
+    # список/маска/все — на главную с картой
     scope_type = link["scope_type"]
     scope_id = link.get("scope_id")
+    redirect_path = "/"
     if scope_type == "site" and scope_id:
-        redirect_path = f"/objects/{scope_id}"
-    else:
-        redirect_path = "/"
+        allowed = await resolve_scope_sns(pool, scope_id)
+        if len(allowed) == 1:
+            redirect_path = f"/objects/{next(iter(allowed))}"
 
     log_access(
         action="view_entry", role=link["role"],
