@@ -462,6 +462,15 @@ function SegmentDetailView({
               <Bot className="h-3.5 w-3.5 text-primary/70" />
               Заключение ИИ
             </h4>
+            {/* Онлайн-анализ предупреждения (гейт Claude) — доступен до закрытия сегмента */}
+            {seg.warning_analysis_md && (
+              <div className="mb-3 border-b border-border/60 pb-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-500">
+                  Онлайн-анализ предупреждения
+                </p>
+                <MarkdownView>{seg.warning_analysis_md}</MarkdownView>
+              </div>
+            )}
             {seg.analysis?.conclusion_md ? (
               <MarkdownView>{seg.analysis.conclusion_md}</MarkdownView>
             ) : analysisStatus === "pending" || analysisStatus === "processing" ? (
@@ -475,7 +484,7 @@ function SegmentDetailView({
               </p>
             ) : seg.is_open ? (
               <p className="text-xs text-muted-foreground">
-                Заключение формируется после закрытия сегмента.
+                Финальный отчёт будет сформирован после закрытия сегмента.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
