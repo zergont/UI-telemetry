@@ -126,11 +126,11 @@ export default function ObjectPage() {
             {drift != null && (
               <span
                 className={`flex items-center gap-1 ${
-                  Math.abs(drift) > 10
+                  Math.abs(drift) > 60
                     ? "text-amber-500"
-                    : "text-muted-foreground"
+                    : "text-muted-foreground/70"
                 }`}
-                title={`Разница часов сервера и браузера: ${drift > 0 ? "+" : ""}${drift} сек. ${Math.abs(drift) > 10 ? "Рекомендуется синхронизировать NTP" : ""}`}
+                title={`Разница часов сервера и браузера: ${drift > 0 ? "+" : ""}${drift} сек. ${Math.abs(drift) > 60 ? "Рекомендуется синхронизировать NTP" : ""}`}
               >
                 <Clock className="h-3 w-3" />
                 drift {drift > 0 ? "+" : ""}{drift}с

@@ -38,7 +38,7 @@ export default function LedPanel({ modeRaw, stateRaw, faultRaw, size = "md" }: P
     modeRaw === 1
       ? { label: "АВТО", on: "bg-blue-400 outline-blue-400/25", labelOn: "text-blue-300" }
       : modeRaw === 2
-        ? { label: "РУЧНОЙ", on: "bg-amber-400 outline-amber-400/25", labelOn: "text-amber-300" }
+        ? { label: "РУЧНОЙ", on: "bg-amber-600 outline-amber-600/20", labelOn: "text-amber-600" }
         : { label: "РЕЖИМ", on: null };
 
   const lamps: Lamp[] = [

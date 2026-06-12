@@ -36,7 +36,7 @@ function barColor(pct: number, rank: -1 | 0 | 1, spreadPct: number): string {
 /** Перекос фаз свыше 8% от номинала — фаза с максимальным током пульсирует */
 const SKEW_ALARM_PCT = 0.08;
 
-/** Токи фаз вертикальными столбиками («эквалайзер») */
+/** Токи фаз: компактные прямоугольники-индикаторы, смысл несёт цвет */
 export default function PhaseBars({ currents, nominalA }: Props) {
   const valid = currents.filter((c): c is number => c != null);
   const max = valid.length ? Math.max(...valid) : null;
@@ -46,7 +46,7 @@ export default function PhaseBars({ currents, nominalA }: Props) {
   const skewAlarm = spreadPct > SKEW_ALARM_PCT;
 
   return (
-    <div className={`flex h-full w-full items-stretch gap-2.5 px-3 pb-2 pt-2.5 ${PANEL_BOX}`}>
+    <div className={`flex h-full w-full items-center gap-2.5 px-3 py-2 ${PANEL_BOX}`}>
       {LABELS.map((label, i) => {
         const value = currents[i];
         const pct =
@@ -59,29 +59,27 @@ export default function PhaseBars({ currents, nominalA }: Props) {
               : value === min
                 ? -1
                 : 0;
-        const height =
-          pct != null ? Math.max(3, Math.min(pct, 1.08) * 100) : 2;
         const color =
           pct != null ? barColor(pct, rank, spreadPct) : "var(--muted)";
 
         return (
-          <div key={label} className="flex min-h-12 flex-1 flex-col text-center">
-            <div className="flex flex-1 items-end">
-              <div
-                className={`w-full rounded-t-[3px] ${
-                  skewAlarm && rank === 1 ? "animate-pulse" : ""
-                }`}
-                style={{
-                  height: `${height}%`,
-                  background: color,
-                  transition: "height 0.5s ease, background 0.5s ease",
-                }}
-              />
-            </div>
-            <span className="font-mono text-[11px] tabular-nums text-foreground/90">
+          <div
+            key={label}
+            className="flex flex-1 flex-col items-center gap-1 text-center"
+          >
+            <div
+              className={`h-2.5 w-full rounded-[3px] ${
+                skewAlarm && rank === 1 ? "animate-pulse" : ""
+              }`}
+              style={{
+                background: color,
+                transition: "background 0.5s ease",
+              }}
+            />
+            <span className="font-mono text-[11px] leading-none tabular-nums text-foreground/90">
               {value != null ? Math.round(value) : "—"}
             </span>
-            <span className="block text-[9px] text-muted-foreground">
+            <span className="block text-[9px] leading-none text-muted-foreground">
               {label}
             </span>
           </div>

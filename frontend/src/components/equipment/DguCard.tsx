@@ -21,6 +21,7 @@ import { CARD_ACCENT } from "./panel/severityAccent";
 import AnalyticsStrip from "./AnalyticsStrip";
 import AnalyticsCalendarDialog from "./AnalyticsCalendarDialog";
 import LedPanel from "./panel/LedPanel";
+import ModePlaque from "./ModePlaque";
 import LoadGauge from "./panel/LoadGauge";
 import PhaseBars from "./panel/PhaseBars";
 import DigitalWindow from "./panel/DigitalWindow";
@@ -136,12 +137,18 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
           )}
         </div>
       </div>
-      <LedPanel
-        modeRaw={modeRaw}
-        stateRaw={stateRaw}
-        faultRaw={faultRaw}
-        size={variant === "minimal" ? "sm" : "md"}
-      />
+      <div className="flex flex-col items-stretch gap-1.5">
+        <LedPanel
+          modeRaw={modeRaw}
+          stateRaw={stateRaw}
+          faultRaw={faultRaw}
+          size={variant === "minimal" ? "sm" : "md"}
+        />
+        <ModePlaque
+          analytics={analytics}
+          size={variant === "minimal" ? "sm" : "md"}
+        />
+      </div>
     </div>
   );
 

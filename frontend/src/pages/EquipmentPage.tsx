@@ -26,6 +26,7 @@ import { CARD_ACCENT } from "@/components/equipment/panel/severityAccent";
 import AnalyticsStrip from "@/components/equipment/AnalyticsStrip";
 import AnalyticsCalendarDialog from "@/components/equipment/AnalyticsCalendarDialog";
 import LedPanel from "@/components/equipment/panel/LedPanel";
+import ModePlaque from "@/components/equipment/ModePlaque";
 import LoadGauge from "@/components/equipment/panel/LoadGauge";
 import PhaseBars from "@/components/equipment/panel/PhaseBars";
 import DigitalWindow from "@/components/equipment/panel/DigitalWindow";
@@ -189,12 +190,13 @@ export default function EquipmentPage() {
                 </span>
               )}
             </div>
-            <div className="mt-2 w-fit">
+            <div className="mt-2 flex w-fit flex-col items-stretch gap-1.5">
               <LedPanel
                 modeRaw={v.modeRaw}
                 stateRaw={v.stateRaw}
                 faultRaw={v.faultRaw}
               />
+              <ModePlaque analytics={analytics} />
             </div>
           </div>
 

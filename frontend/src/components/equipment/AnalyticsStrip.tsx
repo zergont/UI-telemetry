@@ -98,7 +98,16 @@ export default function AnalyticsStrip({
   const time = analytics.status_updated
     ? formatRelativeTime(new Date(analytics.status_updated))
     : null;
-  const statusText = analytics.status_text ?? PENDING_TEXT;
+  // Текст в строке — только при активной тревоге (фолбэк на status_text для старого API);
+  // «ожидание первой сводки» — пока движок ещё ничего не прислал
+  const alarmText =
+    severity !== "норма"
+      ? analytics.alarm_text ?? analytics.status_text
+      : analytics.status_text == null && analytics.mode_label == null
+        ? PENDING_TEXT
+        : null;
+  const alarmClass =
+    severity !== "норма" ? meta.text : "text-muted-foreground/70";
 
   const clickable = onOpenCalendar
     ? `${compact ? "-mb-4 pb-4" : "-mb-5 pb-5"} cursor-pointer rounded-b-xl transition-colors hover:bg-accent/40`
@@ -130,19 +139,47 @@ export default function AnalyticsStrip({
     </Tooltip>
   );
 
-  // Факт срабатывания аналитики, отменённого гейтом — акцент у робота
-  const gateIcon = analytics.gate_checked && (
+  // Пилюля гейта: щит + счётчик обработанных предупреждений за сегмент
+  const gateCount = analytics.gate_events_count ?? 0;
+  const gateCancelled = analytics.gate_cancelled_count ?? 0;
+  const gatePill = (gateCount > 0 || analytics.gate_checked) && (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full bg-yellow-500/15">
+        <span className="flex shrink-0 cursor-help items-center gap-1 rounded-full bg-yellow-500/15 px-2 py-0.5">
           <ShieldCheck className="h-3 w-3 text-yellow-500" />
+          {gateCount > 0 && (
+            <span className="text-[10px] font-semibold tabular-nums text-yellow-500">
+              {gateCount}
+            </span>
+          )}
         </span>
       </TooltipTrigger>
       <TooltipContent>
-        <p>Срабатывание аналитики проверено ИИ — угрозы нет</p>
+        <p>
+          {gateCount > 0
+            ? `Гейт ИИ обработал предупреждений за сегмент: ${gateCount} (отменено: ${gateCancelled}, подтверждено: ${gateCount - gateCancelled})`
+            : "Срабатывание аналитики проверено ИИ — угрозы нет"}
+        </p>
       </TooltipContent>
     </Tooltip>
   );
+
+  // Текст тревоги — одна строка с обрезкой, полный текст в title
+  const alarmSpan = alarmText ? (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={alarmText}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.25 }}
+        className={`min-w-0 flex-1 truncate text-[11.5px] leading-snug ${alarmClass}`}
+        title={alarmText}
+      >
+        {alarmText}
+      </motion.span>
+    </AnimatePresence>
+  ) : null;
 
   if (compact) {
     return (
@@ -156,20 +193,18 @@ export default function AnalyticsStrip({
           >
             <RobotMoodIcon severity={severity} className={`h-5 w-5 ${meta.text}`} />
           </span>
-          {gateIcon}
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.p
-              key={statusText}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="min-w-0 flex-1 truncate text-[11.5px] leading-snug text-foreground/75"
-              title={statusText}
-            >
-              {statusText}
-            </motion.p>
-          </AnimatePresence>
+          {gatePill}
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${meta.dot} ${
+                meta.pulse ? "animate-pulse" : ""
+              }`}
+            />
+            <span className={`text-[11px] font-medium ${meta.text}`}>
+              {meta.label}
+            </span>
+          </span>
+          {alarmSpan ?? <span className="flex-1" />}
           {cokingIcon}
           {time && (
             <span className="shrink-0 text-[10px] text-muted-foreground">
@@ -195,11 +230,11 @@ export default function AnalyticsStrip({
         >
           <RobotMoodIcon severity={severity} className={`h-8 w-8 ${meta.text}`} />
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           ИИ-аналитика
         </span>
-        {gateIcon}
-        <span className="flex items-center gap-1.5">
+        {gatePill}
+        <span className="flex shrink-0 items-center gap-1.5">
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${meta.dot} ${
               meta.pulse ? "animate-pulse" : ""
@@ -209,7 +244,8 @@ export default function AnalyticsStrip({
             {meta.label}
           </span>
         </span>
-        <span className="ml-auto flex items-center gap-2.5">
+        {alarmSpan ?? <span className="flex-1" />}
+        <span className="ml-auto flex shrink-0 items-center gap-2.5">
           {cokingIcon}
           {time && (
             <span className="text-[11px] text-muted-foreground">{time}</span>
@@ -219,18 +255,6 @@ export default function AnalyticsStrip({
           )}
         </span>
       </div>
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.p
-          key={statusText}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          className="mt-1.5 line-clamp-2 text-center text-xs leading-relaxed text-foreground/75"
-        >
-          {statusText}
-        </motion.p>
-      </AnimatePresence>
     </div>
   );
 }

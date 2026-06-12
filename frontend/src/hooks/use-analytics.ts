@@ -33,7 +33,14 @@ export interface MachineAnalytics {
   severity_level: SeverityLevel | null;
   /** Срабатывание аналитики проверено и отменено гейтом Claude */
   gate_checked: boolean;
+  /** Сколько предупреждений обработал гейт за текущий сегмент */
+  gate_events_count: number;
+  gate_cancelled_count: number;
   status_text: string | null;
+  /** Структурный статус: режим, время в режиме, текст главной тревоги */
+  mode_label: string | null;
+  time_in_mode_sec: number | null;
+  alarm_text: string | null;
   status_updated: string | null;
   warning_analysis_md: string | null;
   coking_risk: CokingRisk | null;
