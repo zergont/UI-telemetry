@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import {
@@ -298,8 +299,10 @@ export default function AnalyticsCalendarDialog({
                                   (seg.run_state != null
                                     ? RUN_STATE_TINT[seg.run_state]
                                     : undefined) ?? "bg-accent/40 hover:bg-accent";
-                                const sevBorder =
-                                  SEVERITY_META[severityKey(seg.severity)].border;
+                                // Отменённое гейтом срабатывание: жёлтый пунктир вместо сплошной кромки
+                                const sevBorder = seg.gate_checked
+                                  ? "border-dashed border-l-yellow-400"
+                                  : SEVERITY_META[severityKey(seg.severity)].border;
                                 return (
                                   <button
                                     key={seg.id}
@@ -311,13 +314,18 @@ export default function AnalyticsCalendarDialog({
                                         {timeHM(seg.t_start)}–
                                         {seg.is_open ? "сейчас" : timeHM(seg.t_end)}
                                       </span>
-                                      {seg.is_open ? (
-                                        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-blue-500" />
-                                      ) : (
-                                        seg.has_claude && (
-                                          <Bot className="h-3.5 w-3.5 shrink-0 text-primary/70" />
-                                        )
-                                      )}
+                                      <span className="flex shrink-0 items-center gap-1">
+                                        {seg.gate_checked && (
+                                          <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
+                                        )}
+                                        {seg.is_open ? (
+                                          <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                                        ) : (
+                                          seg.has_claude && (
+                                            <Bot className="h-3.5 w-3.5 text-primary/70" />
+                                          )
+                                        )}
+                                      </span>
                                     </span>
                                     <span className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground">
                                       {seg.run_state_label ?? "—"}
@@ -342,6 +350,10 @@ export default function AnalyticsCalendarDialog({
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="h-3 w-1 rounded-sm bg-yellow-400" /> предупреждение
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-3 w-1 rounded-sm border border-dashed border-yellow-400" />{" "}
+                    проверено ИИ
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="h-3 w-1 rounded-sm bg-orange-500" /> внимание
@@ -427,6 +439,15 @@ function SegmentDetailView({
               <Badge variant="outline" className={meta.badge}>
                 {meta.label}
               </Badge>
+              {seg.gate_checked && (
+                <Badge
+                  variant="outline"
+                  className="border-yellow-500/20 bg-yellow-500/15 text-yellow-600 dark:text-yellow-500"
+                >
+                  <ShieldCheck className="mr-1 h-3 w-3" />
+                  Проверено ИИ — угрозы нет
+                </Badge>
+              )}
               {seg.run_state_label && (
                 <Badge variant="outline" className="text-muted-foreground">
                   {seg.run_state_label}

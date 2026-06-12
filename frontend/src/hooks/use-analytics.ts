@@ -31,6 +31,8 @@ export interface MachineAnalytics {
   run_state: number | null;
   run_state_label: string | null;
   severity_level: SeverityLevel | null;
+  /** Срабатывание аналитики проверено и отменено гейтом Claude */
+  gate_checked: boolean;
   status_text: string | null;
   status_updated: string | null;
   warning_analysis_md: string | null;
@@ -63,6 +65,8 @@ export interface SegmentOut {
   duration_sec: number | null;
   cause_close: string | null;
   severity: SegmentSeverity;
+  /** Срабатывание аналитики проверено и отменено гейтом Claude */
+  gate_checked: boolean;
   analytics_version: string | null;
   has_report: boolean;
   has_claude: boolean;

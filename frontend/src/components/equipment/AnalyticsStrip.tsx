@@ -10,7 +10,7 @@
  */
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Flame, CalendarDays } from "lucide-react";
+import { Flame, CalendarDays, ShieldCheck } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -130,6 +130,20 @@ export default function AnalyticsStrip({
     </Tooltip>
   );
 
+  // Факт срабатывания аналитики, отменённого гейтом — акцент у робота
+  const gateIcon = analytics.gate_checked && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full bg-yellow-500/15">
+          <ShieldCheck className="h-3 w-3 text-yellow-500" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Срабатывание аналитики проверено ИИ — угрозы нет</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+
   if (compact) {
     return (
       <div
@@ -142,6 +156,7 @@ export default function AnalyticsStrip({
           >
             <RobotMoodIcon severity={severity} className={`h-5 w-5 ${meta.text}`} />
           </span>
+          {gateIcon}
           <AnimatePresence mode="wait" initial={false}>
             <motion.p
               key={statusText}
@@ -183,6 +198,7 @@ export default function AnalyticsStrip({
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           ИИ-аналитика
         </span>
+        {gateIcon}
         <span className="flex items-center gap-1.5">
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${meta.dot} ${
