@@ -65,6 +65,8 @@ export interface SegmentOut {
   duration_sec: number | null;
   cause_close: string | null;
   severity: SegmentSeverity;
+  /** Операционные сутки сегмента (YYYY-MM-DD, граница daily_split_hour движка) */
+  op_day: string | null;
   /** Срабатывание аналитики проверено и отменено гейтом Claude */
   gate_checked: boolean;
   analytics_version: string | null;

@@ -134,12 +134,13 @@ export default function AnalyticsCalendarDialog({
     open,
   );
 
-  // Группировка по локальной дате t_start; внутри дня — хронологически (старые сверху)
+  // Группировка по операционным суткам движка (op_day, граница 09:00 local);
+  // фолбэк — локальная дата t_start. Внутри дня — хронологически (старые сверху)
   const byDay = useMemo(() => {
     const map = new Map<string, SegmentOut[]>();
     for (const seg of segments ?? []) {
       if (!seg.t_start) continue;
-      const key = localDateKey(seg.t_start);
+      const key = seg.op_day ?? localDateKey(seg.t_start);
       const list = map.get(key) ?? [];
       list.push(seg);
       map.set(key, list);
