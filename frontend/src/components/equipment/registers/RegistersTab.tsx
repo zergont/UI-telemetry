@@ -67,7 +67,7 @@ function displayUnit(unit: string | null): string {
 function severityClass(severity: string): string {
   switch (severity) {
     case "warning":
-      return "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400";
+      return "bg-orange-500/15 text-orange-600 dark:text-orange-400";
     case "derate":
       return "bg-orange-500/15 text-orange-600 dark:text-orange-400";
     case "shutdown":

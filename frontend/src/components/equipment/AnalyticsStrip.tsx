@@ -28,7 +28,7 @@ interface SeverityMeta {
   pulse: boolean;
 }
 
-/** 4-уровневая градация (cg-analytics v4.1.0): панель важнее аналитики */
+/** 4-уровневая градация (панель важнее аналитики): норма < предупреждение < внимание < авария */
 const SEVERITY_META: Record<SeverityLevel, SeverityMeta> = {
   норма: {
     label: "Норма",
@@ -37,15 +37,15 @@ const SEVERITY_META: Record<SeverityLevel, SeverityMeta> = {
     dot: "bg-emerald-500",
     pulse: false,
   },
-  внимание: {
-    label: "Внимание",
+  предупреждение: {
+    label: "Предупреждение",
     text: "text-yellow-500",
     iconBg: "bg-yellow-500/10",
     dot: "bg-yellow-400",
     pulse: true,
   },
-  предупреждение: {
-    label: "Предупреждение",
+  внимание: {
+    label: "Внимание",
     text: "text-orange-500",
     iconBg: "bg-orange-500/10",
     dot: "bg-orange-400",

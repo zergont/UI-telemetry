@@ -53,10 +53,10 @@ export default function LedPanel({ modeRaw, stateRaw, faultRaw, size = "md" }: P
       label: "ВНИМАНИЕ",
       on:
         faultRaw === 1 || faultRaw === 2
-          ? "bg-yellow-400 outline-yellow-400/25"
+          ? "bg-orange-400 outline-orange-400/25"
           : null,
       pulse: true,
-      labelOn: "text-yellow-300",
+      labelOn: "text-orange-300",
     },
     {
       label: "АВАРИЯ",

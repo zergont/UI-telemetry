@@ -25,14 +25,14 @@ const FACES: Record<SeverityLevel, React.ReactNode> = {
       <path d="M9 16.5q3 2.2 6 0" />
     </>
   ),
-  внимание: (
+  предупреждение: (
     <>
       <path d="M9 12.5v2" />
       <path d="M15 12.5v2" />
       <path d="M9.5 17h5" />
     </>
   ),
-  предупреждение: (
+  внимание: (
     <>
       <path d="M9 12.5v2" />
       <path d="M15 12.5v2" />

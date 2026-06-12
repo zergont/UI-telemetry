@@ -47,7 +47,7 @@ function SeverityBadge({ severity }: { severity: string | null }) {
   }
   if (severity === "warning") {
     return (
-      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-yellow-500/15 text-yellow-600 dark:text-yellow-400">
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-orange-500/15 text-orange-600 dark:text-orange-400">
         <AlertTriangle className="h-3 w-3" />
         warning
       </span>
@@ -64,7 +64,7 @@ function SeverityBadge({ severity }: { severity: string | null }) {
 function rowClass(n: NotificationOut): string {
   const active = n.fault_end === null;
   if (n.severity === "shutdown") return active ? "bg-red-500/10" : "bg-red-500/5";
-  if (n.severity === "warning") return active ? "bg-yellow-500/10" : "bg-yellow-500/5";
+  if (n.severity === "warning") return active ? "bg-orange-500/10" : "bg-orange-500/5";
   return "";
 }
 

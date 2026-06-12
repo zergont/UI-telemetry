@@ -12,12 +12,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
-/** Итоговый уровень (4 уровня, cg-analytics v4.1.0): максимум панели и аналитики */
-export type SeverityLevel = "норма" | "внимание" | "предупреждение" | "авария";
-/** Сигналы панели управления (CONTROLLER_FAULT) */
-export type PanelSeverity = "норма" | "предупреждение" | "авария";
+/** Итоговый уровень: норма < предупреждение (аналитика) < внимание (панель) < авария (панель) */
+export type SeverityLevel = "норма" | "предупреждение" | "внимание" | "авария";
+/** Сигналы панели управления (CONTROLLER_FAULT): WARNING → внимание, ALARM/SHUTDOWN → авария */
+export type PanelSeverity = "норма" | "внимание" | "авария";
 /** Сигналы аналитического движка */
-export type AnalyticsSeverity = "норма" | "внимание";
+export type AnalyticsSeverity = "норма" | "предупреждение";
 export type CokingRisk = "GREEN" | "YELLOW" | "RED";
 
 export interface MachineAnalytics {

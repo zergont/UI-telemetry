@@ -50,7 +50,7 @@ const CAUSE_LABELS: Record<string, string> = {
   OPERATOR_STOP: "Остановка оператором",
 };
 
-/** Severity сегмента → 4-ступенчатая градация: авария / предупреждение / внимание / норма */
+/** Severity сегмента → 4-ступенчатая градация: авария / внимание (панель) / предупреждение (аналитика) / норма */
 const SEVERITY_META: Record<string, { label: string; badge: string; border: string }> = {
   SHUTDOWN: {
     label: "Авар. останов",
@@ -63,12 +63,12 @@ const SEVERITY_META: Record<string, { label: string; badge: string; border: stri
     border: "border-l-red-500",
   },
   WARNING: {
-    label: "Предупреждение",
+    label: "Внимание",
     badge: "bg-orange-500/15 text-orange-500 border-orange-500/20",
     border: "border-l-orange-500",
   },
   INFO: {
-    label: "Внимание",
+    label: "Предупреждение",
     badge: "bg-yellow-500/15 text-yellow-500 border-yellow-500/20",
     border: "border-l-yellow-400",
   },
@@ -341,10 +341,10 @@ export default function AnalyticsCalendarDialog({
                     <span className="h-3 w-1 rounded-sm bg-emerald-500" /> норма
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-3 w-1 rounded-sm bg-yellow-400" /> внимание
+                    <span className="h-3 w-1 rounded-sm bg-yellow-400" /> предупреждение
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-3 w-1 rounded-sm bg-orange-500" /> предупреждение
+                    <span className="h-3 w-1 rounded-sm bg-orange-500" /> внимание
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="h-3 w-1 rounded-sm bg-red-500" /> авария

@@ -11,7 +11,7 @@
 
 import type { SeverityLevel } from "@/hooks/use-analytics";
 
-/** Акцент карточки/панели по severity_level (4 уровня, cg-analytics v4.1.0) */
+/** Акцент карточки/панели по severity_level: норма < предупреждение < внимание < авария */
 export const CARD_ACCENT: Record<
   SeverityLevel,
   { bar: string; card: string }
@@ -20,11 +20,11 @@ export const CARD_ACCENT: Record<
     bar: "via-emerald-500/60",
     card: "hover:border-emerald-500/25 hover:shadow-emerald-500/10",
   },
-  внимание: {
+  предупреждение: {
     bar: "via-yellow-400/80",
     card: "border-yellow-500/25 shadow-yellow-500/5 hover:border-yellow-500/40 hover:shadow-yellow-500/15",
   },
-  предупреждение: {
+  внимание: {
     bar: "via-orange-500/80",
     card: "border-orange-500/30 shadow-orange-500/5 hover:border-orange-500/45 hover:shadow-orange-500/20",
   },

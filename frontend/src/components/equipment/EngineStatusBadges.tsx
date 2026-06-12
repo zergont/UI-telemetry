@@ -34,7 +34,7 @@ const STATE_META: Record<number, { label: string; className: string; pulse?: boo
 // ── 40013 Индикация аварии ─────────────────────────────────────────────────
 const ALARM_META: Record<number, { label: string; className: string; pulse?: boolean } | null> = {
   0: null, // None — не показываем
-  1: { label: "⚠ Предупреждение",    className: "bg-yellow-500/15 text-yellow-400  border-yellow-500/20", pulse: true },
+  1: { label: "⚠ Внимание",          className: "bg-orange-500/15 text-orange-400  border-orange-500/20", pulse: true },
   2: { label: "⚠ Снижение мощн.",    className: "bg-orange-500/15 text-orange-400  border-orange-500/20", pulse: true },
   3: { label: "✖ Стоп с охл.",       className: "bg-red-500/15    text-red-500     border-red-500/20",    pulse: true },
   4: { label: "✖ Аварийный стоп",    className: "bg-red-500/15    text-red-500     border-red-500/20",    pulse: true },
