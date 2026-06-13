@@ -23,6 +23,8 @@ export const REG = {
   RATED_KW: 43019,
   /** Среднее линейное напряжение LL */
   VOLTAGE_LL: 40025,
+  /** Частота генератора, Гц */
+  FREQUENCY: 40044,
   CURRENT_L1: 40026,
   CURRENT_L2: 40027,
   CURRENT_L3: 40028,
@@ -89,6 +91,15 @@ export function voltageState(v: number | null, running: boolean): ParamState {
   if (!running) return "idle";
   if (v < 360 || v > 440) return "crit";
   if (v < 380 || v > 420) return "warn";
+  return "ok";
+}
+
+/** Частота 50 Гц: значима только на работающей установке */
+export function frequencyState(hz: number | null, running: boolean): ParamState {
+  if (hz == null || hz < 1) return "idle";
+  if (!running) return "idle";
+  if (hz < 47 || hz > 53) return "crit";
+  if (hz < 49 || hz > 51) return "warn";
   return "ok";
 }
 

@@ -37,7 +37,7 @@ import {
   FanIcon,
   BatteryIcon,
 } from "@/components/equipment/panel/PanelIcons";
-import { Gauge } from "lucide-react";
+import { Gauge, Activity } from "lucide-react";
 import { useDguPanelValues } from "@/components/equipment/panel/useDguPanelValues";
 import {
   REG,
@@ -45,6 +45,7 @@ import {
   coolantState,
   rpmState,
   voltageState,
+  frequencyState,
   oilPressState,
   oilTempState,
   formatHours,
@@ -279,7 +280,7 @@ export default function EquipmentPage() {
             <PhaseBars currents={v.currents} nominalA={v.nominalA} />
           </ChartLink>
 
-          {/* Электрика: напряжение · обороты + моточасы */}
+          {/* Электрика: напряжение · частота · обороты + моточасы */}
           <div className="flex w-52 flex-col gap-2">
             <div className="flex gap-2">
               <ChartLink
@@ -294,6 +295,21 @@ export default function EquipmentPage() {
                   state={voltageState(v.voltage, v.running)}
                 />
               </ChartLink>
+              <ChartLink
+                onOpen={() => openChart(`a:${REG.FREQUENCY}`)}
+                title="График частоты"
+                className="flex flex-1"
+              >
+                <StatBox
+                  icon={<Activity className="h-5 w-5" />}
+                  value={v.frequency}
+                  unit="Гц"
+                  decimals={1}
+                  state={frequencyState(v.frequency, v.running)}
+                />
+              </ChartLink>
+            </div>
+            <div className="flex gap-2">
               <ChartLink
                 onOpen={() => openChart(`a:${REG.RPM}`)}
                 title="График оборотов"

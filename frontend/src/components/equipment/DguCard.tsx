@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Wifi, WifiOff, Gauge } from "lucide-react";
+import { Wifi, WifiOff, Gauge, Activity } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
 import { useMachineAnalytics } from "@/hooks/use-analytics";
@@ -38,6 +38,7 @@ import {
   coolantState,
   rpmState,
   voltageState,
+  frequencyState,
   oilPressState,
   oilTempState,
   loadZoneColor,
@@ -101,6 +102,7 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
     battery,
     rpm,
     voltage,
+    frequency,
     currents,
     nominalA,
     hours,
@@ -199,6 +201,15 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
       state={voltageState(voltage, running)}
     />
   );
+  const freqBox = (
+    <StatBox
+      icon={<Activity className="h-5 w-5" />}
+      value={frequency}
+      unit="Гц"
+      decimals={1}
+      state={frequencyState(frequency, running)}
+    />
+  );
   const rpmBox = (
     <StatBox
       icon={<Gauge className="h-5 w-5" />}
@@ -279,6 +290,7 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
               {voltageBox}
+              {freqBox}
               {rpmBox}
             </div>
           </div>

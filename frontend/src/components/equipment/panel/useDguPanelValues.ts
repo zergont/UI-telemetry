@@ -37,6 +37,7 @@ export interface DguPanelValues {
   battery: number | null;
   rpm: number | null;
   voltage: number | null;
+  frequency: number | null;
   currents: (number | null)[];
   nominalA: number | null;
   hours: number | null;
@@ -102,6 +103,7 @@ export function useDguPanelValues(
       : fallback?.oil_temp_c ?? null;
 
   const voltage = liveVal(REG.VOLTAGE_LL);
+  const frequency = liveVal(REG.FREQUENCY);
   const hoursRaw = liveVal(REG.ENGINE_HOURS);
 
   return {
@@ -120,6 +122,7 @@ export function useDguPanelValues(
     battery: liveVal(REG.BATTERY_V),
     rpm: liveVal(REG.RPM),
     voltage,
+    frequency,
     currents: [
       liveVal(REG.CURRENT_L1),
       liveVal(REG.CURRENT_L2),
