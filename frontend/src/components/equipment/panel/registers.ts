@@ -83,6 +83,15 @@ export function batteryState(v: number | null): ParamState {
   return "ok";
 }
 
+/** Линейное напряжение 400 В: актуально на работающей установке */
+export function voltageState(v: number | null, running: boolean): ParamState {
+  if (v == null || v < 100) return "idle";
+  if (!running) return "idle";
+  if (v < 360 || v > 440) return "crit";
+  if (v < 380 || v > 420) return "warn";
+  return "ok";
+}
+
 export function rpmState(rpm: number | null, running: boolean): ParamState {
   if (!running || rpm == null || rpm <= 0) return "idle";
   const dev = Math.abs(rpm - 1500);

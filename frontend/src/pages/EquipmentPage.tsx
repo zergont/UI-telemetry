@@ -29,15 +29,24 @@ import LedPanel from "@/components/equipment/panel/LedPanel";
 import ModePlaque from "@/components/equipment/ModePlaque";
 import LoadGauge from "@/components/equipment/panel/LoadGauge";
 import PhaseBars from "@/components/equipment/panel/PhaseBars";
-import DigitalWindow from "@/components/equipment/panel/DigitalWindow";
-import { OilBox, IconValueBox } from "@/components/equipment/panel/ParamBoxes";
-import { CoolantIcon, BatteryIcon } from "@/components/equipment/panel/PanelIcons";
+import { StatBox, StatBar } from "@/components/equipment/panel/ParamBoxes";
+import {
+  MeterIcon,
+  OilCanIcon,
+  OilTempIcon,
+  FanIcon,
+  BatteryIcon,
+} from "@/components/equipment/panel/PanelIcons";
+import { Gauge } from "lucide-react";
 import { useDguPanelValues } from "@/components/equipment/panel/useDguPanelValues";
 import {
   REG,
   batteryState,
   coolantState,
   rpmState,
+  voltageState,
+  oilPressState,
+  oilTempState,
   formatHours,
 } from "@/components/equipment/panel/registers";
 import RegistersTab from "@/components/equipment/registers/RegistersTab";
@@ -116,7 +125,6 @@ export default function EquipmentPage() {
 
   // ── Панель ДГУ (живые значения + REST-фолбек) ──────────────────────
   const v = useDguPanelValues(routerSn!, equipType!, panelId!, eqInfo);
-  const rpmSt = rpmState(v.rpm, v.running);
 
   const analytics = useMachineAnalytics(routerSn!, equipType!, panelId!);
   const accent = analytics
@@ -205,22 +213,42 @@ export default function EquipmentPage() {
             <LoadGauge loadKw={v.loadKw} ratedKw={v.ratedKw} width={150} />
           </ChartLink>
 
-          {/* Параметры двигателя */}
+          {/* Двигатель: масло (давление · температура) + ОЖ / АКБ */}
           <div className="flex w-60 flex-col gap-2">
-            <ChartLink
-              onOpen={() => openChart("c:oil")}
-              title="График масла: давление + температура"
-            >
-              <OilBox pressKpa={v.oilPress} tempC={v.oilTemp} running={v.running} />
-            </ChartLink>
+            <div className="flex gap-2">
+              <ChartLink
+                onOpen={() => openChart("c:oil")}
+                title="График давления масла"
+                className="flex flex-1"
+              >
+                <StatBox
+                  icon={<OilCanIcon className="h-[22px] w-[22px]" />}
+                  value={v.oilPress}
+                  unit="кПа"
+                  state={oilPressState(v.oilPress, v.running)}
+                />
+              </ChartLink>
+              <ChartLink
+                onOpen={() => openChart("c:oil")}
+                title="График температуры масла"
+                className="flex flex-1"
+              >
+                <StatBox
+                  icon={<OilTempIcon className="h-[22px] w-[22px]" />}
+                  value={v.oilTemp}
+                  unit="°C"
+                  state={oilTempState(v.oilTemp, v.running)}
+                />
+              </ChartLink>
+            </div>
             <div className="flex gap-2">
               <ChartLink
                 onOpen={() => openChart(`a:${REG.COOLANT_TEMP}`)}
                 title="График температуры ОЖ"
                 className="flex flex-1"
               >
-                <IconValueBox
-                  icon={<CoolantIcon className="h-5 w-5" />}
+                <StatBox
+                  icon={<FanIcon className="h-5 w-5" />}
                   value={v.coolant}
                   unit="°C"
                   state={coolantState(v.coolant, v.running)}
@@ -231,7 +259,7 @@ export default function EquipmentPage() {
                 title="График напряжения АКБ"
                 className="flex flex-1"
               >
-                <IconValueBox
+                <StatBox
                   icon={<BatteryIcon className="h-5 w-5" />}
                   value={v.battery}
                   unit="В"
@@ -251,42 +279,42 @@ export default function EquipmentPage() {
             <PhaseBars currents={v.currents} nominalA={v.nominalA} />
           </ChartLink>
 
-          {/* Цифровые окошки */}
+          {/* Электрика: напряжение · обороты + моточасы */}
           <div className="flex w-52 flex-col gap-2">
-            <ChartLink
-              onOpen={() => openChart(`a:${REG.VOLTAGE_LL}`)}
-              title="График напряжения"
-            >
-              <DigitalWindow
-                label="НАПРЯЖЕНИЕ"
-                value={v.voltage != null ? String(Math.round(v.voltage)) : "—"}
-                unit="В"
-                tone={
-                  v.running && v.voltage != null && v.voltage > 100
-                    ? "active"
-                    : "idle"
-                }
-              />
-            </ChartLink>
+            <div className="flex gap-2">
+              <ChartLink
+                onOpen={() => openChart(`a:${REG.VOLTAGE_LL}`)}
+                title="График напряжения"
+                className="flex flex-1"
+              >
+                <StatBox
+                  icon={<MeterIcon className="h-5 w-5" />}
+                  value={v.voltage}
+                  unit="В"
+                  state={voltageState(v.voltage, v.running)}
+                />
+              </ChartLink>
+              <ChartLink
+                onOpen={() => openChart(`a:${REG.RPM}`)}
+                title="График оборотов"
+                className="flex flex-1"
+              >
+                <StatBox
+                  icon={<Gauge className="h-5 w-5" />}
+                  value={v.rpm}
+                  unit="об/м"
+                  state={rpmState(v.rpm, v.running)}
+                />
+              </ChartLink>
+            </div>
             <ChartLink
               onOpen={() => openChart(`a:${REG.ENGINE_HOURS}`)}
               title="График наработки"
             >
-              <DigitalWindow
+              <StatBar
                 label="МОТОЧАСЫ"
                 value={formatHours(v.hours)}
-                tone={v.hours != null ? "active" : "idle"}
-                wide
-              />
-            </ChartLink>
-            <ChartLink
-              onOpen={() => openChart(`a:${REG.RPM}`)}
-              title="График оборотов"
-            >
-              <DigitalWindow
-                label="ОБОРОТЫ"
-                value={v.rpm != null ? String(Math.round(v.rpm)) : "—"}
-                tone={rpmSt === "crit" ? "crit" : rpmSt === "idle" ? "idle" : "active"}
+                state={v.hours != null ? "ok" : "idle"}
               />
             </ChartLink>
           </div>

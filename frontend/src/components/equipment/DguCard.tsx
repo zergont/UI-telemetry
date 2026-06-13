@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Wifi, WifiOff } from "lucide-react";
+import { Wifi, WifiOff, Gauge } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
 import { useMachineAnalytics } from "@/hooks/use-analytics";
@@ -24,15 +24,22 @@ import LedPanel from "./panel/LedPanel";
 import ModePlaque from "./ModePlaque";
 import LoadGauge from "./panel/LoadGauge";
 import PhaseBars from "./panel/PhaseBars";
-import DigitalWindow from "./panel/DigitalWindow";
-import { OilBox, IconValueBox } from "./panel/ParamBoxes";
-import { CoolantIcon, BatteryIcon } from "./panel/PanelIcons";
+import { StatBox, StatBar } from "./panel/ParamBoxes";
+import {
+  MeterIcon,
+  OilCanIcon,
+  OilTempIcon,
+  FanIcon,
+  BatteryIcon,
+} from "./panel/PanelIcons";
 import { useDguPanelValues } from "./panel/useDguPanelValues";
 import {
-  PANEL_BOX,
   batteryState,
   coolantState,
   rpmState,
+  voltageState,
+  oilPressState,
+  oilTempState,
   loadZoneColor,
   formatHours,
 } from "./panel/registers";
@@ -107,7 +114,6 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const displayName = eq.name || `${eq.equip_type} #${eq.panel_id}`;
-  const rpmSt = rpmState(rpm, running);
 
   // ── Общие блоки ────────────────────────────────────────────────────
   const header = (
@@ -152,39 +158,60 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
     </div>
   );
 
-  const motoBox = (
-    <div
-      className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-2.5 py-2 ${PANEL_BOX} border-border/60`}
-    >
-      <span className="text-[8px] tracking-[0.14em] text-muted-foreground">
-        МОТОЧАСЫ
-      </span>
-      <span
-        className={`font-mono text-[14px] tabular-nums tracking-[0.1em] ${
-          hours != null ? "text-green-500 dark:text-green-400" : "text-muted-foreground"
-        }`}
-      >
-        {formatHours(hours)}
-      </span>
-    </div>
+  const oilPressBox = (
+    <StatBox
+      icon={<OilCanIcon className="h-[22px] w-[22px]" />}
+      value={oilPress}
+      unit="кПа"
+      state={oilPressState(oilPress, running)}
+    />
   );
-
-  const oilRow = <OilBox pressKpa={oilPress} tempC={oilTemp} running={running} />;
+  const oilTempBox = (
+    <StatBox
+      icon={<OilTempIcon className="h-[22px] w-[22px]" />}
+      value={oilTemp}
+      unit="°C"
+      state={oilTempState(oilTemp, running)}
+    />
+  );
   const coolantBox = (
-    <IconValueBox
-      icon={<CoolantIcon className="h-5 w-5" />}
+    <StatBox
+      icon={<FanIcon className="h-5 w-5" />}
       value={coolant}
       unit="°C"
       state={coolantState(coolant, running)}
     />
   );
   const batteryBox = (
-    <IconValueBox
+    <StatBox
       icon={<BatteryIcon className="h-5 w-5" />}
       value={battery}
       unit="В"
       decimals={1}
       state={batteryState(battery)}
+    />
+  );
+  const voltageBox = (
+    <StatBox
+      icon={<MeterIcon className="h-5 w-5" />}
+      value={voltage}
+      unit="В"
+      state={voltageState(voltage, running)}
+    />
+  );
+  const rpmBox = (
+    <StatBox
+      icon={<Gauge className="h-5 w-5" />}
+      value={rpm}
+      unit="об/м"
+      state={rpmState(rpm, running)}
+    />
+  );
+  const motoBar = (
+    <StatBar
+      label="МОТОЧАСЫ"
+      value={formatHours(hours)}
+      state={hours != null ? "ok" : "idle"}
     />
   );
 
@@ -230,39 +257,29 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
               ratedKw={ratedKw}
               width={variant === "extended" ? 180 : 152}
             />
-            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-              {oilRow}
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {/* Единые короткие плашки парами + длинная для моточасов */}
+              <div className="flex gap-2">
+                {oilPressBox}
+                {oilTempBox}
+              </div>
               <div className="flex gap-2">
                 {coolantBox}
-                {variant === "extended" ? batteryBox : motoBox}
+                {variant === "extended" ? batteryBox : rpmBox}
               </div>
+              {motoBar}
             </div>
           </div>
         )}
 
         {variant === "extended" && (
-          <div className="mt-3 flex items-stretch gap-2.5 px-6">
+          <div className="mt-2 flex items-stretch gap-2.5 px-6">
             <div className="flex min-w-0 flex-[1.2]">
               <PhaseBars currents={currents} nominalA={nominalA} />
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
-              <DigitalWindow
-                label="НАПРЯЖЕНИЕ"
-                value={voltage != null ? String(Math.round(voltage)) : "—"}
-                unit="В"
-                tone={running && voltage != null && voltage > 100 ? "active" : "idle"}
-              />
-              <DigitalWindow
-                label="МОТОЧАСЫ"
-                value={formatHours(hours)}
-                tone={hours != null ? "active" : "idle"}
-                wide
-              />
-              <DigitalWindow
-                label="ОБОРОТЫ"
-                value={rpm != null ? String(Math.round(rpm)) : "—"}
-                tone={rpmSt === "crit" ? "crit" : rpmSt === "idle" ? "idle" : "active"}
-              />
+              {voltageBox}
+              {rpmBox}
             </div>
           </div>
         )}
