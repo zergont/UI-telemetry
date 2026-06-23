@@ -24,6 +24,7 @@ const ObjectPage = lazy(() => import("@/pages/ObjectPage"));
 const EquipmentPage = lazy(() => import("@/pages/EquipmentPage"));
 const ShareLinksPage = lazy(() => import("@/pages/ShareLinksPage"));
 const SystemPage = lazy(() => import("@/pages/SystemPage"));
+const FaultCodesPage = lazy(() => import("@/pages/FaultCodesPage"));
 
 function AppContent() {
   const location = useLocation();
@@ -64,6 +65,14 @@ function AppContent() {
               element={
                 <PageTransition>
                   <EquipmentPage />
+                </PageTransition>
+              }
+            />
+            <Route
+              path="/reference/fault-codes"
+              element={
+                <PageTransition>
+                  <FaultCodesPage />
                 </PageTransition>
               }
             />

@@ -11,7 +11,7 @@
 
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Moon, Sun, ChevronRight, Share2, Settings, Clock } from "lucide-react";
+import { Moon, Sun, ChevronRight, Share2, Settings, Clock, BookOpen } from "lucide-react";
 import CompanyLogo from "@/components/layout/CompanyLogo";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -142,6 +142,12 @@ export default function Header() {
               {connected ? "Online" : "Connecting..."}
             </span>
           </div>
+
+          <Link to="/reference/fault-codes" title="Справочник кодов PCC 3300">
+            <Button variant="ghost" size="icon">
+              <BookOpen className="h-4 w-4" />
+            </Button>
+          </Link>
 
           {isAdmin && (
             <>
