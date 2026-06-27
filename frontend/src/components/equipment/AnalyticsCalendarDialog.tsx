@@ -9,7 +9,7 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -156,6 +156,18 @@ export default function AnalyticsCalendarDialog({
     return map;
   }, [segments]);
 
+  const lastDayKey = useMemo(() => {
+    const keys = [...byDay.keys()].sort();
+    return keys.at(-1) ?? null;
+  }, [byDay]);
+
+  const lastDayRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (lastDayRef.current) {
+      lastDayRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [lastDayKey]);
+
   function shiftMonth(delta: number) {
     let m = month + delta;
     let y = year;
@@ -277,6 +289,7 @@ export default function AnalyticsCalendarDialog({
                       return (
                         <div
                           key={key}
+                          ref={key === lastDayKey ? lastDayRef : undefined}
                           className={`min-h-20 rounded-lg border p-1.5 ${
                             isToday
                               ? "border-border/70 bg-muted/70"
