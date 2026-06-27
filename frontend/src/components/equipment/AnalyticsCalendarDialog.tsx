@@ -68,6 +68,11 @@ const SEVERITY_META: Record<string, { label: string; badge: string; border: stri
     badge: "bg-orange-500/15 text-orange-500 border-orange-500/20",
     border: "border-l-orange-500",
   },
+  CAUTION: {
+    label: "Предупреждение",
+    badge: "bg-yellow-500/15 text-yellow-500 border-yellow-500/20",
+    border: "border-l-yellow-400",
+  },
   INFO: {
     label: "Предупреждение",
     badge: "bg-yellow-500/15 text-yellow-500 border-yellow-500/20",
