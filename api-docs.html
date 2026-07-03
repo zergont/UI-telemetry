@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API — Честная Генерация</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --text-primary: #1a1a18;
+  --text-secondary: #5f5e5a;
+  --text-muted: #888780;
+  --surface-0: #f1efe8;
+  --surface-1: #f8f7f3;
+  --surface-2: #ffffff;
+  --border: rgba(0,0,0,.1);
+  --border-strong: rgba(0,0,0,.18);
+  --bg-accent: #e6f1fb; --text-accent: #185fa5; --border-accent: #b5d4f4;
+  --bg-success: #eaf3de; --text-success: #3b6d11; --border-success: #c0dd97;
+  --bg-warning: #faeeda; --text-warning: #854f0b; --border-warning: #fac775;
+  --bg-danger: #fcebeb; --text-danger: #a32d2d; --border-danger: #f7c1c1;
+  --bg-pro: #eeedfe; --text-pro: #534ab7; --border-pro: #cecbf6;
+  --radius: 8px;
+  --font-mono: 'Consolas', 'Monaco', monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text-primary: #e8e7e1;
+    --text-secondary: #b4b2a9;
+    --text-muted: #888780;
+    --surface-0: #1e1e1c;
+    --surface-1: #252523;
+    --surface-2: #2e2e2b;
+    --border: rgba(255,255,255,.1);
+    --border-strong: rgba(255,255,255,.18);
+    --bg-accent: #042c53; --text-accent: #85b7eb; --border-accent: #0c447c;
+    --bg-success: #173404; --text-success: #97c459; --border-success: #3b6d11;
+    --bg-warning: #412402; --text-warning: #ef9f27; --border-warning: #854f0b;
+    --bg-danger: #501313; --text-danger: #f09595; --border-danger: #791f1f;
+    --bg-pro: #26215c; --text-pro: #afa9ec; --border-pro: #3c3489;
+  }
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+header {
+  background: var(--surface-2);
+  border-bottom: 0.5px solid var(--border-strong);
+  padding: 1rem 2rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+header h1 { font-size: 17px; font-weight: 500; }
+header .version { font-size: 12px; color: var(--text-muted); background: var(--surface-1); border: 0.5px solid var(--border); border-radius: 4px; padding: 2px 8px; }
+.container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+.tag-section { margin-bottom: 1.5rem; }
+.tag-label {
+  font-size: 15px; font-weight: 500; color: var(--text-primary);
+  border-bottom: 0.5px solid var(--border-strong);
+  padding-bottom: 8px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none;
+}
+.tag-label i.chevron { margin-left: auto; font-size: 13px; color: var(--text-muted); transition: transform .15s; }
+.tag-label.collapsed i.chevron { transform: rotate(-90deg); }
+.endpoints { display: flex; flex-direction: column; gap: 4px; }
+.ep { border: 0.5px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.ep-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; cursor: pointer;
+  background: var(--surface-2);
+}
+.ep-head:hover { background: var(--surface-1); }
+.method {
+  font-size: 11px; font-weight: 500; padding: 2px 8px;
+  border-radius: 4px; min-width: 52px; text-align: center;
+  letter-spacing: .3px; font-family: var(--font-mono);
+}
+.GET    { background: var(--bg-success); color: var(--text-success); }
+.POST   { background: var(--bg-accent);  color: var(--text-accent); }
+.PUT    { background: var(--bg-warning); color: var(--text-warning); }
+.PATCH  { background: var(--bg-pro);     color: var(--text-pro); }
+.DELETE { background: var(--bg-danger);  color: var(--text-danger); }
+.WS     { background: var(--bg-warning); color: var(--text-warning); }
+.path { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-primary); flex: 1; }
+.path em { color: var(--text-accent); font-style: normal; }
+.ep-summary { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+.ep-chev { font-size: 12px; color: var(--text-muted); transition: transform .15s; }
+.ep-head.open .ep-chev { transform: rotate(180deg); }
+.ep-body { border-top: 0.5px solid var(--border); padding: 12px 14px; background: var(--surface-1); display: none; }
+.ep-body.open { display: block; }
+.section-title {
+  font-size: 11px; font-weight: 500; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin: 12px 0 6px;
+}
+.section-title:first-child { margin-top: 0; }
+.params-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.params-table th {
+  color: var(--text-muted); font-weight: 400; text-align: left;
+  padding: 3px 8px 5px 0; border-bottom: 0.5px solid var(--border);
+}
+.params-table td {
+  padding: 4px 8px 4px 0; vertical-align: top;
+  color: var(--text-primary); border-bottom: 0.5px solid var(--border);
+}
+.params-table td:first-child { font-family: var(--font-mono); color: var(--text-accent); min-width: 130px; }
+.params-table td:nth-child(2) { color: var(--text-muted); min-width: 60px; }
+.params-table td:nth-child(3) { font-family: var(--font-mono); color: var(--text-secondary); min-width: 120px; }
+.req { color: var(--text-danger); font-size: 10px; }
+.schema-block {
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+.schema-block .k { color: var(--text-accent); }
+.schema-block .s { color: var(--text-success); }
+.schema-block .n { color: var(--text-warning); }
+.schema-block .b { color: var(--text-pro); }
+.schema-block .comment { color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <i class="ti ti-plug-connected" style="font-size:20px; color:var(--text-accent)" aria-hidden="true"></i>
+  <h1>Честная Генерация — REST API</h1>
+  <span class="version">v4.24.0</span>
+</header>
+
+<div class="container">
+<div id="app"></div>
+</div>
+
+<script>
+const tags = [
+  {
+    name: "Auth",
+    icon: "ti-lock",
+    endpoints: [
+      {
+        method: "GET", path: "/api/me",
+        summary: "Текущая роль пользователя",
+        params: [],
+        response: `{
+  <span class="k">"role"</span>: <span class="s">"admin"</span> | <span class="s">"viewer"</span> | <span class="s">"anonymous"</span>,
+  <span class="k">"method"</span>: <span class="s">"lan"</span> | <span class="s">"token"</span> | <span class="s">"..."</span>,
+  <span class="k">"scope_type"</span>: <span class="s">"all"</span> | <span class="s">"object"</span>,
+  <span class="k">"scope_id"</span>: <span class="s">"router_sn"</span> | <span class="b">null</span>
+}`
+      }
+    ]
+  },
+  {
+    name: "Objects",
+    icon: "ti-server",
+    endpoints: [
+      {
+        method: "GET", path: "/api/objects",
+        summary: "Список объектов",
+        params: [],
+        response: `[{
+  <span class="k">"router_sn"</span>: <span class="s">"string"</span>,
+  <span class="k">"name"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"notes"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"lat"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"lon"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"equipment_count"</span>: <span class="n">number</span>,
+  <span class="k">"status"</span>: <span class="s">"string"</span>,
+  <span class="k">"created_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"updated_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"total_installed_power_kw"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"total_load_kw"</span>: <span class="n">number</span> | <span class="b">null</span>
+}]`
+      },
+      {
+        method: "PATCH", path: "/api/objects/<em>{router_sn}</em>",
+        summary: "Переименовать объект",
+        params: [
+          { name: "router_sn", loc: "path", type: "string", req: true, desc: "" }
+        ],
+        body: `{ <span class="k">"name"</span>: <span class="s">"string"</span> }`,
+        response: `{ <span class="k">"ok"</span>: <span class="b">true</span> }`
+      },
+      {
+        method: "DELETE", path: "/api/objects/<em>{router_sn}</em>",
+        summary: "Удалить объект",
+        params: [
+          { name: "router_sn", loc: "path", type: "string", req: true, desc: "" }
+        ],
+        response: `{ <span class="k">"ok"</span>: <span class="b">true</span> }`
+      },
+      {
+        method: "GET", path: "/api/objects/<em>{router_sn}</em>/equipment",
+        summary: "Оборудование объекта",
+        params: [
+          { name: "router_sn", loc: "path", type: "string", req: true, desc: "" }
+        ],
+        response: `[{
+  <span class="k">"router_sn"</span>: <span class="s">"string"</span>,
+  <span class="k">"equip_type"</span>: <span class="s">"string"</span>,
+  <span class="k">"panel_id"</span>: <span class="n">number</span>,
+  <span class="k">"name"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"first_seen_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"last_seen_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"installed_power_kw"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"current_load_kw"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"engine_hours"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"oil_temp_c"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"oil_pressure_kpa"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"engine_state"</span>: <span class="s">"string"</span>,
+  <span class="k">"connection_status"</span>: <span class="s">"string"</span>,
+  <span class="k">"last_update"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>
+}]`
+      },
+      {
+        method: "PATCH", path: "/api/objects/<em>{router_sn}</em>/equipment/<em>{equip_type}</em>/<em>{panel_id}</em>/name",
+        summary: "Переименовать единицу оборудования",
+        params: [
+          { name: "router_sn",  loc: "path", type: "string",  req: true, desc: "" },
+          { name: "equip_type", loc: "path", type: "string",  req: true, desc: "" },
+          { name: "panel_id",   loc: "path", type: "integer", req: true, desc: "" }
+        ],
+        body: `{ <span class="k">"name"</span>: <span class="s">"string"</span> }`,
+        response: `{ <span class="k">"ok"</span>: <span class="b">true</span> }`
+      }
+    ]
+  },
+  {
+    name: "Telemetry",
+    icon: "ti-device-analytics",
+    endpoints: [
+      {
+        method: "GET", path: "/api/registers/<em>{router_sn}</em>/<em>{equip_type}</em>/<em>{panel_id}</em>",
+        summary: "Текущие регистры",
+        params: [
+          { name: "router_sn",  loc: "path", type: "string",  req: true, desc: "" },
+          { name: "equip_type", loc: "path", type: "string",  req: true, desc: "" },
+          { name: "panel_id",   loc: "path", type: "integer", req: true, desc: "" }
+        ],
+        response: `[{
+  <span class="k">"addr"</span>: <span class="n">number</span>,
+  <span class="k">"name"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"name_en"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"value"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"raw"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"text"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"unit"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"faults"</span>: [{ <span class="k">"bit"</span>: <span class="n">n</span>, <span class="k">"name"</span>: <span class="s">"str"</span>, <span class="k">"severity"</span>: <span class="s">"str"</span> }] | <span class="b">null</span>,
+  <span class="k">"notes_ru"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"reason"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"ts"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"updated_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>
+}]`
+      },
+      {
+        method: "GET", path: "/api/notifications/<em>{router_sn}</em>/<em>{equip_type}</em>/<em>{panel_id}</em>",
+        summary: "Активные / все неисправности",
+        params: [
+          { name: "router_sn",  loc: "path",  type: "string",        req: true,  desc: "" },
+          { name: "equip_type", loc: "path",  type: "string",        req: true,  desc: "" },
+          { name: "panel_id",   loc: "path",  type: "integer",       req: true,  desc: "" },
+          { name: "mode",       loc: "query", type: "latest | all",  req: false, desc: "default: latest" }
+        ],
+        response: `[{
+  <span class="k">"addr"</span>: <span class="n">number</span>,
+  <span class="k">"bit"</span>: <span class="n">number</span>,
+  <span class="k">"fault_name"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"fault_description"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"severity"</span>: <span class="s">"shutdown"</span> | <span class="s">"warning"</span> | <span class="s">"unknown"</span> | <span class="b">null</span>,
+  <span class="k">"fault_start"</span>: <span class="s">"ISO8601"</span>,
+  <span class="k">"fault_end"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"duration_seconds"</span>: <span class="n">number</span> | <span class="b">null</span>
+}]`
+      },
+      {
+        method: "WS", path: "/ws",
+        summary: "Стрим телеметрии (WebSocket)",
+        params: [
+          { name: "token",     loc: "query", type: "string", req: false, desc: "Bearer-токен" },
+          { name: "subscribe", loc: "query", type: "string", req: false, desc: "фильтр по router_sn" }
+        ],
+        response: `<span class="comment">// При подключении — снапшот всех устройств:</span>
+{ <span class="k">"type"</span>: <span class="s">"snapshot"</span>, <span class="k">"items"</span>: [ TelemetryItem, ... ] }
+
+<span class="comment">// Обновление телеметрии:</span>
+{
+  <span class="k">"type"</span>: <span class="s">"telemetry"</span>,
+  <span class="k">"router_sn"</span>: <span class="s">"string"</span>,
+  <span class="k">"equip_type"</span>: <span class="s">"string"</span>,
+  <span class="k">"panel_id"</span>: <span class="n">number</span>,
+  <span class="k">"timestamp"</span>: <span class="s">"ISO8601"</span>,
+  <span class="k">"registers"</span>: [{ <span class="k">"addr"</span>: <span class="n">n</span>, <span class="k">"value"</span>: <span class="n">n</span>|<span class="b">null</span>, <span class="k">"raw"</span>: <span class="n">n</span>|<span class="b">null</span>, <span class="k">"ts"</span>: <span class="s">"ISO"</span>|<span class="b">null</span> }]
+}
+
+<span class="comment">// Смена статуса подключения устройства:</span>
+{ <span class="k">"type"</span>: <span class="s">"status_change"</span>, <span class="k">"router_sn"</span>: <span class="s">"string"</span>, <span class="k">"status"</span>: <span class="s">"string"</span> }`
+      }
+    ]
+  },
+  {
+    name: "History",
+    icon: "ti-chart-line",
+    endpoints: [
+      {
+        method: "GET", path: "/api/history",
+        summary: "OHLC-история регистра",
+        params: [
+          { name: "router_sn",  loc: "query", type: "string",  req: true,  desc: "" },
+          { name: "equip_type", loc: "query", type: "string",  req: true,  desc: "" },
+          { name: "panel_id",   loc: "query", type: "integer", req: true,  desc: "" },
+          { name: "addr",       loc: "query", type: "integer", req: true,  desc: "адрес регистра" },
+          { name: "start",      loc: "query", type: "ISO8601", req: true,  desc: "" },
+          { name: "end",        loc: "query", type: "ISO8601", req: true,  desc: "" },
+          { name: "points",     loc: "query", type: "integer", req: false, desc: "макс. 20000" }
+        ],
+        response: `{
+  <span class="k">"points"</span>: [{
+    <span class="k">"ts"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+    <span class="k">"value"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"min_value"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"max_value"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"open_value"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"close_value"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"sample_count"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"text"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+    <span class="k">"reason"</span>: <span class="s">"string"</span> | <span class="b">null</span>
+  }],
+  <span class="k">"first_data_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"gaps"</span>: [{ <span class="k">"gap_start"</span>: <span class="s">"ISO"</span>, <span class="k">"gap_end"</span>: <span class="s">"ISO"</span> | <span class="b">null</span> }]
+}`
+      },
+      {
+        method: "GET", path: "/api/history/journal",
+        summary: "Журнал состояний",
+        params: [
+          { name: "router_sn",  loc: "query", type: "string",  req: true,  desc: "" },
+          { name: "equip_type", loc: "query", type: "string",  req: true,  desc: "" },
+          { name: "panel_id",   loc: "query", type: "integer", req: true,  desc: "" },
+          { name: "limit",      loc: "query", type: "integer", req: false, desc: "default: 500" }
+        ],
+        response: `{
+  <span class="k">"events"</span>: [{
+    <span class="k">"ts"</span>: <span class="s">"ISO8601"</span>,
+    <span class="k">"addr"</span>: <span class="n">number</span>,
+    <span class="k">"name"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+    <span class="k">"name_en"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+    <span class="k">"raw"</span>: <span class="n">number</span> | <span class="b">null</span>,
+    <span class="k">"text"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+    <span class="k">"state_end"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+    <span class="k">"duration_seconds"</span>: <span class="n">number</span> | <span class="b">null</span>
+  }]
+}`
+      }
+    ]
+  },
+  {
+    name: "Analytics",
+    icon: "ti-brain",
+    endpoints: [
+      {
+        method: "GET", path: "/api/analytics/machines",
+        summary: "Состояние всех машин (cg-analytics)",
+        params: [],
+        response: `[{
+  <span class="k">"router_sn"</span>: <span class="s">"string"</span>,
+  <span class="k">"equip_type"</span>: <span class="s">"string"</span>,
+  <span class="k">"panel_id"</span>: <span class="n">number</span>,
+  <span class="k">"name"</span>: <span class="s">"string"</span>,
+  <span class="k">"manufacturer"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"model"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"status"</span>: <span class="s">"running"</span> | <span class="s">"stopped"</span>,
+  <span class="k">"run_state"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"run_state_label"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"severity_level"</span>: <span class="s">"норма"</span>|<span class="s">"предупреждение"</span>|<span class="s">"внимание"</span>|<span class="s">"авария"</span>|<span class="b">null</span>,
+  <span class="k">"gate_checked"</span>: <span class="b">boolean</span>,
+  <span class="k">"gate_events_count"</span>: <span class="n">number</span>,
+  <span class="k">"gate_cancelled_count"</span>: <span class="n">number</span>,
+  <span class="k">"status_text"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"mode_label"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"time_in_mode_sec"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"alarm_text"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"status_updated"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"warning_analysis_md"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"coking_risk"</span>: <span class="s">"GREEN"</span>|<span class="s">"YELLOW"</span>|<span class="s">"RED"</span>|<span class="b">null</span>
+}]`
+      },
+      {
+        method: "GET", path: "/api/analytics/machine/<em>{router_sn}</em>/<em>{equip_type}</em>/<em>{panel_id}</em>/segments",
+        summary: "Сегменты работы за месяц",
+        params: [
+          { name: "router_sn",  loc: "path",  type: "string",  req: true, desc: "" },
+          { name: "equip_type", loc: "path",  type: "string",  req: true, desc: "" },
+          { name: "panel_id",   loc: "path",  type: "integer", req: true, desc: "" },
+          { name: "year",       loc: "query", type: "integer", req: true, desc: "" },
+          { name: "month",      loc: "query", type: "integer", req: true, desc: "1–12" }
+        ],
+        response: `[{
+  <span class="k">"id"</span>: <span class="n">number</span>,
+  <span class="k">"t_start"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"t_end"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+  <span class="k">"is_open"</span>: <span class="b">boolean</span>,
+  <span class="k">"run_state"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"run_state_label"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"duration_sec"</span>: <span class="n">number</span> | <span class="b">null</span>,
+  <span class="k">"cause_close"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"severity"</span>: <span class="s">"SHUTDOWN"</span>|<span class="s">"ALARM"</span>|<span class="s">"WARNING"</span>|<span class="s">"INFO"</span>|<span class="b">null</span>,
+  <span class="k">"op_day"</span>: <span class="s">"YYYY-MM-DD"</span> | <span class="b">null</span>,
+  <span class="k">"gate_checked"</span>: <span class="b">boolean</span>,
+  <span class="k">"analytics_version"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"has_report"</span>: <span class="b">boolean</span>,
+  <span class="k">"has_claude"</span>: <span class="b">boolean</span>
+}]`
+      },
+      {
+        method: "GET", path: "/api/analytics/segment/<em>{seg_id}</em>",
+        summary: "Детальный отчёт по сегменту",
+        params: [
+          { name: "seg_id", loc: "path", type: "integer", req: true, desc: "" }
+        ],
+        response: `{
+  <span class="comment">// все поля SegmentOut, плюс:</span>
+  <span class="k">"router_sn"</span>: <span class="s">"string"</span>,
+  <span class="k">"equip_type"</span>: <span class="s">"string"</span>,
+  <span class="k">"panel_id"</span>: <span class="n">number</span>,
+  <span class="k">"report_md"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"analysis"</span>: {
+    <span class="k">"status"</span>: <span class="s">"pending"</span>|<span class="s">"processing"</span>|<span class="s">"done"</span>|<span class="s">"error"</span>|<span class="b">null</span>,
+    <span class="k">"conclusion_md"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+    <span class="k">"humanized_md"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+    <span class="k">"created_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>,
+    <span class="k">"updated_at"</span>: <span class="s">"ISO8601"</span> | <span class="b">null</span>
+  } | <span class="b">null</span>,
+  <span class="k">"warning_analysis_md"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"status_text"</span>: <span class="s">"string"</span> | <span class="b">null</span>
+}`
+      }
+    ]
+  },
+  {
+    name: "Settings",
+    icon: "ti-adjustments",
+    endpoints: [
+      {
+        method: "GET", path: "/api/chart-settings",
+        summary: "Настройки графика",
+        params: [],
+        response: `[{ <span class="k">"addr"</span>: <span class="n">number</span>, <span class="k">"label"</span>: <span class="s">"string"</span>, <span class="k">"unit"</span>: <span class="s">"string"</span>, <span class="k">"color"</span>: <span class="s">"#hex"</span> }]`
+      },
+      {
+        method: "PUT", path: "/api/chart-settings",
+        summary: "Сохранить настройки графика",
+        params: [],
+        body: `[{ <span class="k">"addr"</span>: <span class="n">number</span>, <span class="k">"label"</span>: <span class="s">"string"</span>, <span class="k">"unit"</span>: <span class="s">"string"</span>, <span class="k">"color"</span>: <span class="s">"#hex"</span> }]`,
+        response: `<span class="comment">// то же что и тело запроса</span>`
+      },
+      {
+        method: "GET", path: "/api/dgu-card-settings",
+        summary: "Настройки карточки ДГУ",
+        params: [],
+        response: `[{ <span class="k">"addr"</span>: <span class="n">number</span>, <span class="k">"label"</span>: <span class="s">"string"</span>, <span class="k">"unit"</span>: <span class="s">"string"</span>, <span class="k">"decimals"</span>: <span class="n">number</span> }]`
+      },
+      {
+        method: "PUT", path: "/api/dgu-card-settings",
+        summary: "Сохранить настройки карточки ДГУ",
+        params: [],
+        body: `[{ <span class="k">"addr"</span>: <span class="n">number</span>, <span class="k">"label"</span>: <span class="s">"string"</span>, <span class="k">"unit"</span>: <span class="s">"string"</span>, <span class="k">"decimals"</span>: <span class="n">number</span> }]`,
+        response: `<span class="comment">// то же что и тело запроса</span>`
+      }
+    ]
+  },
+  {
+    name: "System update",
+    icon: "ti-refresh",
+    endpoints: [
+      {
+        method: "GET",  path: "/api/system/version",
+        summary: "Версия системы",
+        params: [],
+        response: `{ <span class="k">"version"</span>: <span class="s">"string"</span>, <span class="k">"commit"</span>: <span class="s">"string"</span>, <span class="k">"branch"</span>: <span class="s">"string"</span> }`
+      },
+      {
+        method: "POST", path: "/api/system/check-update",
+        summary: "Проверить наличие обновлений",
+        params: [],
+        response: `{
+  <span class="k">"up_to_date"</span>: <span class="b">boolean</span>,
+  <span class="k">"behind_count"</span>: <span class="n">number</span>,
+  <span class="k">"commits"</span>: [{ <span class="k">"hash"</span>: <span class="s">"string"</span>, <span class="k">"message"</span>: <span class="s">"string"</span> }],
+  <span class="k">"error"</span>?: <span class="s">"string"</span>
+}`
+      },
+      {
+        method: "POST", path: "/api/system/update",
+        summary: "Запустить обновление",
+        params: [],
+        response: `{ <span class="k">"ok"</span>: <span class="b">boolean</span>, <span class="k">"error"</span>?: <span class="s">"string"</span> }`
+      },
+      {
+        method: "GET",  path: "/api/system/update-status",
+        summary: "Статус обновления (поллинг 2 с)",
+        params: [],
+        response: `{
+  <span class="k">"state"</span>: <span class="s">"idle"</span>|<span class="s">"checking"</span>|<span class="s">"pulling"</span>|<span class="s">"installing"</span>|<span class="s">"building"</span>|<span class="s">"restarting"</span>|<span class="s">"done"</span>|<span class="s">"error"</span>,
+  <span class="k">"progress"</span>: <span class="s">"string"</span>,
+  <span class="k">"log"</span>: [<span class="s">"string"</span>],
+  <span class="k">"error"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"available"</span>: SystemUpdateCheck | <span class="b">null</span>
+}`
+      },
+      {
+        method: "GET",  path: "/api/admin/version",
+        summary: "Версия (admin API)",
+        params: [],
+        response: `{ <span class="k">"version"</span>: <span class="s">"string"</span>, <span class="k">"git_tag"</span>: <span class="s">"string"</span>, <span class="k">"commit"</span>: <span class="s">"string"</span> }`
+      },
+      {
+        method: "POST", path: "/api/admin/check-update",
+        summary: "Проверить обновления (admin)",
+        params: [],
+        response: `{
+  <span class="k">"current"</span>: <span class="s">"string"</span>,
+  <span class="k">"latest"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
+  <span class="k">"has_update"</span>: <span class="b">boolean</span>,
+  <span class="k">"commit"</span>: <span class="s">"string"</span>
+}`
+      },
+      {
+        method: "POST", path: "/api/admin/update",
+        summary: "Запустить обновление (admin)",
+        params: [],
+        response: `{ <span class="k">"ok"</span>: <span class="b">boolean</span>, <span class="k">"message"</span>: <span class="s">"string"</span> }`
+      },
+      {
+        method: "GET",  path: "/api/admin/update-status",
+        summary: "Статус обновления (admin, поллинг 2 с)",
+        params: [],
+        response: `{
+  <span class="k">"state"</span>: <span class="s">"idle"</span>|<span class="s">"running"</span>|<span class="s">"done"</span>|<span class="s">"error"</span>,
+  <span class="k">"progress"</span>: <span class="s">"string"</span>,
+  <span class="k">"log"</span>: [<span class="s">"string"</span>],
+  <span class="k">"error"</span>: <span class="s">"string"</span> | <span class="b">null</span>
+}`
+      }
+    ]
+  }
+];
+
+function renderSchema(html) {
+  return `<div class="schema-block">${html}</div>`;
+}
+
+function renderParams(params) {
+  if (!params || params.length === 0) return '';
+  return `<div class="section-title">Parameters</div>
+<table class="params-table">
+<thead><tr><th>Name</th><th>In</th><th>Type</th><th>Description</th></tr></thead>
+<tbody>${params.map(p => `<tr>
+  <td>${p.name}${p.req ? ' <span class="req">*</span>' : ''}</td>
+  <td>${p.loc}</td>
+  <td>${p.type}</td>
+  <td>${p.desc}</td>
+</tr>`).join('')}</tbody></table>`;
+}
+
+let epIdx = 0;
+function renderEp(ep) {
+  const id = `ep-${epIdx++}`;
+  return `<div class="ep">
+  <div class="ep-head" id="${id}-head" onclick="toggleEp('${id}')">
+    <span class="method ${ep.method}">${ep.method}</span>
+    <span class="path">${ep.path}</span>
+    <span class="ep-summary">${ep.summary}</span>
+    <i class="ti ti-chevron-down ep-chev" aria-hidden="true"></i>
+  </div>
+  <div class="ep-body" id="${id}">
+    ${renderParams(ep.params)}
+    ${ep.body ? `<div class="section-title">Request body</div>${renderSchema(ep.body)}` : ''}
+    <div class="section-title">Response 200</div>
+    ${renderSchema(ep.response)}
+  </div>
+</div>`;
+}
+
+function renderTag(tag) {
+  const id = `tag-${tag.name.replace(/\s+/g, '-')}`;
+  return `<div class="tag-section">
+  <div class="tag-label" onclick="toggleTag('${id}')">
+    <i class="ti ${tag.icon}" aria-hidden="true"></i>
+    ${tag.name}
+    <i class="ti ti-chevron-down chevron" id="${id}-chev"></i>
+  </div>
+  <div class="endpoints" id="${id}">${tag.endpoints.map(renderEp).join('')}</div>
+</div>`;
+}
+
+document.getElementById('app').innerHTML = tags.map(renderTag).join('');
+
+function toggleEp(id) {
+  const body = document.getElementById(id);
+  const head = document.getElementById(id + '-head');
+  body.classList.toggle('open');
+  head.classList.toggle('open');
+}
+
+function toggleTag(id) {
+  const el = document.getElementById(id);
+  const chev = document.getElementById(id + '-chev');
+  const label = chev.closest('.tag-label');
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? '' : 'none';
+  label.classList.toggle('collapsed', !hidden);
+}
+</script>
+</body>
+</html>
