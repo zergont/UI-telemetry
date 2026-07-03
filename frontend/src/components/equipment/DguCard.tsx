@@ -109,7 +109,11 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
   } = useDguPanelValues(eq.router_sn, eq.equip_type, eq.panel_id, eq);
 
   // ИИ-аналитика из cg-analytics (undefined — сервис недоступен или машина не наблюдается)
-  const analytics = useMachineAnalytics(eq.router_sn, eq.equip_type, eq.panel_id);
+  const analyticsRaw = useMachineAnalytics(eq.router_sn, eq.equip_type, eq.panel_id);
+  // Панель offline или телеметрия аналитики устарела (data_stale) → блок ИИ
+  // скрываем целиком: «норма от ИИ» без данных подрывает доверие
+  const analytics =
+    analyticsRaw && panelFresh && !analyticsRaw.data_stale ? analyticsRaw : undefined;
   const accent = analytics
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;

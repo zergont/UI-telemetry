@@ -44,6 +44,11 @@ export interface MachineAnalytics {
   status_updated: string | null;
   warning_analysis_md: string | null;
   coking_risk: CokingRisk | null;
+  /** Максимальный ts строки телеметрии, виденной аналитикой (ISO) */
+  last_data_ts: string | null;
+  /** Телеметрия аналитики устарела: статус/severity отражают last_data_ts, а не «сейчас».
+   *  UI скрывает блок аналитики — «норма от ИИ» без данных подрывает доверие. */
+  data_stale: boolean;
 }
 
 /**
@@ -60,7 +65,12 @@ export function useAnalyticsMachines() {
   });
 }
 
-export type SegmentSeverity = "SHUTDOWN" | "ALARM" | "WARNING" | "INFO" | null;
+// Актуальная шкала cg-analytics v4.8.9+: SHUTDOWN / WARNING / CAUTION.
+// ALARM и INFO — легаси-значения старых сегментов, рендер их тоже понимает.
+export type SegmentSeverity =
+  | "SHUTDOWN" | "WARNING" | "CAUTION"
+  | "ALARM" | "INFO"
+  | null;
 
 export interface SegmentOut {
   id: number;

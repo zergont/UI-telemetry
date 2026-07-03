@@ -127,7 +127,11 @@ export default function EquipmentPage() {
   // ── Панель ДГУ (живые значения + REST-фолбек) ──────────────────────
   const v = useDguPanelValues(routerSn!, equipType!, panelId!, eqInfo);
 
-  const analytics = useMachineAnalytics(routerSn!, equipType!, panelId!);
+  const analyticsRaw = useMachineAnalytics(routerSn!, equipType!, panelId!);
+  // Панель offline или телеметрия аналитики устарела (data_stale) → блок ИИ
+  // скрываем целиком: «норма от ИИ» без данных подрывает доверие
+  const analytics =
+    analyticsRaw && v.panelFresh && !analyticsRaw.data_stale ? analyticsRaw : undefined;
   const accent = analytics
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;
