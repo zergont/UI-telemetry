@@ -213,7 +213,8 @@ export default function HistoryTab({ routerSn, equipType, panelId, chartRequest 
 
       {/* График */}
       {engine.isLoading && !hasData ? (
-        <Skeleton className="h-[400px] w-full rounded-xl" />
+        // Приблизительно повторяет автовысоту графика — без скачка при загрузке
+        <Skeleton className="h-[max(260px,calc(100vh-540px))] w-full rounded-xl" />
       ) : !hasData && !engine.isLoading ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">

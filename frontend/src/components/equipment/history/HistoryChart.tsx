@@ -9,7 +9,7 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { MIN_SPAN_MS } from "./constants";
@@ -47,6 +47,19 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 const DAY_SEC = 86_400;
+
+/* ── Автовысота: график заполняет остаток окна, страница без прокрутки ── */
+
+const CHART_MIN_H = 260;
+/** Резерв под низ страницы: нижний отступ main (24px) + футер (~41px) + запас */
+const CHART_BOTTOM_GAP = 68;
+
+/** Высота графика от текущей позиции контейнера до низа окна */
+function fitChartHeight(el: HTMLElement): number {
+  // Абсолютная позиция (с учётом scrollY) — расчёт не зависит от прокрутки
+  const top = el.getBoundingClientRect().top + window.scrollY;
+  return Math.max(CHART_MIN_H, Math.floor(window.innerHeight - top - CHART_BOTTOM_GAP));
+}
 
 /** Подготовка одной серии: ChartPoint[] → [times, values, mins, maxs] */
 function toUPlotData(
@@ -178,13 +191,36 @@ export function HistoryChart({
     [],
   );
 
+  /* ── Подгонка высоты: страница помещается в окно без прокрутки ───────── */
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const refit = () => {
+      const h = fitChartHeight(el);
+      // Порог 1px против петли: смена высоты графика меняет высоту body
+      if (Math.abs(h - el.clientHeight) > 1) el.style.height = `${h}px`;
+    };
+    refit();
+
+    // Сдвиги контента над графиком (подгрузка блока аналитики и т.п.)
+    // меняют высоту body — пересчитываем позицию
+    const ro = new ResizeObserver(refit);
+    ro.observe(document.body);
+    window.addEventListener("resize", refit);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", refit);
+    };
+  }, []);
+
   /* ── Создание графика (пересоздаётся при смене состава серий) ─────────── */
   useEffect(() => {
     if (!containerRef.current) return;
 
     const el = containerRef.current;
     const W = el.clientWidth;
-    const H = 400;
+    const H = el.clientHeight || CHART_MIN_H;
     const single = series.length <= 1;
     // Единицы → шкалы: первая единица — правая ось "y", вторая — левая "y2"
     const primaryUnit = series[0]?.unit ?? "";
@@ -718,7 +754,7 @@ export function HistoryChart({
 
     const ro = new ResizeObserver(() => {
       if (el) {
-        u.setSize({ width: el.clientWidth, height: H });
+        u.setSize({ width: el.clientWidth, height: el.clientHeight });
       }
     });
     ro.observe(el);
@@ -812,7 +848,8 @@ export function HistoryChart({
 
       {/* Chart */}
       <div className="relative">
-        <div ref={containerRef} className="h-[400px] w-full rounded-xl overflow-hidden" />
+        {/* Высота задаётся императивно (fitChartHeight) — под остаток окна */}
+        <div ref={containerRef} className="min-h-[260px] w-full rounded-xl overflow-hidden" />
 
       </div>
     </div>
