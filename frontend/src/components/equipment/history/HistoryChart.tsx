@@ -281,6 +281,8 @@ export function HistoryChart({
 
       for (const p of pts) {
         if (p.value == null) continue;
+        // Кружочки — только реальные измерения; усреднённые бакеты рисуются линией
+        if ((p.sampleCount ?? 1) > 1) continue;
         const tSec = p.ts / 1000 + tzOffRef.current;
         // CSS→buffer пиксели + bbox offset (как в drawDayBands)
         const x = left + u.valToPos(tSec, "x", false) * dpr;

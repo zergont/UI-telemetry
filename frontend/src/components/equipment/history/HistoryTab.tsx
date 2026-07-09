@@ -134,13 +134,18 @@ export default function HistoryTab({ routerSn, equipType, panelId, chartRequest 
   const span = engine.viewport.to - engine.viewport.from;
   const zoomLevel = Math.max(0, Math.round(Math.log(span / MIN_SPAN_MS) / Math.log(1.25)));
 
-  // Тип данных: raw (history) при span ≤ 30 дней, иначе агрегированные
-  const spanSec = span / 1000;
-  const dataSource = spanSec <= 30 * 86400
-    ? "raw"
-    : spanSec <= 90 * 86400
-      ? "1min"
-      : "1hour";
+  // Фактическое разрешение данных — из ответа бэкенда, не из span
+  const res = engine.resolutionSecs;
+  const resLabel =
+    res == null ? ""
+    : res === 0 ? "raw"
+    : res < 60 ? `~${Math.round(res)} с`
+    : res < 3600 ? `${Math.round(res / 60)} мин`
+    : `${Math.round(res / 3600)} ч`;
+  const resTitle =
+    res === 0
+      ? "Сырые точки — каждое измерение"
+      : "Точки усреднены. Сырые данные хранятся 30 дней; глубже — усреднение 1 мин (до 90 дней) и 1 час";
 
   // Zoom +/- через центр viewport
   const handleZoomBtn = (zoomIn: boolean) => {
@@ -188,8 +193,8 @@ export default function HistoryTab({ routerSn, equipType, panelId, chartRequest 
         )}
 
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="text-xs text-muted-foreground/50">
-            {dataSource === "raw" ? "raw" : dataSource}
+          <span className="text-xs text-muted-foreground/50" title={resTitle}>
+            {resLabel}
           </span>
           <button
             onClick={() => handleZoomBtn(true)}

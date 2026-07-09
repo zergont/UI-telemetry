@@ -85,6 +85,8 @@ interface UseChartEngineResult {
   firstDataAt: number | null;
   /** Live-режим: данные дорисовываются в реальном времени */
   isLive: boolean;
+  /** Фактическое разрешение данных, сек/бакет (0 = сырые; null = ещё не загружено) */
+  resolutionSecs: number | null;
 
   /** Zoom к курсору. zoomIn=true — приближение */
   zoomAtCursor: (cursorTimeMs: number, zoomIn: boolean) => void;
@@ -225,6 +227,7 @@ export function useChartEngine({
   const [firstDataAt, setFirstDataAt] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLive, setIsLive] = useState(true);
+  const [resolutionSecs, setResolutionSecs] = useState<number | null>(null);
 
   const cacheRef = useRef<DataCache | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -258,6 +261,7 @@ export function useChartEngine({
       setSeries(addrsRef.current.map(() => []));
       setGaps([]);
       setFirstDataAt(null);
+      setResolutionSecs(null);
       setIsLoading(true);
       setIsLive(true);
       setViewportRaw(makeDefaultViewport());
@@ -325,6 +329,7 @@ export function useChartEngine({
             };
             setSeries(series);
             setGaps(res.gaps);
+            setResolutionSecs(res.resolutionSecs);
             if (res.firstDataAt != null) setFirstDataAt(res.firstDataAt);
             setIsLoading(false);
           });
@@ -354,6 +359,7 @@ export function useChartEngine({
               cache.loadedFrom = edgeFrom;
               cache.resolutionSecs = Math.max(cache.resolutionSecs, res.resolutionSecs);
               cache.requestedResSecs = Math.max(cache.requestedResSecs, requestedRes);
+              setResolutionSecs(cache.resolutionSecs);
               if (res.firstDataAt != null) setFirstDataAt(res.firstDataAt);
               trimCache(cache, viewportRef.current);
               setSeries(cache.series);
@@ -379,6 +385,7 @@ export function useChartEngine({
                 cache.loadedTo = edgeTo;
                 cache.resolutionSecs = Math.max(cache.resolutionSecs, res.resolutionSecs);
                 cache.requestedResSecs = Math.max(cache.requestedResSecs, requestedRes);
+                setResolutionSecs(cache.resolutionSecs);
                 trimCache(cache, viewportRef.current);
                 setSeries(cache.series);
                 setGaps(cache.gaps);
@@ -477,6 +484,7 @@ export function useChartEngine({
     setSeries(addrsRef.current.map(() => []));
     setGaps([]);
     setFirstDataAt(null);
+    setResolutionSecs(null);
     setIsLoading(true);
     setIsLive(true);
     setViewportRaw(makeDefaultViewport());
@@ -603,5 +611,5 @@ export function useChartEngine({
      
   }, [isLive, routerSn, equipType, panelId, addrsKey]);
 
-  return { viewport, series, gaps, isLoading, firstDataAt, isLive, zoomAtCursor, setViewport, refresh };
+  return { viewport, series, gaps, isLoading, firstDataAt, isLive, resolutionSecs, zoomAtCursor, setViewport, refresh };
 }
