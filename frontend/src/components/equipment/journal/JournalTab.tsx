@@ -13,6 +13,7 @@ import { useMemo, useState } from "react";
 import { RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { useFitHeight } from "@/hooks/use-fit-height";
 import {
   Table,
   TableBody,
@@ -68,6 +69,7 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("ts");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const fitRef = useFitHeight<HTMLDivElement>();
 
   const { data, isLoading, refetch, isFetching } = useJournal(routerSn, equipType, panelId, limit);
 
@@ -145,9 +147,14 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
         </button>
       </div>
 
-      <div className="max-h-[600px] overflow-auto rounded-xl border bg-card">
-        <Table>
-          <TableHeader>
+      {/* Тянется до низа окна, прокрутка внутри; горизонтального скролла нет —
+          table-fixed + truncate обрезают длинный текст (полный — в тултипе) */}
+      <div
+        ref={fitRef}
+        className="overflow-y-auto overflow-x-hidden rounded-xl border bg-card"
+      >
+        <Table containerClassName="overflow-visible" className="table-fixed">
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
               <SortHead col="ts"               label="Начало"       className="hidden lg:table-cell w-44" />
               <SortHead col="state_end"        label="Конец"        className="hidden lg:table-cell w-44" />
@@ -174,14 +181,17 @@ export default function JournalTab({ routerSn, equipType, panelId }: JournalTabP
                     {formatDuration(e.duration_seconds)}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{e.addr}</TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell className="truncate text-sm" title={e.name_en || e.name || undefined}>
                     {e.name_en && e.name_en !== e.name ? (
-                      <span title={e.name_en} className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
+                      <span className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
                         {e.name || `reg ${e.addr}`}
                       </span>
                     ) : (e.name || `reg ${e.addr}`)}
                   </TableCell>
-                  <TableCell className="font-semibold text-sm">
+                  <TableCell
+                    className="truncate font-semibold text-sm"
+                    title={e.text ?? (e.raw != null ? String(e.raw) : undefined)}
+                  >
                     {e.text ?? (e.raw != null ? String(e.raw) : "—")}
                   </TableCell>
                 </TableRow>
