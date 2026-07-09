@@ -47,4 +47,6 @@ export interface HistoryResponse {
   points: HistoryPoint[];
   first_data_at: string | null;
   gaps: GapZone[];
+  /** Фактическое разрешение ответа в секундах; 0 = сырые точки */
+  resolution_secs?: number;
 }

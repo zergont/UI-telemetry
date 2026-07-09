@@ -53,6 +53,7 @@ async def get_history(
         points=[HistoryPoint(**p) for p in result["points"]],
         first_data_at=result["first_data_at"],
         gaps=[GapZone(**g) for g in gap_rows],
+        resolution_secs=result["resolution_secs"],
     )
 
 

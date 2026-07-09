@@ -43,17 +43,12 @@ export function calcTargetPoints(spanMs: number): number {
 }
 
 /**
- * «Корзина» источника данных — инвалидирует кэш ТОЛЬКО при смене таблицы.
- *   0 = history (raw),  span ≤ 30 дней
- *   1 = history_1min,   span ≤ 90 дней
- *   2 = history_1hour,  span >  90 дней
- * При зуме внутри одного источника кэш НЕ сбрасывается — подгрузка инкрементальная.
+ * Требуемое разрешение данных для текущего зума (сек на точку).
+ * Сравнивается с фактическим разрешением кэша (resolution_secs от бэкенда):
+ * если кэш грубее — нужен refetch.
  */
-export function zoomBucket(spanMs: number): number {
-  const spanSec = spanMs / 1000;
-  if (spanSec <= 30 * 86_400) return 0;   // raw
-  if (spanSec <= 90 * 86_400) return 1;   // 1min
-  return 2;                                 // 1hour
+export function requiredResolutionSecs(spanMs: number): number {
+  return spanMs / 1000 / calcTargetPoints(spanMs);
 }
 
 /* ── Конвертация API → ChartPoint[] ─────────────────────────────────────── */

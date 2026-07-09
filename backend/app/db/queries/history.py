@@ -9,17 +9,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
 
+from app.config import get_settings
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Выбор источника данных по ширине диапазона
+# Выбор источника данных по ширине И возрасту диапазона.
 #
+# Ширина (объём строк):
 #   span ≤ 30 дней → history (raw hypertable, time_bucket on-the-fly)
 #   span ≤ 90 дней → history_1min  (CA, 1 минута)
 #   span >  90 дней → history_1hour (CA, 1 час)
+#
+# Возраст (retention): raw хранится 30 дней, 1min — 90 дней. Диапазон,
+# начинающийся за пределами retention источника, физически пуст в нём —
+# берём следующий по грубости источник целиком (без сшивки).
 #
 # Gap-детекция вынесена в DB_MQTT (таблица data_gaps).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -29,51 +36,99 @@ _90D = 90 * 86_400
 
 TARGET_POINTS = 2_000   # желаемое количество точек на графике
 
+# Порог сырых точек: если ширина бакета ≤ 5 сек — отдаём как есть
+_RAW_BUCKET_MAX_SECS = 5
 
-def _choose_table(span_seconds: float) -> str:
-    if span_seconds <= _30D:
-        return "history"
-    elif span_seconds <= _90D:
-        return "history_1min"
-    else:
-        return "history_1hour"
+
+def _choose_table(span_seconds: float, start: datetime) -> tuple[str, int]:
+    """→ (таблица, базовая гранулярность источника в секундах; 0 = raw)."""
+    cfg = get_settings().history
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - start).total_seconds()
+
+    if span_seconds <= _30D and age_seconds <= cfg.raw_retention_days * 86_400:
+        return "history", 0
+    if span_seconds <= _90D and age_seconds <= cfg.agg_1min_retention_days * 86_400:
+        return "history_1min", 60
+    return "history_1hour", 3_600
 
 
 async def _query_aggregated(
     conn: asyncpg.Connection,
     table: str,
+    base_resolution: int,
     router_sn: str,
     equip_type: str,
     panel_id: int,
     addr: int,
     start: datetime,
     end: datetime,
+    span_seconds: float,
     limit: int,
-) -> list:
-    """Читает из Continuous Aggregate (history_1min / history_1hour)."""
-    return await conn.fetch(
+) -> tuple[list, int]:
+    """Читает из Continuous Aggregate (history_1min / history_1hour).
+
+    Если строк в диапазоне больше limit — даунсемплит time_bucket'ом
+    (взвешенное среднее по sample_count), а не режет хвост LIMIT'ом.
+    → (rows, фактическая гранулярность в секундах)
+    """
+    bucket_secs = max(base_resolution, int(span_seconds / limit) + 1)
+
+    if bucket_secs <= base_resolution:
+        # Строк гарантированно ≤ limit — отдаём гранулярность источника
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                ts,
+                avg_value                        AS value,
+                min_value,
+                max_value,
+                open_value,
+                close_value,
+                sample_count,
+                NULL::text                       AS text,
+                NULL::text                       AS reason
+            FROM {table}
+            WHERE router_sn = $1
+              AND equip_type = $2
+              AND panel_id   = $3
+              AND addr       = $4
+              AND ts BETWEEN $5 AND $6
+            ORDER BY ts ASC
+            LIMIT $7
+            """,
+            router_sn, equip_type, panel_id, addr, start, end, limit,
+        )
+        return rows, base_resolution
+
+    # Диапазон шире, чем limit строк источника — укрупняем бакеты
+    rows = await conn.fetch(
         f"""
         SELECT
-            ts,
-            avg_value                        AS value,
-            min_value,
-            max_value,
-            open_value,
-            close_value,
-            sample_count,
-            NULL::text                       AS text,
-            NULL::text                       AS reason
+            time_bucket(make_interval(secs => $1::int), ts)       AS ts,
+            sum(avg_value * sample_count)
+                / NULLIF(sum(sample_count), 0)                     AS value,
+            min(min_value)                                         AS min_value,
+            max(max_value)                                         AS max_value,
+            first(open_value, ts)                                  AS open_value,
+            last(close_value, ts)                                  AS close_value,
+            sum(sample_count)::bigint                              AS sample_count,
+            NULL::text                                             AS text,
+            NULL::text                                             AS reason
         FROM {table}
-        WHERE router_sn = $1
-          AND equip_type = $2
-          AND panel_id   = $3
-          AND addr       = $4
-          AND ts BETWEEN $5 AND $6
-        ORDER BY ts ASC
-        LIMIT $7
+        WHERE router_sn = $2
+          AND equip_type = $3
+          AND panel_id   = $4
+          AND addr       = $5
+          AND ts BETWEEN $6 AND $7
+        GROUP BY 1
+        ORDER BY 1
         """,
-        router_sn, equip_type, panel_id, addr, start, end, limit,
+        bucket_secs,
+        router_sn, equip_type, panel_id, addr, start, end,
     )
+    return rows, bucket_secs
 
 
 async def _query_raw(
@@ -86,17 +141,18 @@ async def _query_raw(
     end: datetime,
     span_seconds: float,
     limit: int,
-) -> list:
+) -> tuple[list, int]:
     """Читает из raw hypertable history.
 
-    Для коротких диапазонов возвращает сырые точки.
+    Для коротких диапазонов возвращает сырые точки (разрешение 0).
     Для длинных — агрегирует on-the-fly через time_bucket (TimescaleDB).
+    → (rows, фактическое разрешение в секундах; 0 = raw)
     """
     bucket_secs = max(1, int(span_seconds / limit))
 
-    if bucket_secs <= 5:
+    if bucket_secs <= _RAW_BUCKET_MAX_SECS:
         # Сырые точки — диапазон достаточно короткий
-        return await conn.fetch(
+        rows = await conn.fetch(
             """
             SELECT
                 ts,
@@ -119,32 +175,34 @@ async def _query_raw(
             """,
             router_sn, equip_type, panel_id, addr, start, end, limit * 5,
         )
-    else:
-        # On-the-fly агрегация через TimescaleDB time_bucket
-        return await conn.fetch(
-            """
-            SELECT
-                time_bucket(make_interval(secs => $1::int), ts)  AS ts,
-                avg(value)                                        AS value,
-                min(value)                                        AS min_value,
-                max(value)                                        AS max_value,
-                first(value, ts)                                  AS open_value,
-                last(value, ts)                                   AS close_value,
-                count(*)::bigint                                  AS sample_count,
-                NULL::text                                        AS text,
-                NULL::text                                        AS reason
-            FROM history
-            WHERE router_sn = $2
-              AND equip_type = $3
-              AND panel_id   = $4
-              AND addr       = $5
-              AND ts BETWEEN $6 AND $7
-            GROUP BY 1
-            ORDER BY 1
-            """,
-            bucket_secs,
-            router_sn, equip_type, panel_id, addr, start, end,
-        )
+        return rows, 0
+
+    # On-the-fly агрегация через TimescaleDB time_bucket
+    rows = await conn.fetch(
+        """
+        SELECT
+            time_bucket(make_interval(secs => $1::int), ts)  AS ts,
+            avg(value)                                        AS value,
+            min(value)                                        AS min_value,
+            max(value)                                        AS max_value,
+            first(value, ts)                                  AS open_value,
+            last(value, ts)                                   AS close_value,
+            count(*)::bigint                                  AS sample_count,
+            NULL::text                                        AS text,
+            NULL::text                                        AS reason
+        FROM history
+        WHERE router_sn = $2
+          AND equip_type = $3
+          AND panel_id   = $4
+          AND addr       = $5
+          AND ts BETWEEN $6 AND $7
+        GROUP BY 1
+        ORDER BY 1
+        """,
+        bucket_secs,
+        router_sn, equip_type, panel_id, addr, start, end,
+    )
+    return rows, bucket_secs
 
 
 async def fetch_history(
@@ -160,34 +218,48 @@ async def fetch_history(
     """Выбирает данные из нужного источника.
 
     Возвращает:
-      points        — [{ts, value, min_value, max_value,
-                        open_value, close_value, sample_count, text, reason}]
-      first_data_at — первая запись в источнике (граница «данных нет»)
+      points          — [{ts, value, min_value, max_value,
+                          open_value, close_value, sample_count, text, reason}]
+      first_data_at   — самая старая точка по ВСЕМ источникам (граница «данных нет»);
+                        не зависит от выбранной таблицы, иначе retention raw (30 дней)
+                        запирает пан/зум в 30-дневном окне
+      resolution_secs — фактическое разрешение ответа (0 = сырые точки)
     """
-    span  = (end - start).total_seconds()
-    table = _choose_table(span)
+    span = (end - start).total_seconds()
+    table, base_resolution = _choose_table(span, start)
 
     async with pool.acquire() as conn:
         if table == "history":
-            rows = await _query_raw(
+            rows, resolution = await _query_raw(
                 conn, router_sn, equip_type, panel_id, addr, start, end, span, limit
             )
         else:
-            rows = await _query_aggregated(
-                conn, table, router_sn, equip_type, panel_id, addr, start, end, limit
+            rows, resolution = await _query_aggregated(
+                conn, table, base_resolution,
+                router_sn, equip_type, panel_id, addr, start, end, span, limit,
             )
 
+        # LEAST в Postgres игнорирует NULL — вернёт минимум по непустым источникам
         first_data_at = await conn.fetchval(
-            f"SELECT MIN(ts) FROM {table} "
-            "WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4",
+            """
+            SELECT LEAST(
+                (SELECT MIN(ts) FROM history
+                  WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4),
+                (SELECT MIN(ts) FROM history_1min
+                  WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4),
+                (SELECT MIN(ts) FROM history_1hour
+                  WHERE router_sn=$1 AND equip_type=$2 AND panel_id=$3 AND addr=$4)
+            )
+            """,
             router_sn, equip_type, panel_id, addr,
         )
 
     points = [dict(r) for r in rows]
 
     return {
-        "points":        points,
-        "first_data_at": first_data_at,
+        "points":          points,
+        "first_data_at":   first_data_at,
+        "resolution_secs": resolution,
     }
 
 

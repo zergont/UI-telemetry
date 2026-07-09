@@ -17,7 +17,7 @@ import yaml
 from pydantic import BaseModel
 
 # Версия из кода — обновляется через git pull (config.yaml НЕ в git!)
-APP_VERSION = "3.9.2"
+APP_VERSION = "3.10.0"
 
 
 class AppConfig(BaseModel):
@@ -86,6 +86,16 @@ class TelemetryConfig(BaseModel):
     key_registers: KeyRegisters = KeyRegisters()
 
 
+class HistoryConfig(BaseModel):
+    """Retention-границы источников истории.
+
+    Должны соответствовать фактическим политикам TimescaleDB
+    (schema.sql проекта cg-db-writer: raw 30 дней, 1min 90 дней, 1hour 3 года).
+    """
+    raw_retention_days: int = 30
+    agg_1min_retention_days: int = 90
+
+
 class CgAdminConfig(BaseModel):
     url: str = "http://127.0.0.1:8888"
     token: str = ""                          # Bearer token для POST-запросов к cg-admin
@@ -116,6 +126,7 @@ class Settings(BaseModel):
     backend: BackendConfig = BackendConfig()
     frontend: FrontendConfig = FrontendConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    history: HistoryConfig = HistoryConfig()
     access: AccessConfig = AccessConfig()
     cg_admin: CgAdminConfig = CgAdminConfig()
     cg_analytics: CgAnalyticsConfig = CgAnalyticsConfig()

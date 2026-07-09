@@ -36,6 +36,7 @@ class HistoryResponse(BaseModel):
     points: List[HistoryPoint]
     first_data_at: Optional[datetime] = None
     gaps: List[GapZone] = []
+    resolution_secs: int = 0  # фактическое разрешение ответа; 0 = сырые точки
 
 
 # ── Journal (все state_events оборудования) ──────────────────────────────────

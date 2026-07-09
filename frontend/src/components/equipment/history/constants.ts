@@ -23,6 +23,12 @@ export const PREFETCH_SCREENS = 3;
 /** Порог подгрузки: если невидимый буфер < 0.5 экрана — грузим ещё */
 export const LOAD_TRIGGER = 0.5;
 
+/** Максимум точек в одном запросе /api/history (= le на бэкенде) */
+export const MAX_POINTS_PER_REQUEST = 20_000;
+
+/** Подрезка кэша: держим не больше стольких экранов с каждой стороны viewport */
+export const CACHE_TRIM_SCREENS = 5;
+
 /** Дебаунс перед запросом данных при навигации (мс) */
 export const FETCH_DEBOUNCE_MS = 200;
 
