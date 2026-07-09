@@ -20,6 +20,20 @@ import { apiFetch } from "@/lib/api";
 export type SeverityLevel = "норма" | "предупреждение" | "внимание" | "авария";
 export type CokingRisk = "GREEN" | "YELLOW" | "RED";
 
+/** Одна открытая тревога из /api/machines active_alarms. severity — англ. шкала. */
+export interface ActiveAlarm {
+  scenario: string;
+  severity: "SHUTDOWN" | "WARNING" | "CAUTION" | "ALARM" | "INFO" | null;
+  source: "panel" | "analytics" | null;
+  /** для панельных — регистр/бит; у аналитических null */
+  addr: number | null;
+  bit: number | null;
+  name: string | null;
+  since: string | null;
+  duration_sec: number;
+  gate_suppressed: boolean;
+}
+
 export interface MachineAnalytics {
   router_sn: string;
   equip_type: string;
@@ -44,6 +58,8 @@ export interface MachineAnalytics {
   status_updated: string | null;
   warning_analysis_md: string | null;
   coking_risk: CokingRisk | null;
+  /** Открытые тревоги (per-fault): панельные по addr/bit, аналитические по сценарию */
+  active_alarms: ActiveAlarm[] | null;
   /** Максимальный ts строки телеметрии, виденной аналитикой (ISO) */
   last_data_ts: string | null;
   /** Телеметрия аналитики устарела: статус/severity отражают last_data_ts, а не «сейчас».

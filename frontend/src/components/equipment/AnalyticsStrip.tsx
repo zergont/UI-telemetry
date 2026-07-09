@@ -9,6 +9,7 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Flame, CalendarDays, ShieldCheck } from "lucide-react";
 import {
@@ -16,8 +17,28 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatRelativeTime } from "@/lib/format";
-import type { MachineAnalytics, SeverityLevel } from "@/hooks/use-analytics";
+import { formatDuration, formatRelativeTime } from "@/lib/format";
+import type {
+  ActiveAlarm,
+  MachineAnalytics,
+  SeverityLevel,
+} from "@/hooks/use-analytics";
+
+/** Ранг англ. severity тревоги для фильтра «warning и выше». */
+const ALARM_RANK: Record<string, number> = {
+  SHUTDOWN: 4,
+  ALARM: 3,
+  WARNING: 3,
+  CAUTION: 2,
+  INFO: 1,
+};
+
+/** Цвет текста тревоги по её собственной severity. */
+function alarmSeverityClass(sev: string | null): string {
+  if (sev === "SHUTDOWN" || sev === "ALARM") return "text-red-500";
+  if (sev === "WARNING") return "text-orange-500";
+  return "text-yellow-500";
+}
 import RobotMoodIcon from "./RobotMoodIcon";
 
 interface SeverityMeta {
@@ -109,6 +130,21 @@ export default function AnalyticsStrip({
   const alarmClass =
     severity !== "норма" ? meta.text : "text-muted-foreground/70";
 
+  // Активные ошибки warning и выше — крутим по одной снизу-вверх, полный список в тултипе
+  const activeAlarms: ActiveAlarm[] = (analytics.active_alarms ?? [])
+    .filter((a) => (ALARM_RANK[a.severity ?? ""] ?? 0) >= 3)
+    .sort((a, b) => (ALARM_RANK[b.severity ?? ""] ?? 0) - (ALARM_RANK[a.severity ?? ""] ?? 0));
+  const [rotIdx, setRotIdx] = useState(0);
+  useEffect(() => {
+    if (activeAlarms.length <= 1) return;
+    const t = setInterval(
+      () => setRotIdx((i) => (i + 1) % activeAlarms.length),
+      3500,
+    );
+    return () => clearInterval(t);
+  }, [activeAlarms.length]);
+  const rot = activeAlarms.length ? activeAlarms[rotIdx % activeAlarms.length] : null;
+
   const clickable = onOpenCalendar
     ? `${compact ? "-mb-4 pb-4" : "-mb-5 pb-5"} cursor-pointer rounded-b-xl transition-colors hover:bg-accent/40`
     : "";
@@ -164,22 +200,72 @@ export default function AnalyticsStrip({
     </Tooltip>
   );
 
-  // Текст тревоги — одна строка с обрезкой, полный текст в title
-  const alarmSpan = alarmText ? (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.span
-        key={alarmText}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.25 }}
-        className={`min-w-0 flex-1 truncate text-[11.5px] leading-snug ${alarmClass}`}
-        title={alarmText}
-      >
-        {alarmText}
-      </motion.span>
-    </AnimatePresence>
-  ) : null;
+  // Строка тревоги. Есть активные ошибки (warning+) — крутим по одной снизу-вверх,
+  // при наведении полный список; иначе — одиночный текст статуса (фолбэк).
+  const alarmSpan =
+    rot ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="relative flex min-w-0 flex-1 items-center overflow-hidden">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={rotIdx % activeAlarms.length}
+                initial={{ opacity: 0, y: 9 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -9 }}
+                transition={{ duration: 0.3 }}
+                className={`block truncate text-[11.5px] leading-snug ${alarmSeverityClass(rot.severity)}`}
+              >
+                {rot.name ?? rot.scenario}
+                {activeAlarms.length > 1 && (
+                  <span className="ml-1 text-muted-foreground/60">
+                    · {(rotIdx % activeAlarms.length) + 1}/{activeAlarms.length}
+                  </span>
+                )}
+              </motion.span>
+            </AnimatePresence>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <ul className="space-y-1">
+            {activeAlarms.map((a, i) => (
+              <li key={i} className="flex items-baseline gap-1.5 text-xs">
+                <span className={alarmSeverityClass(a.severity)}>●</span>
+                <span className="min-w-0">
+                  {a.name ?? a.scenario}
+                  {a.addr != null && (
+                    <span className="text-muted-foreground/70">
+                      {" "}
+                      ({a.addr}/{a.bit})
+                    </span>
+                  )}
+                  {a.duration_sec > 0 && (
+                    <span className="text-muted-foreground/70">
+                      {" "}
+                      · {formatDuration(a.duration_sec)}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </TooltipContent>
+      </Tooltip>
+    ) : alarmText ? (
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={alarmText}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25 }}
+          className={`min-w-0 flex-1 truncate text-[11.5px] leading-snug ${alarmClass}`}
+          title={alarmText}
+        >
+          {alarmText}
+        </motion.span>
+      </AnimatePresence>
+    ) : null;
 
   if (compact) {
     return (
