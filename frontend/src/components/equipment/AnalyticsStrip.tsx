@@ -226,7 +226,7 @@ export default function AnalyticsStrip({
             </AnimatePresence>
           </span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
+        <TooltipContent className="max-w-xs border border-border bg-popover text-popover-foreground shadow-md [&_svg]:fill-popover">
           <ul className="space-y-1">
             {activeAlarms.map((a, i) => (
               <li key={i} className="flex items-baseline gap-1.5 text-xs">
