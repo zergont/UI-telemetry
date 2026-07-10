@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react";
 import { Wifi, WifiOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useFitHeight } from "@/hooks/use-fit-height";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -136,6 +137,7 @@ export default function RegistersTab({
 }: RegistersTabProps) {
   const [search, setSearch] = useState("");
   const [hideZero, setHideZero] = useState(false);
+  const fitRef = useFitHeight<HTMLDivElement>();
 
   const filtered = useMemo(() => {
     let result = registers;
@@ -202,15 +204,20 @@ export default function RegistersTab({
       </div>
 
       {/* Table */}
-      <div className="max-h-[600px] overflow-auto rounded-xl border bg-card">
-        <Table>
-          <TableHeader>
+      {/* Тянется до низа окна, прокрутка внутри; table-fixed + truncate убирают
+          горизонтальный скролл (колонка «Текст» с бэйджами переносится внутри) */}
+      <div
+        ref={fitRef}
+        className="overflow-y-auto overflow-x-hidden rounded-xl border bg-card"
+      >
+        <Table containerClassName="overflow-visible" className="table-fixed">
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
               <TableHead className="w-20">Адрес</TableHead>
               <TableHead>Имя</TableHead>
               <TableHead className="w-28">Значение</TableHead>
               <TableHead>Текст</TableHead>
-              <TableHead className="w-20">Ед.</TableHead>
+              <TableHead className="w-16">Ед.</TableHead>
               <TableHead className="hidden lg:table-cell w-28">Обновлено</TableHead>
             </TableRow>
           </TableHeader>
@@ -223,24 +230,24 @@ export default function RegistersTab({
                 </TableCell>
 
                 {/* Имя (русское) + tooltip: английское имя + notes_ru */}
-                <TableCell className="text-sm">
-                  {(() => {
-                    const parts: string[] = [];
-                    if (r.name_en && r.name_en !== r.name) parts.push(r.name_en);
-                    if (r.notes_ru) parts.push(r.notes_ru);
-                    const tooltip = parts.join("\n");
-                    return tooltip ? (
-                      <span
-                        title={tooltip}
-                        className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
-                      >
-                        {r.name || `reg ${r.addr}`}
-                      </span>
-                    ) : (
-                      <span>{r.name || `reg ${r.addr}`}</span>
-                    );
-                  })()}
-                </TableCell>
+                {(() => {
+                  const parts: string[] = [];
+                  if (r.name_en && r.name_en !== r.name) parts.push(r.name_en);
+                  if (r.notes_ru) parts.push(r.notes_ru);
+                  const tooltip = parts.join("\n");
+                  const label = r.name || `reg ${r.addr}`;
+                  return (
+                    <TableCell className="truncate text-sm" title={tooltip || label}>
+                      {tooltip ? (
+                        <span className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
+                          {label}
+                        </span>
+                      ) : (
+                        label
+                      )}
+                    </TableCell>
+                  );
+                })()}
 
                 {/* Значение (с flash при изменении) */}
                 <FlashCell value={r.value} className="font-semibold tabular-nums text-sm">
@@ -252,8 +259,8 @@ export default function RegistersTab({
                     : "—"}
                 </FlashCell>
 
-                {/* Текст: enum-лейбл / fault-бэйджи / hex */}
-                <FlashCell value={textFlashKey(r)}>
+                {/* Текст: enum-лейбл / fault-бэйджи / hex — перенос внутри ширины */}
+                <FlashCell value={textFlashKey(r)} className="whitespace-normal">
                   <TextContent r={r} />
                 </FlashCell>
 
