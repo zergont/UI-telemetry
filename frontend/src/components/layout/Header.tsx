@@ -143,7 +143,7 @@ export default function Header() {
             </span>
           </div>
 
-          <Link to="/reference/fault-codes" title="Справочник кодов PCC 3300">
+          <Link to="/reference/fault-codes" title="Справочник кодов неисправностей">
             <Button variant="ghost" size="icon">
               <BookOpen className="h-4 w-4" />
             </Button>

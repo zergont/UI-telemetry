@@ -2083,9 +2083,10 @@ function toggleTheme() {
   localStorage.setItem('theme', isDark ? 'light' : 'dark');
 }
 
-// Восстанавливаем тему при загрузке
+// Восстанавливаем тему при загрузке (?theme= от родительской страницы имеет приоритет)
 (function() {
-  const saved = localStorage.getItem('theme') || 'dark';
+  const qp = new URLSearchParams(location.search).get('theme');
+  const saved = (qp === 'light' || qp === 'dark') ? qp : (localStorage.getItem('theme') || 'dark');
   document.documentElement.setAttribute('data-theme', saved);
   document.addEventListener('DOMContentLoaded', function() {
     const btn = document.getElementById('themeBtn');

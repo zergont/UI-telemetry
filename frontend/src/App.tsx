@@ -69,7 +69,7 @@ function AppContent() {
               }
             />
             <Route
-              path="/reference/fault-codes"
+              path="/reference/fault-codes/:panel?"
               element={
                 <PageTransition>
                   <FaultCodesPage />

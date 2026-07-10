@@ -9,18 +9,61 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
+import { useNavigate, useParams } from "react-router-dom";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useTheme } from "@/hooks/use-theme";
+
+const PANELS = [
+  {
+    id: "3300",
+    label: "PCC 3300",
+    file: "/pcc3300_fault_codes.html",
+    title: "Справочник кодов неисправностей PowerCommand PCC 3300",
+  },
+  {
+    id: "3100",
+    label: "PCC 3100 PCCP",
+    file: "/pcc3100_fault_codes.html",
+    title: "Справочник кодов неисправностей PowerCommand PCC 3100 PCCP",
+  },
+] as const;
+
 export default function FaultCodesPage() {
+  const { panel } = useParams();
+  const navigate = useNavigate();
+  const { theme } = useTheme();
+
+  const current = PANELS.find((p) => p.id === panel) ?? PANELS[0];
+
   return (
-    <iframe
-      src="/pcc3300_fault_codes.html"
-      title="Справочник кодов неисправностей PowerCommand PCC 3300"
-      style={{
-        width: "100%",
-        height: "calc(100vh - 9rem)",
-        border: "none",
-        borderRadius: "8px",
-        display: "block",
-      }}
-    />
+    <div className="flex flex-col gap-4">
+      <Tabs
+        value={current.id}
+        onValueChange={(v) =>
+          navigate(`/reference/fault-codes/${v}`, { replace: true })
+        }
+      >
+        <TabsList>
+          {PANELS.map((p) => (
+            <TabsTrigger key={p.id} value={p.id}>
+              {p.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <iframe
+        key={current.id}
+        src={`${current.file}?theme=${theme}`}
+        title={current.title}
+        style={{
+          width: "100%",
+          height: "calc(100vh - 12.5rem)",
+          border: "none",
+          borderRadius: "8px",
+          display: "block",
+        }}
+      />
+    </div>
   );
 }
