@@ -534,16 +534,34 @@ function SegmentDetailView({
           </section>
 
           {/* Отчёт аналитики */}
-          {seg.report_md && (
-            <section className="rounded-xl border border-border/60 p-4">
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Отчёт аналитики
-              </h4>
-              <MarkdownView>{seg.report_md}</MarkdownView>
-            </section>
-          )}
+          {seg.report_md && <ReportSection md={seg.report_md} />}
         </div>
       )}
     </motion.div>
+  );
+}
+
+/** Полный отчёт аналитики — только по запросу: это сотни КБ маркдауна
+ *  (десятки тысяч DOM-узлов), синхронный рендер вешает вкладку при открытии карточки. */
+function ReportSection({ md }: { md: string }) {
+  const [show, setShow] = useState(false);
+
+  return (
+    <section className="rounded-xl border border-border/60 p-4">
+      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Отчёт аналитики
+      </h4>
+      {show ? (
+        <MarkdownView>{md}</MarkdownView>
+      ) : (
+        <button
+          onClick={() => setShow(true)}
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+          Показать полный отчёт ({Math.max(1, Math.round(md.length / 1024))} КБ)
+        </button>
+      )}
+    </section>
   );
 }
