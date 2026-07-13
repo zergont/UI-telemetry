@@ -496,21 +496,37 @@ function SegmentDetailView({
             )}
           </div>
 
+          {/* Сводка — детерминированный вердикт, замечания, ключевые показатели */}
+          {seg.report_summary_md && (
+            <section className="rounded-xl border border-border/60 p-4">
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Сводка
+              </h4>
+              <MarkdownView>{seg.report_summary_md}</MarkdownView>
+            </section>
+          )}
+
+          {/* Разбор гейта Claude в момент срабатывания — не дубль заключения:
+              только здесь есть контекст «что предшествовало» (тренд, предыдущий
+              сегмент, висевшие тревоги), итоговое заключение его не получает */}
+          {seg.warning_analysis_md && (
+            <section className="rounded-xl border border-border/60 p-4">
+              <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-500">
+                Разбор в момент события
+              </h4>
+              <p className="mb-2 text-[11px] italic text-muted-foreground">
+                сформирован ИИ онлайн, при срабатывании — до закрытия сегмента
+              </p>
+              <MarkdownView>{seg.warning_analysis_md}</MarkdownView>
+            </section>
+          )}
+
           {/* Заключение ИИ */}
           <section className="rounded-xl border border-border/60 bg-accent/30 p-4">
             <h4 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Bot className="h-3.5 w-3.5 text-primary/70" />
               Заключение ИИ
             </h4>
-            {/* Онлайн-анализ предупреждения (гейт Claude) — доступен до закрытия сегмента */}
-            {seg.warning_analysis_md && (
-              <div className="mb-3 border-b border-border/60 pb-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-500">
-                  Онлайн-анализ предупреждения
-                </p>
-                <MarkdownView>{seg.warning_analysis_md}</MarkdownView>
-              </div>
-            )}
             {seg.analysis?.conclusion_md ? (
               <MarkdownView>{seg.analysis.conclusion_md}</MarkdownView>
             ) : analysisStatus === "pending" || analysisStatus === "processing" ? (

@@ -120,8 +120,10 @@ export interface SegmentDetail extends SegmentOut {
   equip_type: string;
   panel_id: number;
   report_md: string | null;
+  /** Детерминированная сводка: вердикт, замечания, ключевые показатели */
+  report_summary_md: string | null;
   analysis: SegmentAnalysis | null;
-  /** Онлайн-анализ предупреждения (гейт Claude) — есть и у открытого сегмента */
+  /** Разбор гейта Claude в момент срабатывания — есть и у открытого сегмента */
   warning_analysis_md: string | null;
   status_text: string | null;
 }
