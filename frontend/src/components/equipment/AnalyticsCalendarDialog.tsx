@@ -506,18 +506,46 @@ function SegmentDetailView({
             </section>
           )}
 
-          {/* Разбор гейта Claude в момент срабатывания — не дубль заключения:
+          {/* Разборы гейта Claude в моменты срабатываний — не дубль заключения:
               только здесь есть контекст «что предшествовало» (тренд, предыдущий
-              сегмент, висевшие тревоги), итоговое заключение его не получает */}
-          {seg.warning_analysis_md && (
+              сегмент, висевшие тревоги), итоговое заключение его не получает.
+              История (v4.9.36+): смена состава тревог не затирает разбор
+              исходной аварии — показываем все хронологически */}
+          {(seg.warning_analyses?.length || seg.warning_analysis_md) && (
             <section className="rounded-xl border border-border/60 p-4">
               <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-500">
-                Разбор в момент события
+                {(seg.warning_analyses?.length ?? 0) > 1
+                  ? "Разборы в моменты событий"
+                  : "Разбор в момент события"}
               </h4>
               <p className="mb-2 text-[11px] italic text-muted-foreground">
                 сформирован ИИ онлайн, при срабатывании — до закрытия сегмента
               </p>
-              <MarkdownView>{seg.warning_analysis_md}</MarkdownView>
+              {seg.warning_analyses?.length ? (
+                seg.warning_analyses.map((wa, i) => (
+                  <div
+                    key={i}
+                    className={i > 0 ? "mt-3 border-t border-border/60 pt-3" : undefined}
+                  >
+                    {(wa.t || wa.alarm_text) && (
+                      <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
+                        {wa.t &&
+                          new Date(wa.t).toLocaleString("ru-RU", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        {wa.t && wa.alarm_text && " — "}
+                        {wa.alarm_text}
+                      </p>
+                    )}
+                    {wa.md && <MarkdownView>{wa.md}</MarkdownView>}
+                  </div>
+                ))
+              ) : (
+                <MarkdownView>{seg.warning_analysis_md!}</MarkdownView>
+              )}
             </section>
           )}
 

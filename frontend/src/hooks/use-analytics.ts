@@ -125,7 +125,17 @@ export interface SegmentDetail extends SegmentOut {
   analysis: SegmentAnalysis | null;
   /** Разбор гейта Claude в момент срабатывания — есть и у открытого сегмента */
   warning_analysis_md: string | null;
+  /** История разборов гейта: смена состава тревог (сброс, кнопка останова)
+   *  не затирает разбор исходной аварии (cg-analytics v4.9.36+) */
+  warning_analyses: WarningAnalysis[] | null;
   status_text: string | null;
+}
+
+export interface WarningAnalysis {
+  t: string | null;
+  fault_hash: string | null;
+  alarm_text: string | null;
+  md: string | null;
 }
 
 /**
