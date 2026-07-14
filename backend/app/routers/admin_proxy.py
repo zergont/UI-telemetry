@@ -101,7 +101,7 @@ async def check_admin_update(ctx: AuthContext = Depends(require_auth)):
             )
             r2.raise_for_status()
             cmp = r2.json()
-    except httpx.ConnectError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         raise HTTPException(status_code=503, detail="GitHub недоступен")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
