@@ -230,10 +230,10 @@ function AdminUpdateBlock() {
           checkMutation.data.has_update ? (
             <div className="flex items-center gap-2 text-sm text-amber-500">
               <ArrowUpCircle className="h-4 w-4 shrink-0" />
-              Доступна новая версия:{" "}
-              <span className="font-mono font-semibold">{checkMutation.data.latest}</span>
+              Доступно новых коммитов:{" "}
+              <span className="font-mono font-semibold">{checkMutation.data.ahead_by}</span>
               <span className="text-muted-foreground">
-                (текущая: {checkMutation.data.current})
+                (HEAD: {checkMutation.data.latest_commit}, текущий: {checkMutation.data.commit})
               </span>
             </div>
           ) : (

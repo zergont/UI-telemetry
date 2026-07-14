@@ -14,9 +14,10 @@ import { apiFetch } from "@/lib/api";
 
 export interface AdminUpdateCheck {
   current: string;
-  latest: string | null;
-  has_update: boolean;
   commit: string;
+  ahead_by: number;
+  latest_commit: string;
+  has_update: boolean;
 }
 
 export interface AdminVersion {

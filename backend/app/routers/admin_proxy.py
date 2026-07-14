@@ -63,10 +63,15 @@ async def trigger_admin_update(ctx: AuthContext = Depends(require_auth)):
 
 @router.get("/check-update")
 async def check_admin_update(ctx: AuthContext = Depends(require_auth)):
-    """Сравнить текущую версию cg-admin с последним релизом на GitHub."""
+    """Сравнить текущий commit cg-admin с HEAD ветки по умолчанию на GitHub.
+
+    Git-теги в репозитории cg-admin не сопровождают каждый релиз (версия бампается
+    в коде на каждый пуш), поэтому сравнение по тегам/releases даёт ложные
+    результаты — сравниваем по коммитам через GitHub compare API.
+    """
     settings = get_settings()
 
-    # 1. Текущая версия cg-admin
+    # 1. Текущая версия + commit cg-admin
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get(_admin_url("/admin/api/system/version"), timeout=_TIMEOUT)
@@ -75,45 +80,42 @@ async def check_admin_update(ctx: AuthContext = Depends(require_auth)):
     except Exception:
         raise HTTPException(status_code=503, detail="cg-admin недоступен")
 
-    # Предпочитаем поле version (актуальное), git_tag обновляется только при git tag
-    current_ver: str = current.get("version", "") or current.get("git_tag", "")
+    current_ver: str = current.get("version", "")
+    current_commit: str = current.get("commit", "")
+    if not current_commit:
+        raise HTTPException(status_code=503, detail="cg-admin не вернул commit")
 
-    # 2. Последний релиз на GitHub
+    # 2. HEAD ветки по умолчанию и разница в коммитах на GitHub
     repo = settings.cg_admin.github_repo
     gh_headers = {"Accept": "application/vnd.github.v3+json", "X-GitHub-Api-Version": "2022-11-28"}
-    latest_tag: str | None = None
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get(
-                f"https://api.github.com/repos/{repo}/releases/latest",
+            r = await client.get(f"https://api.github.com/repos/{repo}", headers=gh_headers, timeout=_TIMEOUT)
+            r.raise_for_status()
+            default_branch = r.json().get("default_branch", "main")
+
+            r2 = await client.get(
+                f"https://api.github.com/repos/{repo}/compare/{current_commit}...{default_branch}",
                 headers=gh_headers,
                 timeout=_TIMEOUT,
             )
-            if r.status_code == 200:
-                latest_tag = r.json().get("tag_name")
-            else:
-                # Нет releases — смотрим теги
-                r2 = await client.get(
-                    f"https://api.github.com/repos/{repo}/tags",
-                    headers=gh_headers,
-                    timeout=_TIMEOUT,
-                )
-                r2.raise_for_status()
-                tags = r2.json()
-                latest_tag = tags[0]["name"] if tags else None
+            r2.raise_for_status()
+            cmp = r2.json()
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="GitHub недоступен")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
-    # Сравниваем без префикса "v": "1.0.2" == "v1.0.2".lstrip("v")
-    latest_clean = (latest_tag or "").lstrip("v")
-    current_clean = current_ver.lstrip("v")
+    ahead_by: int = cmp.get("ahead_by", 0)
+    commits = cmp.get("commits") or []
+    latest_commit = commits[-1]["sha"][:7] if commits else current_commit
+
     return {
         "current": current_ver,
-        "latest": latest_tag,
-        "has_update": bool(latest_clean and latest_clean != current_clean),
-        "commit": current.get("commit", ""),
+        "commit": current_commit,
+        "ahead_by": ahead_by,
+        "latest_commit": latest_commit,
+        "has_update": ahead_by > 0,
     }
 
 
