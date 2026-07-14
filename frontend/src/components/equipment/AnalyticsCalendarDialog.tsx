@@ -49,6 +49,7 @@ const CAUSE_LABELS: Record<string, string> = {
   RUN_STATE_CHANGE: "Смена режима",
   DAILY_BOUNDARY: "Суточная граница",
   OPERATOR_STOP: "Остановка оператором",
+  FAULT_CLEARED: "Неисправности устранены",
 };
 
 /** Severity сегмента → 4-ступенчатая градация: авария / внимание (панель) / предупреждение (аналитика) / норма */
