@@ -313,7 +313,9 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
         <AnalyticsCalendarDialog
           open={calendarOpen}
           onOpenChange={setCalendarOpen}
-          machine={analytics}
+          routerSn={analytics.router_sn}
+          equipType={analytics.equip_type}
+          panelId={analytics.panel_id}
           displayName={displayName}
         />
       )}

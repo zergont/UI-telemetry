@@ -9,7 +9,7 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -32,7 +32,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useMachineSegments,
   useSegmentDetail,
-  type MachineAnalytics,
   type SegmentOut,
   type SegmentSeverity,
 } from "@/hooks/use-analytics";
@@ -118,17 +117,36 @@ function timeHM(iso: string | null): string {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  machine: MachineAnalytics;
+  /** Идентификаторы наблюдения — из ответа cg-analytics (/machines), не из
+   *  телеметрии дашборда: equip_type может различаться. Примитивами, а не
+   *  объектом MachineAnalytics: см. memo ниже. */
+  routerSn: string;
+  equipType: string;
+  panelId: number;
   displayName: string;
 }
 
-export default function AnalyticsCalendarDialog({
+/** Диалог — снимок: он не читает телеметрию, только идентификаторы наблюдения.
+ *
+ *  memo здесь несёт нагрузку: карточка ДГУ ре-рендерится раз в секунду (тик
+ *  свежести в useDguPanelValues), а /machines обновляется раз в 15 с и отдаёт
+ *  каждый раз новые объекты. Пропсы-примитивы сравниваются по значению, поэтому
+ *  ни то, ни другое не доходит до рендера отчёта на сотни КБ.
+ *  Условие: вызывающие обязаны держать onOpenChange стабильным (useCallback или
+ *  сеттер useState) — инлайновая стрелка обнулит memo без внешних признаков. */
+export default memo(function AnalyticsCalendarDialog({
   open,
   onOpenChange,
-  machine,
+  routerSn,
+  equipType,
+  panelId,
   displayName,
 }: Props) {
   const now = new Date();
+  const machine = useMemo(
+    () => ({ router_sn: routerSn, equip_type: equipType, panel_id: panelId }),
+    [routerSn, equipType, panelId],
+  );
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1–12
   const [segId, setSegId] = useState<number | null>(null);
@@ -400,7 +418,7 @@ export default function AnalyticsCalendarDialog({
       </DialogContent>
     </Dialog>
   );
-}
+});
 
 function SegmentDetailView({
   segId,

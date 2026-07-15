@@ -9,6 +9,7 @@
  * без письменного разрешения правообладателя запрещено.
  */
 
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -16,11 +17,15 @@ interface Props {
   children: string;
 }
 
-/** Рендер Markdown-отчётов cg-analytics (стили — .md-body в index.css). */
-export default function MarkdownView({ children }: Props) {
+/** Рендер Markdown-отчётов cg-analytics (стили — .md-body в index.css).
+ *
+ *  memo обязателен: отчёты доходят до сотен КБ, а react-markdown парсит строку
+ *  заново на каждый рендер. Пропс — строка, значит сравнение идёт по значению
+ *  и отчёт переживает любой ре-рендер родителя с теми же данными. */
+export default memo(function MarkdownView({ children }: Props) {
   return (
     <div className="md-body">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );
-}
+});
