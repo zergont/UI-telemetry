@@ -34,6 +34,7 @@ import {
   useSegmentDetail,
   type SegmentOut,
   type SegmentSeverity,
+  type WarningAnalysis,
 } from "@/hooks/use-analytics";
 import { formatDuration } from "@/lib/format";
 import MarkdownView from "./MarkdownView";
@@ -527,46 +528,11 @@ function SegmentDetailView({
 
           {/* Разборы гейта Claude в моменты срабатываний — не дубль заключения:
               только здесь есть контекст «что предшествовало» (тренд, предыдущий
-              сегмент, висевшие тревоги), итоговое заключение его не получает.
-              История (v4.9.36+): смена состава тревог не затирает разбор
-              исходной аварии — показываем все хронологически */}
-          {(seg.warning_analyses?.length || seg.warning_analysis_md) && (
-            <section className="rounded-xl border border-border/60 p-4">
-              <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-500">
-                {(seg.warning_analyses?.length ?? 0) > 1
-                  ? "Разборы в моменты событий"
-                  : "Разбор в момент события"}
-              </h4>
-              <p className="mb-2 text-[11px] italic text-muted-foreground">
-                сформирован ИИ онлайн, при срабатывании — до закрытия сегмента
-              </p>
-              {seg.warning_analyses?.length ? (
-                seg.warning_analyses.map((wa, i) => (
-                  <div
-                    key={i}
-                    className={i > 0 ? "mt-3 border-t border-border/60 pt-3" : undefined}
-                  >
-                    {(wa.t || wa.alarm_text) && (
-                      <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
-                        {wa.t &&
-                          new Date(wa.t).toLocaleString("ru-RU", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        {wa.t && wa.alarm_text && " — "}
-                        {wa.alarm_text}
-                      </p>
-                    )}
-                    {wa.md && <MarkdownView>{wa.md}</MarkdownView>}
-                  </div>
-                ))
-              ) : (
-                <MarkdownView>{seg.warning_analysis_md!}</MarkdownView>
-              )}
-            </section>
-          )}
+              сегмент, висевшие тревоги), итоговое заключение его не получает. */}
+          <WarningAnalysesSection
+            analyses={seg.warning_analyses}
+            fallbackMd={seg.warning_analysis_md}
+          />
 
           {/* Заключение ИИ */}
           <section className="rounded-xl border border-border/60 bg-accent/30 p-4">
@@ -601,6 +567,100 @@ function SegmentDetailView({
         </div>
       )}
     </motion.div>
+  );
+}
+
+/** Заголовок разбора: «16.07, 09:03 — Низкое давление масла…» */
+function analysisHeading(wa: WarningAnalysis, idx: number): string {
+  const time =
+    wa.t &&
+    new Date(wa.t).toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  return [time, wa.alarm_text].filter(Boolean).join(" — ") || `Событие ${idx + 1}`;
+}
+
+/** Разборы гейта в моменты срабатываний — свёрнутый список, молодые сверху.
+ *
+ *  История (cg-analytics v4.9.36+): смена состава тревог не затирает разбор
+ *  исходной аварии, так что событий бывает несколько. При закрытии сегмента
+ *  сортировка — от свежего к старому; каждое событие раскрывается по клику,
+ *  по умолчанию все свёрнуты (перечень заголовков). Свёрнутый разбор не
+ *  монтирует MarkdownView вовсе — рендер откладывается до раскрытия.
+ *  Фолбэк warning_analysis_md (сегменты до v4.9.36) — один разбор без метки
+ *  времени, показываем как есть, сворачивать нечего. */
+function WarningAnalysesSection({
+  analyses,
+  fallbackMd,
+}: {
+  analyses: WarningAnalysis[] | null;
+  fallbackMd: string | null;
+}) {
+  // Молодые сверху; копия — не мутируем массив из кэша react-query
+  const ordered = useMemo(
+    () => (analyses?.length ? [...analyses].reverse() : null),
+    [analyses],
+  );
+  const [open, setOpen] = useState<Set<number>>(() => new Set());
+
+  if (!ordered && !fallbackMd) return null;
+
+  function toggle(i: number) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+
+  return (
+    <section className="rounded-xl border border-border/60 p-4">
+      <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-500">
+        {(ordered?.length ?? 0) > 1 ? "Разборы в моменты событий" : "Разбор в момент события"}
+      </h4>
+      <p className="mb-1 text-[11px] italic text-muted-foreground">
+        сформирован ИИ онлайн, при срабатывании — до закрытия сегмента
+      </p>
+
+      {ordered ? (
+        <div className="-mx-1">
+          {ordered.map((wa, i) => {
+            const isOpen = open.has(i);
+            return (
+              <div key={i} className={i > 0 ? "border-t border-border/60" : undefined}>
+                <button
+                  onClick={() => toggle(i)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center gap-2 px-1 py-2.5 text-left transition-colors hover:text-foreground"
+                >
+                  <ChevronRight
+                    className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${
+                      isOpen ? "rotate-90" : ""
+                    }`}
+                  />
+                  <span className="text-xs font-semibold text-foreground/85">
+                    {analysisHeading(wa, i)}
+                  </span>
+                </button>
+                {isOpen && wa.md && (
+                  <div className="px-1 pb-3 pl-6">
+                    <MarkdownView>{wa.md}</MarkdownView>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-1">
+          <MarkdownView>{fallbackMd!}</MarkdownView>
+        </div>
+      )}
+    </section>
   );
 }
 
