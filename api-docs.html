@@ -385,7 +385,7 @@ const tags = [
   <span class="k">"name"</span>: <span class="s">"string"</span>,
   <span class="k">"manufacturer"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
   <span class="k">"model"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
-  <span class="k">"status"</span>: <span class="s">"running"</span> | <span class="s">"stopped"</span>,
+  <span class="k">"monitoring_status"</span>: <span class="s">"running"</span> | <span class="s">"stopped"</span>, <span class="comment">// движок мониторинга cg-analytics (ПУСК/СТОП ОНЛАЙН), НЕ режим машины — см. run_state</span>
   <span class="k">"run_state"</span>: <span class="n">number</span> | <span class="b">null</span>,
   <span class="k">"run_state_label"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
   <span class="k">"severity_level"</span>: <span class="s">"норма"</span>|<span class="s">"предупреждение"</span>|<span class="s">"внимание"</span>|<span class="s">"авария"</span>|<span class="b">null</span>,
@@ -421,7 +421,7 @@ const tags = [
   <span class="k">"duration_sec"</span>: <span class="n">number</span> | <span class="b">null</span>,
   <span class="k">"cause_close"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
   <span class="k">"severity"</span>: <span class="s">"SHUTDOWN"</span>|<span class="s">"ALARM"</span>|<span class="s">"WARNING"</span>|<span class="s">"INFO"</span>|<span class="b">null</span>,
-  <span class="k">"op_day"</span>: <span class="s">"YYYY-MM-DD"</span> | <span class="b">null</span>,
+  <span class="k">"op_day"</span>: <span class="s">"YYYY-MM-DD"</span> | <span class="b">null</span>, <span class="comment">// операционные сутки — только вывод, фильтра по op_day нет (только year/month)</span>
   <span class="k">"gate_checked"</span>: <span class="b">boolean</span>,
   <span class="k">"analytics_version"</span>: <span class="s">"string"</span> | <span class="b">null</span>,
   <span class="k">"has_report"</span>: <span class="b">boolean</span>,

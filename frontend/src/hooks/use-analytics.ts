@@ -41,7 +41,11 @@ export interface MachineAnalytics {
   name: string;
   manufacturer: string | null;
   model: string | null;
-  status: "running" | "stopped";
+  /** Состояние движка мониторинга cg-analytics (ПУСК/СТОП ОНЛАЙН), НЕ режим
+   *  машины и не связь — меняется только вручную оператором cg-analytics,
+   *  практически всегда "running". Для режима машины см. run_state,
+   *  для свежести данных — data_stale. (было `status` до cg-analytics v4.9.53) */
+  monitoring_status: "running" | "stopped";
   run_state: number | null;
   run_state_label: string | null;
   severity_level: SeverityLevel | null;
