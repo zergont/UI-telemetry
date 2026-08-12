@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Loader2,
   ShieldCheck,
+  WifiOff,
   X,
 } from "lucide-react";
 import {
@@ -101,6 +102,12 @@ function severityKey(sev: SegmentSeverity): string {
   return sev != null && sev in SEVERITY_META ? sev : "NORM";
 }
 
+/** Штриховка «нет связи» — нейтральная к теме (полупрозрачный серый поверх bg) */
+const NO_DATA_HATCH: React.CSSProperties = {
+  backgroundImage:
+    "repeating-linear-gradient(45deg, transparent 0 6px, rgba(128,128,128,0.14) 6px 12px)",
+};
+
 /** Локальная дата yyyy-mm-dd из ISO-метки (UTC) */
 function localDateKey(iso: string): string {
   const d = new Date(iso);
@@ -125,6 +132,13 @@ interface Props {
   equipType: string;
   panelId: number;
   displayName: string;
+  /** Живой обрыв связи (data_stale /machines или панель offline): сегодняшняя
+   *  ячейка помечается «нет связи». Примитив — memo не ломает. */
+  dataStale?: boolean;
+  /** Метка последних данных для подписи «нет связи с …». Вызывающие передают
+   *  её ТОЛЬКО при dataStale (иначе null): при живой связи ts обновляется
+   *  каждые 15 с и каждый раз обнулял бы memo. */
+  lastDataTs?: string | null;
 }
 
 /** Диалог — снимок: он не читает телеметрию, только идентификаторы наблюдения.
@@ -142,6 +156,8 @@ export default memo(function AnalyticsCalendarDialog({
   equipType,
   panelId,
   displayName,
+  dataStale = false,
+  lastDataTs = null,
 }: Props) {
   const now = new Date();
   const machine = useMemo(
@@ -203,6 +219,20 @@ export default memo(function AnalyticsCalendarDialog({
   const todayKey = localDateKey(new Date().toISOString());
   const isCurrentMonth =
     year === now.getFullYear() && month === now.getMonth() + 1;
+
+  // Живой обрыв: подпись для сегодняшней ячейки («нет связи с дд.мм, чч:мм»)
+  const staleLabel = dataStale
+    ? `нет связи${
+        lastDataTs
+          ? ` с ${new Date(lastDataTs).toLocaleString("ru-RU", {
+              day: "2-digit",
+              month: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+          : ""
+      }`
+    : null;
 
   function handleClose(next: boolean) {
     onOpenChange(next);
@@ -305,11 +335,15 @@ export default memo(function AnalyticsCalendarDialog({
                       const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                       const segs = byDay.get(key);
                       const isToday = key === todayKey;
+                      // Весь день без связи: все сегменты дня пустые (открытый не в счёт)
+                      const allNoData =
+                        !!segs?.length && segs.every((s) => s.no_data);
 
                       return (
                         <div
                           key={key}
                           ref={key === lastDayKey ? lastDayRef : undefined}
+                          style={allNoData ? NO_DATA_HATCH : undefined}
                           className={`min-h-20 rounded-lg border p-1.5 ${
                             isToday
                               ? "border-border/70 bg-muted/70"
@@ -329,23 +363,36 @@ export default memo(function AnalyticsCalendarDialog({
                           >
                             {day}
                           </div>
+                          {isToday && staleLabel && (
+                            <div className="mb-1 flex items-center gap-1 px-1 text-[10px] leading-tight text-muted-foreground">
+                              <WifiOff className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{staleLabel}</span>
+                            </div>
+                          )}
                           {isLoading && !segments ? (
                             <Skeleton className="h-8 w-full rounded-md" />
                           ) : (
                             <div className="space-y-1">
                               {segs?.map((seg) => {
-                                const tint =
-                                  (seg.run_state != null
-                                    ? RUN_STATE_TINT[seg.run_state]
-                                    : undefined) ?? "bg-accent/40 hover:bg-accent";
+                                // Пустой сегмент (полный обрыв связи): штриховка вместо
+                                // заливки по run_state — режим там лишь последний известный
+                                const noData = !!seg.no_data;
+                                const tint = noData
+                                  ? "bg-muted/50 hover:bg-muted/80"
+                                  : ((seg.run_state != null
+                                      ? RUN_STATE_TINT[seg.run_state]
+                                      : undefined) ?? "bg-accent/40 hover:bg-accent");
                                 // Отменённое гейтом срабатывание: жёлтый пунктир вместо сплошной кромки
-                                const sevBorder = seg.gate_checked
-                                  ? "border-dashed border-l-yellow-400"
-                                  : SEVERITY_META[severityKey(seg.severity)].border;
+                                const sevBorder = noData
+                                  ? "border-l-border"
+                                  : seg.gate_checked
+                                    ? "border-dashed border-l-yellow-400"
+                                    : SEVERITY_META[severityKey(seg.severity)].border;
                                 return (
                                   <button
                                     key={seg.id}
                                     onClick={() => setSegId(seg.id)}
+                                    style={noData ? NO_DATA_HATCH : undefined}
                                     className={`block w-full rounded-r-md border-l-4 px-2 py-1.5 text-left transition-colors ${tint} ${sevBorder}`}
                                   >
                                     <span className="flex items-center justify-between gap-1">
@@ -367,7 +414,14 @@ export default memo(function AnalyticsCalendarDialog({
                                       </span>
                                     </span>
                                     <span className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground">
-                                      {seg.run_state_label ?? "—"}
+                                      {noData ? (
+                                        <span className="inline-flex items-center gap-1">
+                                          <WifiOff className="h-3 w-3 shrink-0" />
+                                          Нет связи
+                                        </span>
+                                      ) : (
+                                        seg.run_state_label ?? "—"
+                                      )}
                                       {seg.duration_sec != null &&
                                         ` · ${formatDuration(seg.duration_sec)}`}
                                     </span>
@@ -399,6 +453,13 @@ export default memo(function AnalyticsCalendarDialog({
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="h-3 w-1 rounded-sm bg-red-500" /> авария
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-3 w-3 rounded-sm border border-border bg-muted/50"
+                      style={NO_DATA_HATCH}
+                    />{" "}
+                    нет связи
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Bot className="h-3.5 w-3.5" /> есть заключение ИИ
@@ -475,9 +536,18 @@ function SegmentDetailView({
               {timeHM(seg.t_start)}–{seg.is_open ? "сейчас" : timeHM(seg.t_end)}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className={meta.badge}>
-                {meta.label}
-              </Badge>
+              {/* Пустой сегмент: «Норма» и режим — лишь последнее известное
+                  состояние, вместо них честный бейдж обрыва */}
+              {seg.no_data ? (
+                <Badge variant="outline" className="text-muted-foreground">
+                  <WifiOff className="mr-1 h-3 w-3" />
+                  Нет связи весь период
+                </Badge>
+              ) : (
+                <Badge variant="outline" className={meta.badge}>
+                  {meta.label}
+                </Badge>
+              )}
               {seg.gate_checked && (
                 <Badge
                   variant="outline"
@@ -487,7 +557,7 @@ function SegmentDetailView({
                   Проверено ИИ — угрозы нет
                 </Badge>
               )}
-              {seg.run_state_label && (
+              {!seg.no_data && seg.run_state_label && (
                 <Badge variant="outline" className="text-muted-foreground">
                   {seg.run_state_label}
                 </Badge>
@@ -550,6 +620,10 @@ function SegmentDetailView({
             ) : analysisStatus === "error" ? (
               <p className="text-xs text-muted-foreground">
                 Анализ завершился с ошибкой.
+              </p>
+            ) : seg.no_data ? (
+              <p className="text-xs text-muted-foreground">
+                Связь отсутствовала весь период — анализ не выполнялся.
               </p>
             ) : seg.is_open ? (
               <p className="text-xs text-muted-foreground">

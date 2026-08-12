@@ -110,10 +110,12 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
 
   // ИИ-аналитика из cg-analytics (undefined — сервис недоступен или машина не наблюдается)
   const analyticsRaw = useMachineAnalytics(eq.router_sn, eq.equip_type, eq.panel_id);
-  // Панель offline или телеметрия аналитики устарела (data_stale) → блок ИИ
-  // скрываем целиком: «норма от ИИ» без данных подрывает доверие
+  // Панель offline или телеметрия аналитики устарела (data_stale) → живой статус
+  // скрываем: «норма от ИИ» без данных подрывает доверие. Строка деградирует до
+  // «нет связи», но история и календарь ретроспективны — вход остаётся всегда.
   const analytics =
     analyticsRaw && panelFresh && !analyticsRaw.data_stale ? analyticsRaw : undefined;
+  const analyticsStale = analyticsRaw != null && analytics == null;
   const accent = analytics
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;
@@ -300,23 +302,28 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
           </div>
         )}
 
-        {analytics && (
+        {analyticsRaw && (
           <AnalyticsStrip
-            analytics={analytics}
+            analytics={analyticsRaw}
+            stale={analyticsStale}
             compact={variant === "minimal"}
             onOpenCalendar={() => setCalendarOpen(true)}
           />
         )}
       </Card>
-      {/* Диалог вне Card: клики из портала не должны всплывать в onClick карточки */}
-      {analytics && (
+      {/* Диалог вне Card: клики из портала не должны всплывать в onClick карточки.
+          lastDataTs — только при обрыве: при живой связи ts тикает каждые 15с
+          и обнулил бы memo диалога */}
+      {analyticsRaw && (
         <AnalyticsCalendarDialog
           open={calendarOpen}
           onOpenChange={setCalendarOpen}
-          routerSn={analytics.router_sn}
-          equipType={analytics.equip_type}
-          panelId={analytics.panel_id}
+          routerSn={analyticsRaw.router_sn}
+          equipType={analyticsRaw.equip_type}
+          panelId={analyticsRaw.panel_id}
           displayName={displayName}
+          dataStale={analyticsStale}
+          lastDataTs={analyticsStale ? analyticsRaw.last_data_ts : null}
         />
       )}
     </motion.div>

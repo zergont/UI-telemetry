@@ -67,7 +67,8 @@ export interface MachineAnalytics {
   /** Максимальный ts строки телеметрии, виденной аналитикой (ISO) */
   last_data_ts: string | null;
   /** Телеметрия аналитики устарела: статус/severity отражают last_data_ts, а не «сейчас».
-   *  UI скрывает блок аналитики — «норма от ИИ» без данных подрывает доверие. */
+   *  UI глушит ТОЛЬКО живой статус («норма от ИИ» без данных подрывает доверие);
+   *  история и календарь ретроспективны и остаются доступными (cg-analytics v4.9.57+). */
   data_stale: boolean;
 }
 
@@ -106,6 +107,11 @@ export interface SegmentOut {
   op_day: string | null;
   /** Срабатывание аналитики проверено и отменено гейтом Claude */
   gate_checked: boolean;
+  /** Качество данных 0.0–1.0; null у сегментов до cg-analytics v4.9.57 */
+  data_quality?: number | null;
+  /** Закрытый сегмент без единой строки телеметрии (полный обрыв связи,
+   *  data_quality == 0): рисуется как «нет связи», а не по run_state */
+  no_data?: boolean;
   analytics_version: string | null;
   has_report: boolean;
   has_claude: boolean;

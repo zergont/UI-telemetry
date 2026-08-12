@@ -128,10 +128,12 @@ export default function EquipmentPage() {
   const v = useDguPanelValues(routerSn!, equipType!, panelId!, eqInfo);
 
   const analyticsRaw = useMachineAnalytics(routerSn!, equipType!, panelId!);
-  // Панель offline или телеметрия аналитики устарела (data_stale) → блок ИИ
-  // скрываем целиком: «норма от ИИ» без данных подрывает доверие
+  // Панель offline или телеметрия аналитики устарела (data_stale) → живой статус
+  // скрываем: «норма от ИИ» без данных подрывает доверие. Строка деградирует до
+  // «нет связи», но история и календарь ретроспективны — вход остаётся всегда.
   const analytics =
     analyticsRaw && v.panelFresh && !analyticsRaw.data_stale ? analyticsRaw : undefined;
+  const analyticsStale = analyticsRaw != null && analytics == null;
   const accent = analytics
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;
@@ -340,22 +342,27 @@ export default function EquipmentPage() {
           </div>
         </div>
 
-        {analytics && (
+        {analyticsRaw && (
           <AnalyticsStrip
-            analytics={analytics}
+            analytics={analyticsRaw}
+            stale={analyticsStale}
             compact
             onOpenCalendar={() => setCalendarOpen(true)}
           />
         )}
       </Card>
-      {analytics && (
+      {/* lastDataTs — только при обрыве: при живой связи ts тикает каждые 15с
+          и обнулил бы memo диалога */}
+      {analyticsRaw && (
         <AnalyticsCalendarDialog
           open={calendarOpen}
           onOpenChange={setCalendarOpen}
-          routerSn={analytics.router_sn}
-          equipType={analytics.equip_type}
-          panelId={analytics.panel_id}
+          routerSn={analyticsRaw.router_sn}
+          equipType={analyticsRaw.equip_type}
+          panelId={analyticsRaw.panel_id}
           displayName={displayName}
+          dataStale={analyticsStale}
+          lastDataTs={analyticsStale ? analyticsRaw.last_data_ts : null}
         />
       )}
 

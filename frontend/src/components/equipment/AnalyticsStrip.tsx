@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Flame, CalendarDays, ShieldCheck } from "lucide-react";
+import { Flame, CalendarDays, ShieldCheck, WifiOff } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -102,6 +102,21 @@ interface Props {
   onOpenCalendar?: () => void;
   /** Однострочный режим для карточки «минимал» */
   compact?: boolean;
+  /** Связи нет (data_stale или панель offline): живой статус скрываем —
+   *  «норма от ИИ» без данных подрывает доверие, — но строка остаётся
+   *  входом в ретроспективу (история/календарь доступны всегда) */
+  stale?: boolean;
+}
+
+/** «дд.мм, чч:мм» для метки последних данных при обрыве связи */
+function staleTs(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** Нижняя строка карточки ДГУ: живая сводка ИИ-аналитики из cg-analytics. */
@@ -109,6 +124,7 @@ export default function AnalyticsStrip({
   analytics,
   onOpenCalendar,
   compact = false,
+  stale = false,
 }: Props) {
   const severity = analytics.severity_level ?? "норма";
   const meta = SEVERITY_META[severity] ?? SEVERITY_META["норма"];
@@ -159,6 +175,39 @@ export default function AnalyticsStrip({
         },
       }
     : {};
+
+  // Обрыв связи: вместо живого статуса — «нет связи с …», вход в историю остаётся.
+  // После хуков: rules-of-hooks не позволяют ранний return до useState/useEffect.
+  if (stale) {
+    const ts = staleTs(analytics.last_data_ts);
+    return (
+      <div
+        className={`group/strip ${compact ? "mt-2.5 pt-2" : "mt-3.5 pt-2.5"} border-t border-border/60 px-6 ${clickable}`}
+        {...clickProps}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className={`flex ${compact ? "h-7 w-7" : "h-10 w-10"} shrink-0 items-center justify-center rounded-full bg-muted`}
+          >
+            <WifiOff className={`${compact ? "h-4 w-4" : "h-5 w-5"} text-muted-foreground`} />
+          </span>
+          {!compact && (
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              ИИ-аналитика
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate text-[11.5px] leading-snug text-muted-foreground">
+            {ts ? `Нет связи — данные на ${ts}` : "Нет связи — данных нет"}
+          </span>
+          {onOpenCalendar && (
+            <CalendarDays
+              className={`${compact ? "h-5 w-5" : "h-6 w-6"} shrink-0 text-muted-foreground/50 transition-colors group-hover/strip:text-foreground/80`}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const cokingIcon = coking && (
     <Tooltip>
