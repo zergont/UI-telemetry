@@ -195,6 +195,20 @@ export default memo(function AnalyticsCalendarDialog({
     open,
   );
 
+  // Соседи сегмента по времени — чтобы листать карточки, не возвращаясь
+  // в календарь. Порядок хронологический: «назад» = раньше.
+  const orderedIds = useMemo(
+    () =>
+      [...(segments ?? [])]
+        .sort((a, b) => (a.t_start ?? "").localeCompare(b.t_start ?? ""))
+        .map((s) => s.id),
+    [segments],
+  );
+  const segIdx = segId == null ? -1 : orderedIds.indexOf(segId);
+  const prevId = segIdx > 0 ? orderedIds[segIdx - 1] : null;
+  const nextId =
+    segIdx >= 0 && segIdx < orderedIds.length - 1 ? orderedIds[segIdx + 1] : null;
+
   // Группировка по операционным суткам движка (op_day, граница 09:00 local);
   // фолбэк — локальная дата t_start. Внутри дня — хронологически (старые сверху)
   const byDay = useMemo(() => {
@@ -499,7 +513,13 @@ export default memo(function AnalyticsCalendarDialog({
                 </div>
               </motion.div>
             ) : (
-              <SegmentDetailView key="detail" segId={segId} onBack={() => setSegId(null)} />
+              <SegmentDetailView
+                key="detail"
+                segId={segId}
+                onBack={() => setSegId(null)}
+                onPrev={prevId == null ? undefined : () => setSegId(prevId)}
+                onNext={nextId == null ? undefined : () => setSegId(nextId)}
+              />
             )}
           </AnimatePresence>
         </div>
@@ -511,9 +531,14 @@ export default memo(function AnalyticsCalendarDialog({
 function SegmentDetailView({
   segId,
   onBack,
+  onPrev,
+  onNext,
 }: {
   segId: number;
   onBack: () => void;
+  /** Соседние сегменты по времени; undefined — край месяца */
+  onPrev?: () => void;
+  onNext?: () => void;
 }) {
   const { data: seg, isLoading, isError } = useSegmentDetail(segId);
   const meta = SEVERITY_META[severityKey(seg?.severity ?? null)];
@@ -526,13 +551,37 @@ function SegmentDetailView({
       exit={{ opacity: 0, x: 12 }}
       transition={{ duration: 0.18 }}
     >
-      <button
-        onClick={onBack}
-        className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        К календарю
-      </button>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          К календарю
+        </button>
+        {/* Листание соседних сегментов: смотреть цепочку подряд, не возвращаясь
+            каждый раз в календарь. Порядок хронологический */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onPrev}
+            disabled={!onPrev}
+            title="Предыдущий сегмент"
+            aria-label="Предыдущий сегмент"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onNext}
+            disabled={!onNext}
+            title="Следующий сегмент"
+            aria-label="Следующий сегмент"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
       {isLoading && (
         <div className="space-y-3">
