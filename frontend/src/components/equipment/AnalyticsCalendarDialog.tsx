@@ -16,6 +16,7 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
+  FileWarning,
   Loader2,
   ShieldCheck,
   WifiOff,
@@ -35,6 +36,8 @@ import {
   useSegmentDetail,
   type SegmentOut,
   type SegmentSeverity,
+  type StopIncident,
+  type StopIncidentEvent,
   type WarningAnalysis,
 } from "@/hooks/use-analytics";
 import { formatDuration } from "@/lib/format";
@@ -51,6 +54,21 @@ const CAUSE_LABELS: Record<string, string> = {
   DAILY_BOUNDARY: "Суточная граница",
   OPERATOR_STOP: "Остановка оператором",
   FAULT_CLEARED: "Неисправности устранены",
+  SHUTDOWN_CLEARED: "Авария снята",
+};
+
+/** Сырая тяжесть маски из KB → цвет точки в ленте акта */
+const FAULT_SEVERITY_DOT: Record<string, string> = {
+  shutdown: "bg-red-500",
+  shutdown_cooldown: "bg-red-500",
+  derate: "bg-orange-500",
+  warning: "bg-orange-500",
+};
+
+const CHARACTER_LABELS: Record<string, string> = {
+  immediate: "немедленный",
+  controlled: "через охлаждение",
+  unknown: "не определён",
 };
 
 /** Severity сегмента → 4-ступенчатая градация: авария / внимание (панель) / предупреждение (аналитика) / норма */
@@ -401,6 +419,9 @@ export default memo(function AnalyticsCalendarDialog({
                                         {seg.is_open ? "сейчас" : timeHM(seg.t_end)}
                                       </span>
                                       <span className="flex shrink-0 items-center gap-1">
+                                        {seg.has_incident && (
+                                          <FileWarning className="h-3.5 w-3.5 text-red-500" />
+                                        )}
                                         {seg.gate_checked && (
                                           <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
                                         )}
@@ -460,6 +481,9 @@ export default memo(function AnalyticsCalendarDialog({
                       style={NO_DATA_HATCH}
                     />{" "}
                     нет связи
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <FileWarning className="h-3.5 w-3.5 text-red-500" /> акт аварийного останова
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Bot className="h-3.5 w-3.5" /> есть заключение ИИ
@@ -596,6 +620,10 @@ function SegmentDetailView({
             </section>
           )}
 
+          {/* Акт аварийного останова — детерминированная реконструкция
+              «Следователя»: что панель записала вокруг останова */}
+          {seg.incident_json && <StopIncidentSection inc={seg.incident_json} />}
+
           {/* Разборы гейта Claude в моменты срабатываний — не дубль заключения:
               только здесь есть контекст «что предшествовало» (тренд, предыдущий
               сегмент, висевшие тревоги), итоговое заключение его не получает. */}
@@ -641,6 +669,97 @@ function SegmentDetailView({
         </div>
       )}
     </motion.div>
+  );
+}
+
+/** Время события ленты — с секундами: авария разворачивается за секунды */
+function timeHMS(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** Строка события: «Режим двигателя: Работа» или имя неисправности */
+function incidentEventText(e: StopIncidentEvent): string {
+  if (e.kind === "fault") return e.name ?? "Неисправность";
+  const what = e.name ?? (e.addr != null ? `Регистр ${e.addr}` : "Состояние");
+  const value = e.label ?? (e.value != null ? String(e.value) : null);
+  return value ? `${what}: ${value}` : what;
+}
+
+/** Сколько событий ленты показываем до нажатия «показать все» */
+const INCIDENT_HEAD = 30;
+
+/** Акт аварийного останова: вердикт характера и лента событий вокруг останова.
+ *  Строится детерминированно («Следователь»), без ИИ — поэтому стоит выше
+ *  заключения: это факты панели, а не их интерпретация. */
+function StopIncidentSection({ inc }: { inc: StopIncident }) {
+  const [expanded, setExpanded] = useState(false);
+  const ch = inc.character;
+  const votes = [...(ch?.immediate_votes ?? []), ...(ch?.controlled_votes ?? [])];
+  const events = inc.chronology ?? [];
+  const shown = expanded ? events : events.slice(0, INCIDENT_HEAD);
+
+  return (
+    <section className="rounded-xl border border-red-500/25 bg-red-500/5 p-4">
+      <h4 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-red-500">
+        <FileWarning className="h-3.5 w-3.5" />
+        Акт аварийного останова
+      </h4>
+
+      <p className="text-xs text-foreground/80">
+        Останов в {timeHMS(inc.stop_ts)}
+        {ch?.character && (
+          <> · характер: {CHARACTER_LABELS[ch.character] ?? ch.character}</>
+        )}
+        {ch?.confidence === "low" && (
+          <span className="text-muted-foreground"> (сигналы расходятся)</span>
+        )}
+      </p>
+      {votes.length > 0 && (
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          {votes.join(" · ")}
+        </p>
+      )}
+
+      {events.length > 0 && (
+        <>
+          <ol className="mt-3 space-y-1">
+            {shown.map((e, i) => (
+              <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
+                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                  {timeHMS(e.ts)}
+                </span>
+                <span
+                  className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${
+                    e.kind === "fault"
+                      ? (FAULT_SEVERITY_DOT[e.severity ?? ""] ?? "bg-muted-foreground/60")
+                      : "bg-sky-500"
+                  }`}
+                />
+                <span className="text-foreground/85">
+                  {incidentEventText(e)}
+                  {e.kind === "fault" && e.end && (
+                    <span className="text-muted-foreground"> · снято в {timeHMS(e.end)}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {events.length > shown.length && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="mt-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Показать все события ({events.length})
+            </button>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

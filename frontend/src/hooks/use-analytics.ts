@@ -115,6 +115,9 @@ export interface SegmentOut {
   analytics_version: string | null;
   has_report: boolean;
   has_claude: boolean;
+  /** По сегменту построен акт аварийного останова (cg-analytics v4.9.70+).
+   *  Сам акт тяжёлый — в календарь приходит только признак, тело в детали */
+  has_incident?: boolean;
 }
 
 export interface SegmentAnalysis {
@@ -138,7 +141,46 @@ export interface SegmentDetail extends SegmentOut {
   /** История разборов гейта: смена состава тревог (сброс, кнопка останова)
    *  не затирает разбор исходной аварии (cg-analytics v4.9.36+) */
   warning_analyses: WarningAnalysis[] | null;
+  /** Акт аварийного останова «Следователя»: вердикт характера и лента событий.
+   *  Только у стоп-сегментов вида EMERGENCY (cg-analytics v4.9.70+) */
+  incident_json?: StopIncident | null;
   status_text: string | null;
+}
+
+/** Событие ленты акта: смена состояния регистра (state) или фронт маски (fault) */
+export interface StopIncidentEvent {
+  ts: string | null;
+  /** Конец события; null — на момент построения акта ещё активно */
+  end: string | null;
+  kind: "state" | "fault" | string;
+  addr: number | null;
+  bit: number | null;
+  role: string | null;
+  name: string | null;
+  value: number | string | null;
+  label: string | null;
+  /** Сырая тяжесть из KB: shutdown / shutdown_cooldown / derate / warning / none */
+  severity: string | null;
+}
+
+/** Вердикт характер-гейта. С v4.9.70 он не решает, строить ли акт (это делает
+ *  вид стоп-сегмента), а едет в акт описанием характера останова. */
+export interface StopIncidentCharacter {
+  character: "immediate" | "controlled" | "unknown" | string;
+  is_incident: boolean;
+  confidence: "high" | "low" | string;
+  immediate_votes: string[];
+  controlled_votes: string[];
+}
+
+export interface StopIncident {
+  kind: string;
+  stop_ts: string | null;
+  stop_kind: string | null;
+  character: StopIncidentCharacter;
+  chronology: StopIncidentEvent[];
+  investigator_version: string | null;
+  created_at: string | null;
 }
 
 export interface WarningAnalysis {
