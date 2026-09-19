@@ -99,6 +99,9 @@ export interface SegmentOut {
   t_end: string | null;
   is_open: boolean;
   run_state: number | null;
+  /** Вид стоп-сегмента: EMERGENCY — аварийный, SIMPLE — обычный, null — старая
+   *  модель сегментации (cg-analytics v4.9.67+) */
+  stop_kind?: string | null;
   run_state_label: string | null;
   duration_sec: number | null;
   cause_close: string | null;
