@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileWarning,
+  ListOrdered,
   Loader2,
   ShieldCheck,
   WifiOff,
@@ -34,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useMachineSegments,
   useSegmentDetail,
+  type SegmentChronology,
   type SegmentOut,
   type SegmentSeverity,
   type StopIncident,
@@ -624,6 +626,12 @@ function SegmentDetailView({
               «Следователя»: что панель записала вокруг останова */}
           {seg.incident_json && <StopIncidentSection inc={seg.incident_json} />}
 
+          {/* Хронология стоянки — там, где акта нет: в режиме 0 панель копит
+              сообщения, не меняя режим, и период иначе выглядит однородным */}
+          {!seg.incident_json && seg.chronology_json && (
+            <StopChronologySection chrono={seg.chronology_json} />
+          )}
+
           {/* Разборы гейта Claude в моменты срабатываний — не дубль заключения:
               только здесь есть контекст «что предшествовало» (тренд, предыдущий
               сегмент, висевшие тревоги), итоговое заключение его не получает. */}
@@ -697,11 +705,9 @@ const INCIDENT_HEAD = 30;
  *  Строится детерминированно («Следователь»), без ИИ — поэтому стоит выше
  *  заключения: это факты панели, а не их интерпретация. */
 function StopIncidentSection({ inc }: { inc: StopIncident }) {
-  const [expanded, setExpanded] = useState(false);
   const ch = inc.character;
   const votes = [...(ch?.immediate_votes ?? []), ...(ch?.controlled_votes ?? [])];
   const events = inc.chronology ?? [];
-  const shown = expanded ? events : events.slice(0, INCIDENT_HEAD);
 
   return (
     <section className="rounded-xl border border-red-500/25 bg-red-500/5 p-4">
@@ -725,40 +731,71 @@ function StopIncidentSection({ inc }: { inc: StopIncident }) {
         </p>
       )}
 
-      {events.length > 0 && (
-        <>
-          <ol className="mt-3 space-y-1">
-            {shown.map((e, i) => (
-              <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
-                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
-                  {timeHMS(e.ts)}
-                </span>
-                <span
-                  className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${
-                    e.kind === "fault"
-                      ? (FAULT_SEVERITY_DOT[e.severity ?? ""] ?? "bg-muted-foreground/60")
-                      : "bg-sky-500"
-                  }`}
-                />
-                <span className="text-foreground/85">
-                  {incidentEventText(e)}
-                  {e.kind === "fault" && e.end && (
-                    <span className="text-muted-foreground"> · снято в {timeHMS(e.end)}</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ol>
-          {events.length > shown.length && (
-            <button
-              onClick={() => setExpanded(true)}
-              className="mt-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Показать все события ({events.length})
-            </button>
-          )}
-        </>
+      <ChronologyList events={events} />
+    </section>
+  );
+}
+
+/** Лента событий панели: время с секундами, точка по типу и тяжести, подпись.
+ *  Общая для акта аварийного останова и для хронологии стоянки. */
+function ChronologyList({ events }: { events: StopIncidentEvent[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!events.length) return null;
+  const shown = expanded ? events : events.slice(0, INCIDENT_HEAD);
+
+  return (
+    <>
+      <ol className="mt-3 space-y-1">
+        {shown.map((e, i) => (
+          <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
+            <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+              {timeHMS(e.ts)}
+            </span>
+            <span
+              className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${
+                e.kind === "fault"
+                  ? (FAULT_SEVERITY_DOT[e.severity ?? ""] ?? "bg-muted-foreground/60")
+                  : "bg-sky-500"
+              }`}
+            />
+            <span className="text-foreground/85">
+              {incidentEventText(e)}
+              {e.kind === "fault" && e.end && (
+                <span className="text-muted-foreground"> · снято в {timeHMS(e.end)}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {events.length > shown.length && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="mt-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Показать все события ({events.length})
+        </button>
       )}
+    </>
+  );
+}
+
+/** Хронология стоянки — что панель записала, пока машина стояла. Без вердикта:
+ *  разбирать тут нечего, важна сама последовательность. Показывается только
+ *  там, где акта нет — у аварийного стопа лента живёт внутри акта. */
+function StopChronologySection({ chrono }: { chrono: SegmentChronology }) {
+  const events = chrono.chronology ?? [];
+  if (!events.length) return null;
+
+  return (
+    <section className="rounded-xl border border-border/60 p-4">
+      <h4 className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <ListOrdered className="h-3.5 w-3.5" />
+        Хронология стоянки
+      </h4>
+      <p className="text-[11px] text-muted-foreground">
+        Что панель записала за этот период — сообщения, сбросы, смены команд.
+      </p>
+      <ChronologyList events={events} />
     </section>
   );
 }

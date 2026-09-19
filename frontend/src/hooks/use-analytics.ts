@@ -144,6 +144,10 @@ export interface SegmentDetail extends SegmentOut {
   /** Акт аварийного останова «Следователя»: вердикт характера и лента событий.
    *  Только у стоп-сегментов вида EMERGENCY (cg-analytics v4.9.70+) */
   incident_json?: StopIncident | null;
+  /** Лента событий панели за окно стоп-сегмента — «кто что нажимал и сбрасывал,
+   *  пока машина стояла». Только там, где акта нет: у аварийного стопа своя
+   *  лента внутри incident_json (cg-analytics v4.9.76+) */
+  chronology_json?: SegmentChronology | null;
   status_text: string | null;
 }
 
@@ -171,6 +175,16 @@ export interface StopIncidentCharacter {
   confidence: "high" | "low" | string;
   immediate_votes: string[];
   controlled_votes: string[];
+}
+
+/** Голая лента событий сегмента, без вердикта: у стоянки разбирать нечего,
+ *  важна сама последовательность действий панели и оператора. */
+export interface SegmentChronology {
+  kind: string;
+  t_from: string | null;
+  t_to: string | null;
+  chronology: StopIncidentEvent[];
+  version: string | null;
 }
 
 export interface StopIncident {
