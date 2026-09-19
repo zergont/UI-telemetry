@@ -148,6 +148,10 @@ export interface SegmentDetail extends SegmentOut {
    *  пока машина стояла». Только там, где акта нет: у аварийного стопа своя
    *  лента внутри incident_json (cg-analytics v4.9.76+) */
   chronology_json?: SegmentChronology | null;
+  /** Цепочка суточного реза: у продолжения аварийного стопа своего акта нет,
+   *  он лежит в голове, на которую указывает continued_from */
+  continued_from?: number | null;
+  continues_to?: number | null;
   status_text: string | null;
 }
 
@@ -187,11 +191,46 @@ export interface SegmentChronology {
   version: string | null;
 }
 
+/** Маска, висевшая в момент останова: срез состояния, не событие ленты */
+export interface StandingFault {
+  name: string | null;
+  severity: string | null;
+  addr: number | null;
+  bit: number | null;
+  since: string | null;
+  age_sec: number;
+  cleared_at: string | null;
+}
+
+/** Свод по видам: одна строка на вид события за всё окно акта */
+export interface EventSummaryRow {
+  kind: "state" | "fault" | string;
+  name: string | null;
+  addr: number | null;
+  bit: number | null;
+  severity: string | null;
+  count: number;
+  first: string | null;
+  last: string | null;
+}
+
 export interface StopIncident {
   kind: string;
   stop_ts: string | null;
   stop_kind: string | null;
   character: StopIncidentCharacter;
+  /** Что висело в момент падения — маска могла подняться задолго до окна */
+  standing?: StandingFault[] | null;
+  /** Свод по видам покрывает ВСЁ окно, лента — только окрестность останова */
+  summary?: EventSummaryRow[] | null;
+  /** Сколько событий было в окне всего (лента показывает не все) */
+  events_total?: number | null;
+  window?: {
+    from: string | null;
+    to: string | null;
+    /** normal_stop — окно от последнего штатного останова; fallback — эталона нет */
+    baseline: string | null;
+  } | null;
   chronology: StopIncidentEvent[];
   investigator_version: string | null;
   created_at: string | null;

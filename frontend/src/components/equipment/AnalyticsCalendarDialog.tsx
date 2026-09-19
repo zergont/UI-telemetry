@@ -35,11 +35,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useMachineSegments,
   useSegmentDetail,
+  type EventSummaryRow,
   type SegmentChronology,
   type SegmentOut,
   type SegmentSeverity,
   type StopIncident,
   type StopIncidentEvent,
+  type StandingFault,
   type WarningAnalysis,
 } from "@/hooks/use-analytics";
 import { formatDuration } from "@/lib/format";
@@ -675,9 +677,19 @@ function SegmentDetailView({
               «Следователя»: что панель записала вокруг останова */}
           {seg.incident_json && <StopIncidentSection inc={seg.incident_json} />}
 
-          {/* Хронология стоянки — там, где акта нет: в режиме 0 панель копит
-              сообщения, не меняя режим, и период иначе выглядит однородным */}
-          {!seg.incident_json && seg.chronology_json && (
+          {/* Продолжение аварии после суточного реза: своего акта у него нет,
+              он лежит в голове цепочки */}
+          {!seg.incident_json && seg.stop_kind === "EMERGENCY" && seg.continued_from && (
+            <p className="rounded-xl border border-red-500/25 bg-red-500/5 p-3 text-[11px] text-muted-foreground">
+              <FileWarning className="mr-1 inline h-3.5 w-3.5 text-red-500" />
+              Продолжение аварийного останова с прошлых суток — акт в
+              предыдущем сегменте, листайте стрелкой влево.
+            </p>
+          )}
+
+          {/* Хронология стоянки. Показывается и рядом с актом: акт говорит,
+              что произошло, лента — что было дальше, пока авария не снята */}
+          {seg.chronology_json && (
             <StopChronologySection chrono={seg.chronology_json} />
           )}
 
@@ -726,6 +738,106 @@ function SegmentDetailView({
         </div>
       )}
     </motion.div>
+  );
+}
+
+/** «12 сут», «3 ч», «40 мин» — сколько маска уже висела к моменту останова */
+function ageText(sec: number): string {
+  if (sec >= 86400) return `${Math.floor(sec / 86400)} сут`;
+  if (sec >= 3600) return `${Math.floor(sec / 3600)} ч`;
+  if (sec >= 60) return `${Math.floor(sec / 60)} мин`;
+  return `${Math.round(sec)} с`;
+}
+
+/** Дата со временем — для событий, отстоящих от останова на дни */
+function dateTimeShort(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Что висело на момент останова: срез состояния, а не лента.
+ *  Маска могла подняться задолго до окна — в ленту она не попадёт никогда,
+ *  потому что лента фильтрует по началу события. */
+function StandingBlock({ items }: { items: StandingFault[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-[11px] font-medium text-foreground/70">
+        Висело на момент останова
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {items.map((f, i) => (
+          <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
+            <span
+              className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${
+                FAULT_SEVERITY_DOT[f.severity ?? ""] ?? "bg-muted-foreground/60"
+              }`}
+            />
+            <span className="text-foreground/85">
+              {f.name}
+              <span className="text-muted-foreground">
+                {" "}· с {dateTimeShort(f.since)} ({ageText(f.age_sec)})
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Свод по видам: одна строка на вид за всё окно акта. Число видов ограничено
+ *  каталогом регистров и битов, поэтому свод вмещает историю любой длины. */
+function SummaryBlock({ rows, total }: { rows: EventSummaryRow[]; total?: number | null }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!rows.length) return null;
+  const shown = expanded ? rows : rows.slice(0, 8);
+  return (
+    <div className="mt-3">
+      <p className="text-[11px] font-medium text-foreground/70">
+        Что происходило за период
+        {total ? (
+          <span className="font-normal text-muted-foreground"> · событий {total}</span>
+        ) : null}
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {shown.map((g, i) => (
+          <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
+            <span
+              className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${
+                g.kind === "fault"
+                  ? (FAULT_SEVERITY_DOT[g.severity ?? ""] ?? "bg-muted-foreground/60")
+                  : "bg-sky-500"
+              }`}
+            />
+            <span className="text-foreground/85">
+              {g.name}
+              <span className="text-muted-foreground">
+                {" "}· {g.count > 1 ? `${g.count} раз` : "однократно"}
+                {g.count > 1 && g.first && g.last
+                  ? `, ${dateTimeShort(g.first)} — ${dateTimeShort(g.last)}`
+                  : g.first
+                    ? `, ${dateTimeShort(g.first)}`
+                    : ""}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {rows.length > shown.length && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="mt-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Показать все виды ({rows.length})
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -779,7 +891,21 @@ function StopIncidentSection({ inc }: { inc: StopIncident }) {
           {votes.join(" · ")}
         </p>
       )}
+      {inc.window?.baseline === "fallback" && (
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          Штатного останова в истории не нашлось — окно взято по последним
+          сегментам. Само по себе это уже показатель.
+        </p>
+      )}
 
+      <StandingBlock items={inc.standing ?? []} />
+      <SummaryBlock rows={inc.summary ?? []} total={inc.events_total} />
+
+      {events.length > 0 && (
+        <p className="mt-3 text-[11px] font-medium text-foreground/70">
+          Как это произошло
+        </p>
+      )}
       <ChronologyList events={events} />
     </section>
   );
@@ -843,6 +969,8 @@ function StopChronologySection({ chrono }: { chrono: SegmentChronology }) {
       </h4>
       <p className="text-[11px] text-muted-foreground">
         Что панель записала за этот период — сообщения, сбросы, смены команд.
+        Для аварийного стопа это продолжение: как неисправности снимались одна
+        за другой.
       </p>
       <ChronologyList events={events} />
     </section>
