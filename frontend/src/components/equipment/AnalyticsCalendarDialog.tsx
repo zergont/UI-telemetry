@@ -63,8 +63,8 @@ const CAUSE_LABELS: Record<string, string> = {
 
 /** Сырая тяжесть маски из KB → цвет точки в ленте акта */
 const FAULT_SEVERITY_DOT: Record<string, string> = {
-  shutdown: "bg-red-500",
-  shutdown_cooldown: "bg-red-500",
+  shutdown: "bg-red-600",
+  shutdown_cooldown: "bg-red-600",
   derate: "bg-orange-500",
   warning: "bg-orange-500",
 };
@@ -79,13 +79,15 @@ const CHARACTER_LABELS: Record<string, string> = {
 const SEVERITY_META: Record<string, { label: string; badge: string; border: string }> = {
   SHUTDOWN: {
     label: "Авар. останов",
-    badge: "bg-red-500/15 text-red-500 border-red-500/20",
-    border: "border-l-red-500",
+    badge: "bg-red-600/15 text-red-500 border-red-600/25",
+    // red-600, а не red-500: тонкая кромка красного-500 рядом с «вниманием»
+    // (orange-500) читается оранжевой, две верхние ступени шкалы сливаются
+    border: "border-l-red-600",
   },
   ALARM: {
     label: "Авария",
-    badge: "bg-red-500/15 text-red-500 border-red-500/20",
-    border: "border-l-red-500",
+    badge: "bg-red-600/15 text-red-500 border-red-600/25",
+    border: "border-l-red-600",
   },
   WARNING: {
     label: "Внимание",
@@ -446,7 +448,7 @@ export default memo(function AnalyticsCalendarDialog({
                                       </span>
                                       <span className="flex shrink-0 items-center gap-1">
                                         {seg.has_incident && (
-                                          <FileWarning className="h-3.5 w-3.5 text-red-500" />
+                                          <FileWarning className="h-3.5 w-3.5 text-red-600" />
                                         )}
                                         {seg.gate_checked && !panelLoud && (
                                           <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
@@ -499,7 +501,7 @@ export default memo(function AnalyticsCalendarDialog({
                     <span className="h-3 w-1 rounded-sm bg-orange-500" /> внимание
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="h-3 w-1 rounded-sm bg-red-500" /> авария
+                    <span className="h-3 w-1 rounded-sm bg-red-600" /> авария
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span
@@ -509,7 +511,7 @@ export default memo(function AnalyticsCalendarDialog({
                     нет связи
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <FileWarning className="h-3.5 w-3.5 text-red-500" /> акт аварийного останова
+                    <FileWarning className="h-3.5 w-3.5 text-red-600" /> разбор аварийного останова
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Bot className="h-3.5 w-3.5" /> есть заключение ИИ
@@ -694,9 +696,9 @@ function SegmentDetailView({
           {/* Продолжение аварии после суточного реза: своего акта у него нет,
               он лежит в голове цепочки */}
           {!seg.incident_json && seg.stop_kind === "EMERGENCY" && seg.continued_from && (
-            <p className="rounded-xl border border-red-500/25 bg-red-500/5 p-3 text-[11px] text-muted-foreground">
-              <FileWarning className="mr-1 inline h-3.5 w-3.5 text-red-500" />
-              Продолжение аварийного останова с прошлых суток — акт в
+            <p className="rounded-xl border border-red-600/30 bg-red-600/5 p-3 text-[11px] text-muted-foreground">
+              <FileWarning className="mr-1 inline h-3.5 w-3.5 text-red-600" />
+              Продолжение аварийного останова с прошлых суток — разбор в
               предыдущем сегменте, листайте стрелкой влево.
             </p>
           )}
@@ -912,10 +914,10 @@ function StopIncidentSection({
       : [];
 
   return (
-    <section className="rounded-xl border border-red-500/25 bg-red-500/5 p-4">
-      <h4 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-red-500">
+    <section className="rounded-xl border border-red-600/30 bg-red-600/5 p-4">
+      <h4 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-red-600">
         <FileWarning className="h-3.5 w-3.5" />
-        Акт аварийного останова
+        Аварийный останов
       </h4>
 
       <p className="text-xs text-foreground/80">
@@ -942,9 +944,9 @@ function StopIncidentSection({
       {/* Разбор от ИИ — главное в блоке, поэтому сразу после шапки и
           развёрнутым. Заказывает его сам акт, см. online/incident_gate.py */}
       {texts.length > 0 && (
-        <div className="mt-3 border-t border-red-500/15 pt-3">
+        <div className="mt-3 border-t border-red-600/20 pt-3">
           <p className="mb-1 text-[11px] font-medium text-foreground/70">
-            Анализ аварийного останова
+            Анализ
           </p>
           {texts.map((md, i) => (
             <MarkdownView key={i}>{md}</MarkdownView>
@@ -954,7 +956,7 @@ function StopIncidentSection({
 
       {/* Факты под спойлером: они обосновывают анализ, но читают их реже */}
       {(standing.length > 0 || summary.length > 0 || events.length > 0) && (
-        <div className="mt-3 border-t border-red-500/15 pt-2">
+        <div className="mt-3 border-t border-red-600/20 pt-2">
           <button
             onClick={() => setOpen((v) => !v)}
             className="flex w-full items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
@@ -962,7 +964,7 @@ function StopIncidentSection({
             <ChevronRight
               className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-90" : ""}`}
             />
-            Хронология: что висело и как это произошло
+            Реконструкция: что висело и как это произошло
           </button>
           {open && (
             <>
