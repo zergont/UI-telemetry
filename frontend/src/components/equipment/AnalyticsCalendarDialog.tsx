@@ -675,7 +675,13 @@ function SegmentDetailView({
 
           {/* Акт аварийного останова — детерминированная реконструкция
               «Следователя»: что панель записала вокруг останова */}
-          {seg.incident_json && <StopIncidentSection inc={seg.incident_json} />}
+          {seg.incident_json && (
+            <StopIncidentSection
+              inc={seg.incident_json}
+              analyses={seg.warning_analyses}
+              fallbackMd={seg.warning_analysis_md}
+            />
+          )}
 
           {/* Продолжение аварии после суточного реза: своего акта у него нет,
               он лежит в голове цепочки */}
@@ -696,10 +702,14 @@ function SegmentDetailView({
           {/* Разборы гейта Claude в моменты срабатываний — не дубль заключения:
               только здесь есть контекст «что предшествовало» (тренд, предыдущий
               сегмент, висевшие тревоги), итоговое заключение его не получает. */}
-          <WarningAnalysesSection
-            analyses={seg.warning_analyses}
-            fallbackMd={seg.warning_analysis_md}
-          />
+          {/* У аварийного сегмента разбор переехал внутрь красного блока:
+              его заказывает акт, и читать их врозь незачем */}
+          {!seg.incident_json && (
+            <WarningAnalysesSection
+              analyses={seg.warning_analyses}
+              fallbackMd={seg.warning_analysis_md}
+            />
+          )}
 
           {/* Заключение ИИ */}
           <section className="rounded-xl border border-border/60 bg-accent/30 p-4">
@@ -868,10 +878,30 @@ const INCIDENT_HEAD = 30;
 /** Акт аварийного останова: вердикт характера и лента событий вокруг останова.
  *  Строится детерминированно («Следователь»), без ИИ — поэтому стоит выше
  *  заключения: это факты панели, а не их интерпретация. */
-function StopIncidentSection({ inc }: { inc: StopIncident }) {
+function StopIncidentSection({
+  inc,
+  analyses,
+  fallbackMd,
+}: {
+  inc: StopIncident;
+  /** Разбор от ИИ: у аварии его заказывает сам акт, поэтому он живёт здесь,
+   *  а не в отдельном жёлтом блоке */
+  analyses?: WarningAnalysis[] | null;
+  fallbackMd?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
   const ch = inc.character;
   const votes = [...(ch?.immediate_votes ?? []), ...(ch?.controlled_votes ?? [])];
   const events = inc.chronology ?? [];
+  const standing = inc.standing ?? [];
+  const summary = inc.summary ?? [];
+
+  const items = (analyses ?? []).filter((a) => a?.md);
+  const texts = items.length
+    ? items.map((a) => a.md as string)
+    : fallbackMd
+      ? [fallbackMd]
+      : [];
 
   return (
     <section className="rounded-xl border border-red-500/25 bg-red-500/5 p-4">
@@ -896,23 +926,54 @@ function StopIncidentSection({ inc }: { inc: StopIncident }) {
       )}
       {inc.window?.baseline === "fallback" && (
         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-          Штатного останова в истории не нашлось — окно взято по последним
-          сегментам. Само по себе это уже показатель.
+          Предшествующего штатного останова в истории не нашлось — окно взято
+          по последним сегментам.
         </p>
       )}
 
-      <StandingBlock items={inc.standing ?? []} />
-      <SummaryBlock rows={inc.summary ?? []} total={inc.events_total} />
-
-      {events.length > 0 && (
-        <p className="mt-3 text-[11px] font-medium text-foreground/70">
-          Как это произошло
-        </p>
+      {/* Разбор от ИИ — главное в блоке, поэтому сразу после шапки и
+          развёрнутым. Заказывает его сам акт, см. online/incident_gate.py */}
+      {texts.length > 0 && (
+        <div className="mt-3 border-t border-red-500/15 pt-3">
+          <p className="mb-1 text-[11px] font-medium text-foreground/70">
+            Анализ аварийного останова
+          </p>
+          {texts.map((md, i) => (
+            <MarkdownView key={i}>{md}</MarkdownView>
+          ))}
+        </div>
       )}
-      <ChronologyList events={events} />
+
+      {/* Факты под спойлером: они обосновывают анализ, но читают их реже */}
+      {(standing.length > 0 || summary.length > 0 || events.length > 0) && (
+        <div className="mt-3 border-t border-red-500/15 pt-2">
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="flex w-full items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-90" : ""}`}
+            />
+            Хронология: что висело и как это произошло
+          </button>
+          {open && (
+            <>
+              <StandingBlock items={standing} />
+              <SummaryBlock rows={summary} total={inc.events_total} />
+              {events.length > 0 && (
+                <p className="mt-3 text-[11px] font-medium text-foreground/70">
+                  Как это произошло
+                </p>
+              )}
+              <ChronologyList events={events} />
+            </>
+          )}
+        </div>
+      )}
     </section>
   );
 }
+
 
 /** Лента событий панели: время с секундами, точка по типу и тяжести, подпись.
  *  Общая для акта аварийного останова и для хронологии стоянки. */
