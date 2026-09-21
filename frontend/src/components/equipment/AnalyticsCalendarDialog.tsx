@@ -418,10 +418,18 @@ export default memo(function AnalyticsCalendarDialog({
                                   : ((seg.run_state != null
                                       ? RUN_STATE_TINT[seg.run_state]
                                       : undefined) ?? "bg-accent/40 hover:bg-accent");
-                                // Отменённое гейтом срабатывание: жёлтый пунктир вместо сплошной кромки
+                                // Отменённое гейтом срабатывание: жёлтый пунктир
+                                // вместо сплошной кромки. Но вердикт гейта
+                                // касается только аналитики и не может
+                                // перебивать сигнал панели — иначе живая
+                                // авария рисуется жёлтой «проверено ИИ»
+                                const panelLoud =
+                                  seg.severity === "SHUTDOWN" ||
+                                  seg.severity === "ALARM" ||
+                                  seg.severity === "WARNING";
                                 const sevBorder = noData
                                   ? "border-l-border"
-                                  : seg.gate_checked
+                                  : seg.gate_checked && !panelLoud
                                     ? "border-dashed border-l-yellow-400"
                                     : SEVERITY_META[severityKey(seg.severity)].border;
                                 return (
@@ -440,7 +448,7 @@ export default memo(function AnalyticsCalendarDialog({
                                         {seg.has_incident && (
                                           <FileWarning className="h-3.5 w-3.5 text-red-500" />
                                         )}
-                                        {seg.gate_checked && (
+                                        {seg.gate_checked && !panelLoud && (
                                           <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
                                         )}
                                         {seg.is_open ? (
