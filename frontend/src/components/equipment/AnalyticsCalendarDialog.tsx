@@ -795,7 +795,10 @@ function StandingBlock({ items }: { items: StandingFault[] }) {
  *  каталогом регистров и битов, поэтому свод вмещает историю любой длины. */
 function SummaryBlock({ rows, total }: { rows: EventSummaryRow[]; total?: number | null }) {
   const [expanded, setExpanded] = useState(false);
-  if (!rows.length) return null;
+  // Свод нужен там, где он что-то сворачивает. На коротком инциденте каждое
+  // событие уникально, видов столько же — и свод просто пересказывает ленту
+  // другими словами. На длинном цикле он незаменим, здесь только мешает.
+  if (!rows.length || (total != null && rows.length >= total)) return null;
   const shown = expanded ? rows : rows.slice(0, 8);
   return (
     <div className="mt-3">
