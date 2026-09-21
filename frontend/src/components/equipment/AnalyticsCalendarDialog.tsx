@@ -679,7 +679,7 @@ function SegmentDetailView({
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Сводка
               </h4>
-              <MarkdownView>{seg.report_summary_md}</MarkdownView>
+              <MarkdownView colorizeSeverity>{seg.report_summary_md}</MarkdownView>
             </section>
           )}
 
@@ -728,7 +728,7 @@ function SegmentDetailView({
               Заключение ИИ
             </h4>
             {seg.analysis?.conclusion_md ? (
-              <MarkdownView>{seg.analysis.conclusion_md}</MarkdownView>
+              <MarkdownView colorizeSeverity>{seg.analysis.conclusion_md}</MarkdownView>
             ) : analysisStatus === "pending" || analysisStatus === "processing" ? (
               <p className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -949,7 +949,7 @@ function StopIncidentSection({
             Анализ
           </p>
           {texts.map((md, i) => (
-            <MarkdownView key={i}>{md}</MarkdownView>
+            <MarkdownView key={i} colorizeSeverity>{md}</MarkdownView>
           ))}
         </div>
       )}
@@ -1129,7 +1129,7 @@ function WarningAnalysesSection({
                 </button>
                 {isOpen && wa.md && (
                   <div className="px-1 pb-3 pl-6">
-                    <MarkdownView>{wa.md}</MarkdownView>
+                    <MarkdownView colorizeSeverity>{wa.md}</MarkdownView>
                   </div>
                 )}
               </div>
@@ -1138,7 +1138,7 @@ function WarningAnalysesSection({
         </div>
       ) : (
         <div className="mt-1">
-          <MarkdownView>{fallbackMd!}</MarkdownView>
+          <MarkdownView colorizeSeverity>{fallbackMd!}</MarkdownView>
         </div>
       )}
     </section>
