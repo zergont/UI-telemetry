@@ -70,6 +70,27 @@ export interface MachineAnalytics {
    *  UI глушит ТОЛЬКО живой статус («норма от ИИ» без данных подрывает доверие);
    *  история и календарь ретроспективны и остаются доступными (cg-analytics v4.9.57+). */
   data_stale: boolean;
+  /** Неудачная попытка пуска — открытый стоп-исход (cg-analytics v5.1.19) */
+  attempt?: AttemptInfo | null;
+  /** Выход из стопа ещё не подтверждён: «Работа — ждём подтверждения», не работа */
+  attempt_pending?: boolean;
+}
+
+/** Неудачная попытка выхода из стопа (cg-analytics v5.1.16): плашка — стоп
+ *  с подписью «Неудачная работа · Авария»; здесь — для цвета, подпись в run_state_label */
+export interface AttemptInfo {
+  outcome: "EMERGENCY" | "SIMPLE" | string;
+  from_state: number | null;
+}
+
+/** Статус заключения: queued — в очереди, processing — пишется, skipped — не
+ *  требуется (с cg-analytics v5.2.2). pending — старое имя queued */
+export type ConclusionStatus =
+  | "queued" | "pending" | "processing" | "done" | "error" | "skipped";
+
+/** Заключение готовится: в очереди или пишется */
+export function conclusionInProgress(status: ConclusionStatus | null | undefined): boolean {
+  return status === "queued" || status === "pending" || status === "processing";
 }
 
 /**
@@ -117,14 +138,26 @@ export interface SegmentOut {
   no_data?: boolean;
   analytics_version: string | null;
   has_report: boolean;
+  /** Есть заключение ИИ (модель). Факты без ИИ (плашка неудачного пуска) — false */
   has_claude: boolean;
+  has_qwen?: boolean;
+  /** Статус заключения и кто его пишет (cg-analytics v5.1.19) */
+  conclusion_status?: ConclusionStatus | null;
+  conclusion_by?: "ai" | "system" | null;
+  /** Неудачная попытка пуска (стоп-исход) и неподтверждённый выход из стопа */
+  attempt?: AttemptInfo | null;
+  attempt_pending?: boolean;
   /** По сегменту построен акт аварийного останова (cg-analytics v4.9.70+).
    *  Сам акт тяжёлый — в календарь приходит только признак, тело в детали */
   has_incident?: boolean;
 }
 
 export interface SegmentAnalysis {
-  status: "pending" | "processing" | "done" | "error" | null;
+  status: ConclusionStatus | null;
+  /** Кто написал: ai — модель, system — факты без ИИ (cg-analytics v5.1.19) */
+  by?: "ai" | "system" | null;
+  /** Почему не требуется (status = skipped, cg-analytics v5.2.2) */
+  reason?: string | null;
   conclusion_md: string | null;
   humanized_md: string | null;
   created_at: string | null;
@@ -284,10 +317,8 @@ export function useSegmentDetail(segId: number | null) {
     queryFn: () => apiFetch<SegmentDetail>(`/api/analytics/segment/${segId}`),
     enabled: segId != null,
     retry: false,
-    refetchInterval: (query) => {
-      const status = query.state.data?.analysis?.status;
-      return status === "pending" || status === "processing" ? 10_000 : false;
-    },
+    refetchInterval: (query) =>
+      conclusionInProgress(query.state.data?.analysis?.status) ? 10_000 : false,
   });
 }
 

@@ -85,14 +85,24 @@ const COKING_META = {
   YELLOW: {
     text: "text-amber-500",
     bg: "bg-amber-500/10",
-    hint: "Риск закоксовки форсунок: повышенный",
+    level: "повышенный",
   },
   RED: {
     text: "text-red-500",
     bg: "bg-red-500/10",
-    hint: "Риск закоксовки форсунок: высокий",
+    level: "высокий",
   },
 } as const;
+
+/** Хвост строки состояния без режима: режим и время уже на плашке под лампами.
+ *  «Работа 3ч 12м — параметры в норме.» → «параметры в норме.»; подпись режима
+ *  сама может содержать « — » («Работа — ждём подтверждения»), поэтому режем
+ *  после неё, а не по первому тире */
+function stateTail(text: string, mode: string | null): string {
+  const from = mode && text.startsWith(mode) ? mode.length : 0;
+  const i = text.indexOf(" — ", from);
+  return i >= 0 ? text.slice(i + 3) : text;
+}
 
 const PENDING_TEXT = "Наблюдение запущено, ожидание первой сводки…";
 
@@ -132,23 +142,39 @@ export default function AnalyticsStrip({
     analytics.coking_risk === "YELLOW" || analytics.coking_risk === "RED"
       ? COKING_META[analytics.coking_risk]
       : null;
+  // Нагар копится в работе, а опасен при следующем пуске: у стоящей машины — «перед пуском»
+  const cokingHint =
+    coking &&
+    (analytics.run_state === 0
+      ? `Риск нагара перед пуском: ${coking.level}`
+      : `Риск нагара: ${coking.level}`);
   const time = analytics.status_updated
     ? formatRelativeTime(new Date(analytics.status_updated))
     : null;
-  // Текст в строке — только при активной тревоге (фолбэк на status_text для старого API);
-  // «ожидание первой сводки» — пока движок ещё ничего не прислал
+  // При тревоге — её текст (фолбэк на status_text для старого API); при норме —
+  // состояние без режима: «параметры в норме», след гейта, нагар перед пуском.
+  // «Ожидание первой сводки» — пока движок ещё ничего не прислал
   const alarmText =
     severity !== "норма"
       ? analytics.alarm_text ?? analytics.status_text
-      : analytics.status_text == null && analytics.mode_label == null
-        ? PENDING_TEXT
-        : null;
+      : analytics.status_text != null
+        ? stateTail(analytics.status_text, analytics.mode_label)
+        : analytics.mode_label == null
+          ? PENDING_TEXT
+          : null;
   const alarmClass =
     severity !== "норма" ? meta.text : "text-muted-foreground/70";
 
-  // Активные ошибки warning и выше — крутим по одной снизу-вверх, полный список в тултипе
+  // Активные сигналы панели warning и выше — крутим по одной снизу-вверх, полный
+  // список в тултипе. Срабатывания аналитики и снятые гейтом сюда не идут: их
+  // вердикт — в строке состояния и пилюле гейта (решение владельца 13.10.2026)
   const activeAlarms: ActiveAlarm[] = (analytics.active_alarms ?? [])
-    .filter((a) => (ALARM_RANK[a.severity ?? ""] ?? 0) >= 3)
+    .filter(
+      (a) =>
+        a.source === "panel" &&
+        !a.gate_suppressed &&
+        (ALARM_RANK[a.severity ?? ""] ?? 0) >= 3,
+    )
     .sort((a, b) => (ALARM_RANK[b.severity ?? ""] ?? 0) - (ALARM_RANK[a.severity ?? ""] ?? 0));
   const [rotIdx, setRotIdx] = useState(0);
   useEffect(() => {
@@ -193,7 +219,7 @@ export default function AnalyticsStrip({
           </span>
           {!compact && (
             <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              ИИ-аналитика
+              Состояние
             </span>
           )}
           <span className="min-w-0 flex-1 truncate text-[11.5px] leading-snug text-muted-foreground">
@@ -219,7 +245,7 @@ export default function AnalyticsStrip({
         </span>
       </TooltipTrigger>
       <TooltipContent>
-        <p>{coking.hint}</p>
+        <p>{cokingHint}</p>
       </TooltipContent>
     </Tooltip>
   );
@@ -366,7 +392,7 @@ export default function AnalyticsStrip({
           <RobotMoodIcon severity={severity} className={`h-8 w-8 ${meta.text}`} />
         </span>
         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          ИИ-аналитика
+          Состояние
         </span>
         {gatePill}
         <span className="flex shrink-0 items-center gap-1.5">

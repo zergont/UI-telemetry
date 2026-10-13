@@ -16,6 +16,7 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FileWarning,
   ListOrdered,
   Loader2,
@@ -33,6 +34,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  conclusionInProgress,
   useMachineSegments,
   useSegmentDetail,
   type EventSummaryRow,
@@ -110,6 +112,9 @@ const SEVERITY_META: Record<string, { label: string; badge: string; border: stri
     border: "border-l-emerald-500",
   },
 };
+
+/** Неподтверждённый выход из стопа: ещё не работа, но и не стоп (cg-analytics v5.1.16) */
+const PENDING_TINT = "bg-slate-500/10 hover:bg-slate-500/20";
 
 /** Заливка плашки по режиму работы (run_state); состояние подписано на самой плашке */
 const RUN_STATE_TINT: Record<number, string> = {
@@ -415,11 +420,22 @@ export default memo(function AnalyticsCalendarDialog({
                                 // Пустой сегмент (полный обрыв связи): штриховка вместо
                                 // заливки по run_state — режим там лишь последний известный
                                 const noData = !!seg.no_data;
+                                // Выход из стопа ещё не подтверждён — это ещё не
+                                // работа: нейтральная заливка, а не зелёная
                                 const tint = noData
                                   ? "bg-muted/50 hover:bg-muted/80"
-                                  : ((seg.run_state != null
-                                      ? RUN_STATE_TINT[seg.run_state]
-                                      : undefined) ?? "bg-accent/40 hover:bg-accent");
+                                  : seg.attempt_pending
+                                    ? PENDING_TINT
+                                    : ((seg.run_state != null
+                                        ? RUN_STATE_TINT[seg.run_state]
+                                        : undefined) ?? "bg-accent/40 hover:bg-accent");
+                                const label = noData
+                                  ? "Нет связи"
+                                  : (seg.run_state_label ?? "—");
+                                const dur =
+                                  seg.duration_sec != null
+                                    ? formatDuration(seg.duration_sec)
+                                    : null;
                                 // Отменённое гейтом срабатывание: жёлтый пунктир
                                 // вместо сплошной кромки. Но вердикт гейта
                                 // касается только аналитики и не может
@@ -438,6 +454,7 @@ export default memo(function AnalyticsCalendarDialog({
                                   <button
                                     key={seg.id}
                                     onClick={() => setSegId(seg.id)}
+                                    title={dur ? `${label} (${dur})` : label}
                                     style={noData ? NO_DATA_HATCH : undefined}
                                     className={`block w-full rounded-r-md border-l-4 px-2 py-1.5 text-left transition-colors ${tint} ${sevBorder}`}
                                   >
@@ -454,7 +471,9 @@ export default memo(function AnalyticsCalendarDialog({
                                           <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
                                         )}
                                         {seg.is_open ? (
-                                          <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                                          <span
+                                            className={`h-2 w-2 animate-pulse rounded-full ${seg.attempt_pending ? "bg-slate-400" : "bg-blue-500"}`}
+                                          />
                                         ) : (
                                           seg.has_claude && (
                                             <Bot className="h-3.5 w-3.5 text-primary/70" />
@@ -469,10 +488,11 @@ export default memo(function AnalyticsCalendarDialog({
                                           Нет связи
                                         </span>
                                       ) : (
-                                        seg.run_state_label ?? "—"
+                                        label
                                       )}
-                                      {seg.duration_sec != null &&
-                                        ` · ${formatDuration(seg.duration_sec)}`}
+                                      {/* В скобках: в подписи попытки уже есть « · »
+                                          («Неудачная работа · Авария») */}
+                                      {dur && ` (${dur})`}
                                     </span>
                                   </button>
                                 );
@@ -555,6 +575,8 @@ function SegmentDetailView({
   const { data: seg, isLoading, isError } = useSegmentDetail(segId);
   const meta = SEVERITY_META[severityKey(seg?.severity ?? null)];
   const analysisStatus = seg?.analysis?.status;
+  const inProgress = conclusionInProgress(analysisStatus);
+  const bySystem = seg?.analysis?.by === "system";
 
   return (
     <motion.div
@@ -668,6 +690,9 @@ function SegmentDetailView({
             </div>
             {seg.is_open && seg.status_text && (
               <p className="mt-2 text-xs leading-relaxed text-foreground/75">
+                <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Состояние:
+                </span>
                 {seg.status_text}
               </p>
             )}
@@ -721,18 +746,41 @@ function SegmentDetailView({
             />
           )}
 
-          {/* Заключение ИИ */}
+          {/* Заключение: ИИ или факты без ИИ (плашка неудачного пуска) */}
           <section className="rounded-xl border border-border/60 bg-accent/30 p-4">
             <h4 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <Bot className="h-3.5 w-3.5 text-primary/70" />
-              Заключение ИИ
+              {bySystem ? (
+                <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <Bot className="h-3.5 w-3.5 text-primary/70" />
+              )}
+              {bySystem ? "Заключение (без ИИ)" : "Заключение ИИ"}
             </h4>
             {seg.analysis?.conclusion_md ? (
-              <MarkdownView colorizeSeverity>{seg.analysis.conclusion_md}</MarkdownView>
-            ) : analysisStatus === "pending" || analysisStatus === "processing" ? (
+              <>
+                {/* Заказано заново (сменился вердикт): прежний текст
+                    остаётся до готовности нового — помечаем как устаревший */}
+                {inProgress && (
+                  <p className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Обновляется — ниже прежнее заключение
+                  </p>
+                )}
+                <div className={inProgress ? "opacity-60" : undefined}>
+                  <MarkdownView colorizeSeverity>{seg.analysis.conclusion_md}</MarkdownView>
+                </div>
+              </>
+            ) : inProgress ? (
               <p className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Заключение готовится…
+                {analysisStatus === "processing"
+                  ? "Заключение готовится…"
+                  : "Заключение в очереди…"}
+              </p>
+            ) : analysisStatus === "skipped" ? (
+              <p className="text-xs text-muted-foreground">
+                Заключение ИИ не требуется
+                {seg.analysis?.reason ? `: ${seg.analysis.reason}` : "."}
               </p>
             ) : analysisStatus === "error" ? (
               <p className="text-xs text-muted-foreground">
@@ -744,11 +792,11 @@ function SegmentDetailView({
               </p>
             ) : seg.is_open ? (
               <p className="text-xs text-muted-foreground">
-                Финальный отчёт будет сформирован после закрытия сегмента.
+                Заключение появится после закрытия сегмента.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Анализ для этого сегмента не запускался.
+                Заключение для этого сегмента не заказывалось.
               </p>
             )}
           </section>

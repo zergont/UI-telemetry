@@ -24,6 +24,9 @@ const TINT: Record<number, { icon: string; label: string }> = {
   6: { icon: "text-sky-400", label: "text-sky-300" },
 };
 
+/** Неподтверждённый выход из стопа: нейтрально, с пульсом */
+const PENDING_TINT = { icon: "text-slate-400", label: "text-slate-300" };
+
 function formatInMode(sec: number): string {
   const s = Math.floor(sec);
   const h = Math.floor(s / 3600);
@@ -43,23 +46,26 @@ export default function ModePlaque({ analytics, size = "md" }: Props) {
   const label = analytics?.run_state_label ?? analytics?.mode_label;
   if (!analytics || !label) return null;
 
-  const tint =
-    (analytics.run_state != null ? TINT[analytics.run_state] : undefined) ?? {
-      icon: "text-muted-foreground",
-      label: "text-foreground/80",
-    };
+  // Выход из стопа ещё не подтверждён — не красим как работу (cg-analytics v5.1.16)
+  const pending = !!analytics.attempt_pending;
+  const tint = pending
+    ? PENDING_TINT
+    : ((analytics.run_state != null ? TINT[analytics.run_state] : undefined) ?? {
+        icon: "text-muted-foreground",
+        label: "text-foreground/80",
+      });
   const text = size === "md" ? "text-[11px]" : "text-[10px]";
   const pad = size === "md" ? "px-3 py-1" : "px-2 py-0.5";
 
   return (
     <div
-      className={`flex items-center justify-center gap-1.5 ${pad} ${PANEL_BOX}`}
-      title="Режим работы и время в режиме (по данным аналитики)"
+      className={`flex min-w-0 max-w-full items-center justify-center gap-1.5 ${pad} ${PANEL_BOX}`}
+      title={`${label} — режим работы и время в режиме (по данным аналитики)`}
     >
-      <Cog className={`h-3.5 w-3.5 ${tint.icon}`} />
-      <span className={`${text} font-medium ${tint.label}`}>{label}</span>
+      <Cog className={`h-3.5 w-3.5 shrink-0 ${tint.icon} ${pending ? "animate-pulse" : ""}`} />
+      <span className={`${text} min-w-0 truncate font-medium ${tint.label}`}>{label}</span>
       {analytics.time_in_mode_sec != null && analytics.time_in_mode_sec > 60 && (
-        <span className={`${text} text-muted-foreground`}>
+        <span className={`${text} shrink-0 text-muted-foreground`}>
           · {formatInMode(analytics.time_in_mode_sec)}
         </span>
       )}
