@@ -11,7 +11,13 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Flame, CalendarDays, ShieldCheck, WifiOff } from "lucide-react";
+import {
+  Flame,
+  CalendarDays,
+  RefreshCwOff,
+  ShieldCheck,
+  WifiOff,
+} from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -20,6 +26,7 @@ import {
 import { formatDuration, formatRelativeTime } from "@/lib/format";
 import type {
   ActiveAlarm,
+  AnalyticsStaleKind,
   MachineAnalytics,
   SeverityLevel,
 } from "@/hooks/use-analytics";
@@ -112,13 +119,16 @@ interface Props {
   onOpenCalendar?: () => void;
   /** Однострочный режим для карточки «минимал» */
   compact?: boolean;
-  /** Связи нет (data_stale или панель offline): живой статус скрываем —
-   *  «норма от ИИ» без данных подрывает доверие, — но строка остаётся
+  /** Живой статус скрыт (панель offline, data_stale или analytics_stale):
+   *  «норма от ИИ» без свежего анализа подрывает доверие, — но строка остаётся
    *  входом в ретроспективу (история/календарь доступны всегда) */
   stale?: boolean;
+  /** Почему скрыт: link — «Нет связи — данные на …», analytics — «Аналитика
+   *  не обновляется N мин» (панель на связи, cg-analytics v5.1.24) */
+  staleKind?: AnalyticsStaleKind;
 }
 
-/** «дд.мм, чч:мм» для метки последних данных при обрыве связи */
+/** «дд.мм, чч:мм» для метки последних данных или последнего анализа */
 function staleTs(iso: string | null): string | null {
   if (!iso) return null;
   return new Date(iso).toLocaleString("ru-RU", {
@@ -129,12 +139,74 @@ function staleTs(iso: string | null): string | null {
   });
 }
 
+/** «Аналитика не обновляется 7 мин»; от часа — «… с 17.10, 13:40»: длительность
+ *  в сутках читается хуже момента. Лаг считает сервер по своим часам — часы
+ *  браузера не участвуют, поэтому число обновляется вместе с /machines (15 с) */
+function analyticsStuckText(a: MachineAnalytics): string {
+  const lag = a.analytics_lag_sec;
+  if (lag == null || lag < 60) return "Аналитика не обновляется";
+  if (lag < 3600) return `Аналитика не обновляется ${formatDuration(lag)}`;
+  const ts = staleTs(a.analytics_updated_at ?? null);
+  return ts
+    ? `Аналитика не обновляется с ${ts}`
+    : `Аналитика не обновляется ${formatDuration(lag)}`;
+}
+
+/** Что с движком — по engine_state; «сторож перезапускает» — только если он
+ *  это действительно сделает (engine_auto_restart): выключенный сторож и
+ *  машина вне надзора (нужен ПУСК) его не перезапускают */
+function engineStateText(a: MachineAnalytics): string {
+  const what: Record<string, string> = {
+    stalled: "Движок завис",
+    zombie: "Прежняя задача движка не завершилась после отмены",
+    restart_limit: "Исчерпан лимит перезапусков движка",
+    not_started: "Старт движка не удался",
+  };
+  if (a.engine_state === "needs_start") {
+    return "Движок не запущен — нужен ПУСК в cg-analytics.";
+  }
+  const base = (a.engine_state && what[a.engine_state]) || "Движок завис или не запущен";
+  if (a.engine_auto_restart === true) {
+    return a.engine_state === "restart_limit"
+      ? `${base} — сторож поднимет его позже.`
+      : `${base} — сторож перезапускает его.`;
+  }
+  if (a.engine_auto_restart === false) {
+    return `${base} — сторож его не перезапускает.`;
+  }
+  return `${base}.`;
+}
+
+/** Подсказка: чем «не обновляется» отличается от «нет связи», и что сторож */
+function analyticsStuckHint(a: MachineAnalytics): string {
+  const parts = [
+    "Движок аналитики не обработал свежие данные — живой статус скрыт. Связь с панелью есть.",
+  ];
+  if (a.engine_stalled) {
+    parts.push(engineStateText(a));
+    if (a.engine_down_reason) {
+      parts.push(`Причина: ${a.engine_down_reason.replace(/\.+$/, "")}.`);
+    }
+  }
+  const restarts = a.engine_restarts ?? 0;
+  if (restarts > 0) {
+    const last = a.last_engine_restart;
+    const when = staleTs(last?.ts ?? null);
+    const lastText = when
+      ? ` (последний ${when}${last?.reason ? ` — ${last.reason}` : ""})`
+      : "";
+    parts.push(`Перезапусков сторожем: ${restarts}${lastText}.`);
+  }
+  return parts.join(" ");
+}
+
 /** Нижняя строка карточки ДГУ: живая сводка ИИ-аналитики из cg-analytics. */
 export default function AnalyticsStrip({
   analytics,
   onOpenCalendar,
   compact = false,
   stale = false,
+  staleKind = "link",
 }: Props) {
   const severity = analytics.severity_level ?? "норма";
   const meta = SEVERITY_META[severity] ?? SEVERITY_META["норма"];
@@ -202,10 +274,18 @@ export default function AnalyticsStrip({
       }
     : {};
 
-  // Обрыв связи: вместо живого статуса — «нет связи с …», вход в историю остаётся.
+  // Живой статус скрыт: вместо него — почему («нет связи с …» или «аналитика не
+  // обновляется»), вход в историю остаётся.
   // После хуков: rules-of-hooks не позволяют ранний return до useState/useEffect.
   if (stale) {
+    const stuck = staleKind === "analytics";
+    const StaleIcon = stuck ? RefreshCwOff : WifiOff;
     const ts = staleTs(analytics.last_data_ts);
+    const staleText = stuck
+      ? analyticsStuckText(analytics)
+      : ts
+        ? `Нет связи — данные на ${ts}`
+        : "Нет связи — данных нет";
     return (
       <div
         className={`group/strip ${compact ? "mt-2.5 pt-2" : "mt-3.5 pt-2.5"} border-t border-border/60 px-6 ${clickable}`}
@@ -215,15 +295,18 @@ export default function AnalyticsStrip({
           <span
             className={`flex ${compact ? "h-7 w-7" : "h-10 w-10"} shrink-0 items-center justify-center rounded-full bg-muted`}
           >
-            <WifiOff className={`${compact ? "h-4 w-4" : "h-5 w-5"} text-muted-foreground`} />
+            <StaleIcon className={`${compact ? "h-4 w-4" : "h-5 w-5"} text-muted-foreground`} />
           </span>
           {!compact && (
             <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Состояние
             </span>
           )}
-          <span className="min-w-0 flex-1 truncate text-[11.5px] leading-snug text-muted-foreground">
-            {ts ? `Нет связи — данные на ${ts}` : "Нет связи — данных нет"}
+          <span
+            className="min-w-0 flex-1 truncate text-[11.5px] leading-snug text-muted-foreground"
+            title={stuck ? analyticsStuckHint(analytics) : undefined}
+          >
+            {staleText}
           </span>
           {onOpenCalendar && (
             <CalendarDays

@@ -20,6 +20,7 @@ import {
   FileWarning,
   ListOrdered,
   Loader2,
+  RefreshCwOff,
   ShieldCheck,
   WifiOff,
   X,
@@ -37,6 +38,7 @@ import {
   conclusionInProgress,
   useMachineSegments,
   useSegmentDetail,
+  type AnalyticsStaleKind,
   type EventSummaryRow,
   type SegmentChronology,
   type SegmentOut,
@@ -161,11 +163,16 @@ interface Props {
   equipType: string;
   panelId: number;
   displayName: string;
-  /** Живой обрыв связи (data_stale /machines или панель offline): сегодняшняя
-   *  ячейка помечается «нет связи». Примитив — memo не ломает. */
+  /** Живой статус скрыт (панель offline, data_stale или analytics_stale
+   *  /machines): сегодняшняя ячейка помечается «нет связи» или «аналитика не
+   *  обновляется». Примитив — memo не ломает. */
   dataStale?: boolean;
-  /** Метка последних данных для подписи «нет связи с …». Вызывающие передают
-   *  её ТОЛЬКО при dataStale (иначе null): при живой связи ts обновляется
+  /** Почему скрыт: link — нет связи, analytics — не обновляется аналитика
+   *  (cg-analytics v5.1.24). Примитив — memo не ломает. */
+  staleKind?: AnalyticsStaleKind;
+  /** Метка для подписи «… с дд.мм, чч:мм»: last_data_ts при обрыве связи,
+   *  analytics_updated_at — когда не обновляется аналитика. Вызывающие передают
+   *  её ТОЛЬКО при dataStale (иначе null): при живом статусе ts обновляется
    *  каждые 15 с и каждый раз обнулял бы memo. */
   lastDataTs?: string | null;
 }
@@ -186,6 +193,7 @@ export default memo(function AnalyticsCalendarDialog({
   panelId,
   displayName,
   dataStale = false,
+  staleKind = "link",
   lastDataTs = null,
 }: Props) {
   const now = new Date();
@@ -263,9 +271,11 @@ export default memo(function AnalyticsCalendarDialog({
   const isCurrentMonth =
     year === now.getFullYear() && month === now.getMonth() + 1;
 
-  // Живой обрыв: подпись для сегодняшней ячейки («нет связи с дд.мм, чч:мм»)
+  // Живой статус скрыт: подпись для сегодняшней ячейки («нет связи с дд.мм,
+  // чч:мм» или «аналитика не обновляется с дд.мм, чч:мм»)
+  const StaleIcon = staleKind === "analytics" ? RefreshCwOff : WifiOff;
   const staleLabel = dataStale
-    ? `нет связи${
+    ? `${staleKind === "analytics" ? "аналитика не обновляется" : "нет связи"}${
         lastDataTs
           ? ` с ${new Date(lastDataTs).toLocaleString("ru-RU", {
               day: "2-digit",
@@ -408,8 +418,10 @@ export default memo(function AnalyticsCalendarDialog({
                           </div>
                           {isToday && staleLabel && (
                             <div className="mb-1 flex items-center gap-1 px-1 text-[10px] leading-tight text-muted-foreground">
-                              <WifiOff className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{staleLabel}</span>
+                              <StaleIcon className="h-3 w-3 shrink-0" />
+                              <span className="truncate" title={staleLabel}>
+                                {staleLabel}
+                              </span>
                             </div>
                           )}
                           {isLoading && !segments ? (

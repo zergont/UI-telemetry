@@ -44,7 +44,8 @@ export interface MachineAnalytics {
   /** Состояние движка мониторинга cg-analytics (ПУСК/СТОП ОНЛАЙН), НЕ режим
    *  машины и не связь — меняется только вручную оператором cg-analytics,
    *  практически всегда "running". Для режима машины см. run_state,
-   *  для свежести данных — data_stale. (было `status` до cg-analytics v4.9.53) */
+   *  для свежести данных — data_stale и analytics_stale (см. analyticsLiveView).
+   *  (было `status` до cg-analytics v4.9.53) */
   monitoring_status: "running" | "stopped";
   run_state: number | null;
   run_state_label: string | null;
@@ -74,6 +75,104 @@ export interface MachineAnalytics {
   attempt?: AttemptInfo | null;
   /** Выход из стопа ещё не подтверждён: «Работа — ждём подтверждения», не работа */
   attempt_pending?: boolean;
+  // ── Надзор за движком (cg-analytics v5.1.24). Со старым бэкендом полей нет —
+  //    поведение прежнее (analyticsLiveView считает их отсутствие за «всё хорошо»)
+  /** Когда движок последний раз обновил живой анализ (ISO). Переживает
+   *  перезапуск движка сторожем; null — наблюдение остановлено или движка не
+   *  было с запуска сервиса (старт упал, нет привязки KB) */
+  analytics_updated_at?: string | null;
+  /** Сколько секунд живой анализ не обновлялся (считает сервер, по своим часам);
+   *  null — наблюдение остановлено или движок ещё ни разу не отработал */
+  analytics_lag_sec?: number | null;
+  /** Аналитика не обновляется: живой статус не текущий по вине аналитики
+   *  (движок завис, циклы падают, БД телеметрии недоступна), хотя панель может
+   *  быть на связи. При true значение data_stale недостоверно: last_data_ts
+   *  пишет сам движок */
+  analytics_stale?: boolean;
+  /** Сторож признал движок зависшим (нет продвижения, не завершился после
+   *  отмены, исчерпан лимит перезапусков) или движка нет при running */
+  engine_stalled?: boolean;
+  /** Состояние движка (из него — engine_stalled); подробно — ui_api_guide §1.2 */
+  engine_state?: EngineState;
+  /** Сторож поднимет зависший или упавший движок сам. false — сторож выключен,
+   *  машина вне надзора (needs_start — нужен ПУСК) или сторож сознательно не
+   *  трогает движок. Текст «сторож перезапускает» — только при true */
+  engine_auto_restart?: boolean;
+  /** Почему движка нет или он не работает («ПУСК не выполнен: …», …) */
+  engine_down_reason?: string | null;
+  /** Перезапусков движка сторожем с запуска сервиса cg-analytics */
+  engine_restarts?: number;
+  /** Последний перезапуск движка сторожем */
+  last_engine_restart?: EngineRestart | null;
+}
+
+/** Состояние движка cg-analytics (v5.1.24): running — работает; restarting —
+ *  идёт ПУСК или перезапуск; stalled — завис; zombie — старая задача не
+ *  завершилась после отмены; restart_limit — лимит перезапусков исчерпан;
+ *  not_started — старт упал; needs_start — вне надзора, нужен ПУСК; stopped */
+export type EngineState =
+  | "running"
+  | "restarting"
+  | "stalled"
+  | "zombie"
+  | "restart_limit"
+  | "not_started"
+  | "needs_start"
+  | "stopped";
+
+/** Перезапуск движка сторожем cg-analytics (v5.1.24) */
+export interface EngineRestart {
+  ts: string | null;
+  reason: string | null;
+}
+
+/** Почему живой статус скрыт: link — нет связи (панель offline или телеметрия
+ *  аналитики устарела, data_stale); analytics — движок аналитики не обновляет
+ *  живой анализ (analytics_stale), а панель на связи */
+export type AnalyticsStaleKind = "link" | "analytics";
+
+export interface AnalyticsLiveView {
+  /** Живой статус — только когда ему можно верить, иначе undefined */
+  analytics: MachineAnalytics | undefined;
+  /** Аналитика машины есть, но живой статус скрыт */
+  stale: boolean;
+  staleKind: AnalyticsStaleKind;
+  /** Метка для подписи «… с дд.мм, чч:мм»: last_data_ts при обрыве связи,
+   *  analytics_updated_at — когда не обновляется аналитика. Только при stale
+   *  (иначе null): при живом статусе метки сдвигаются каждые 15 с и обнуляли
+   *  бы memo диалога-календаря */
+  staleSince: string | null;
+}
+
+/**
+ * Живой статус аналитики для карточки и страницы ДГУ. «Норма от ИИ» без
+ * свежего анализа подрывает доверие, поэтому живой статус скрывается, а строка
+ * говорит почему:
+ *   панель offline                                → «Нет связи — данные на …»
+ *   панель на связи, analytics_stale              → «Аналитика не обновляется N мин»
+ *   панель на связи, data_stale, !analytics_stale → «Нет связи — данные на …»
+ * История и календарь ретроспективны — вход в них остаётся всегда.
+ */
+export function analyticsLiveView(
+  raw: MachineAnalytics | undefined,
+  panelFresh: boolean,
+): AnalyticsLiveView {
+  const stuck = raw?.analytics_stale === true;
+  const analytics =
+    raw && panelFresh && !raw.data_stale && !stuck ? raw : undefined;
+  if (!raw || analytics) {
+    return { analytics, stale: false, staleKind: "link", staleSince: null };
+  }
+  // Панель offline — это обрыв связи, что бы ни говорила аналитика
+  if (panelFresh && stuck) {
+    return {
+      analytics,
+      stale: true,
+      staleKind: "analytics",
+      staleSince: raw.analytics_updated_at ?? null,
+    };
+  }
+  return { analytics, stale: true, staleKind: "link", staleSince: raw.last_data_ts };
 }
 
 /** Неудачная попытка выхода из стопа (cg-analytics v5.1.16): плашка — стоп

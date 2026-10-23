@@ -15,7 +15,7 @@ import { motion } from "framer-motion";
 import { Wifi, WifiOff, Gauge, Activity } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { EquipmentOut } from "@/hooks/use-equipment";
-import { useMachineAnalytics } from "@/hooks/use-analytics";
+import { analyticsLiveView, useMachineAnalytics } from "@/hooks/use-analytics";
 import { formatRelativeTime } from "@/lib/format";
 import { CARD_ACCENT } from "./panel/severityAccent";
 import AnalyticsStrip from "./AnalyticsStrip";
@@ -110,12 +110,17 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
 
   // ИИ-аналитика из cg-analytics (undefined — сервис недоступен или машина не наблюдается)
   const analyticsRaw = useMachineAnalytics(eq.router_sn, eq.equip_type, eq.panel_id);
-  // Панель offline или телеметрия аналитики устарела (data_stale) → живой статус
-  // скрываем: «норма от ИИ» без данных подрывает доверие. Строка деградирует до
-  // «нет связи», но история и календарь ретроспективны — вход остаётся всегда.
-  const analytics =
-    analyticsRaw && panelFresh && !analyticsRaw.data_stale ? analyticsRaw : undefined;
-  const analyticsStale = analyticsRaw != null && analytics == null;
+  // Панель offline, телеметрия аналитики устарела (data_stale) или сама аналитика
+  // не обновляется (analytics_stale) → живой статус скрываем: «норма от ИИ» без
+  // свежего анализа подрывает доверие. Строка деградирует до «нет связи» или
+  // «аналитика не обновляется», но история и календарь ретроспективны — вход
+  // остаётся всегда.
+  const {
+    analytics,
+    stale: analyticsStale,
+    staleKind,
+    staleSince,
+  } = analyticsLiveView(analyticsRaw, panelFresh);
   const accent = analytics
     ? CARD_ACCENT[analytics.severity_level ?? "норма"] ?? CARD_ACCENT["норма"]
     : null;
@@ -306,14 +311,15 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
           <AnalyticsStrip
             analytics={analyticsRaw}
             stale={analyticsStale}
+            staleKind={staleKind}
             compact={variant === "minimal"}
             onOpenCalendar={() => setCalendarOpen(true)}
           />
         )}
       </Card>
       {/* Диалог вне Card: клики из портала не должны всплывать в onClick карточки.
-          lastDataTs — только при обрыве: при живой связи ts тикает каждые 15с
-          и обнулил бы memo диалога */}
+          lastDataTs — только когда живой статус скрыт: иначе ts тикает каждые
+          15с и обнулил бы memo диалога */}
       {analyticsRaw && (
         <AnalyticsCalendarDialog
           open={calendarOpen}
@@ -323,7 +329,8 @@ export default function DguCard({ equipment: eq, variant = "normal" }: Props) {
           panelId={analyticsRaw.panel_id}
           displayName={displayName}
           dataStale={analyticsStale}
-          lastDataTs={analyticsStale ? analyticsRaw.last_data_ts : null}
+          staleKind={staleKind}
+          lastDataTs={staleSince}
         />
       )}
     </motion.div>
