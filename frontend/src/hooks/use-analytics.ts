@@ -213,6 +213,16 @@ export type SegmentSeverity =
   | "ALARM" | "INFO"
   | null;
 
+/** Готовность разбора совета по акту аварийного останова (cg-analytics v5.1.25,
+ *  решение В-25.2): ready — разбор готов; pending — разбор в работе; failed —
+ *  разбора не будет (терминальная отметка или вышли все сроки, 72 ч); none —
+ *  акта нет */
+export type IncidentAnalysisState = "ready" | "pending" | "failed" | "none";
+
+/** Почему разбора совета нет (только при failed, cg-analytics v5.1.25):
+ *  не заказывался / совет не ответил / снят на шлюзе / получен, но не записан */
+export type IncidentAnalysisReason = "not_ordered" | "no_answer" | "removed" | "save_failed";
+
 export interface SegmentOut {
   id: number;
   t_start: string | null;
@@ -249,6 +259,12 @@ export interface SegmentOut {
   /** По сегменту построен акт аварийного останова (cg-analytics v4.9.70+).
    *  Сам акт тяжёлый — в календарь приходит только признак, тело в детали */
   has_incident?: boolean;
+  /** Значок акта — по готовности разбора совета (cg-analytics v5.1.25): красный
+   *  только при ready, серый «акт без разбора совета» при failed, при pending
+   *  значка нет. null или поля нет (старый сервер, состояние не прочитано) —
+   *  значок как раньше, по has_incident */
+  incident_analysis?: IncidentAnalysisState | null;
+  incident_analysis_reason?: IncidentAnalysisReason | null;
 }
 
 export interface SegmentAnalysis {

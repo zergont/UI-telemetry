@@ -40,6 +40,8 @@ import {
   useSegmentDetail,
   type AnalyticsStaleKind,
   type EventSummaryRow,
+  type IncidentAnalysisReason,
+  type IncidentAnalysisState,
   type SegmentChronology,
   type SegmentOut,
   type SegmentSeverity,
@@ -132,6 +134,31 @@ const RUN_STATE_TINT: Record<number, string> = {
 function severityKey(sev: SegmentSeverity): string {
   return sev != null && sev in SEVERITY_META ? sev : "NORM";
 }
+
+/** Значок акта аварийного останова — по готовности разбора совета
+ *  (cg-analytics v5.1.25, решение В-25.2): red — разбор готов; gray — акт без
+ *  разбора совета (разбора не будет); null — значка нет (разбор в работе или
+ *  акта нет). Поля нет или null (старый сервер, состояние не прочитано) — как
+ *  раньше, по has_incident. Сам акт открывается всегда */
+function incidentBadge(seg: SegmentOut): "red" | "gray" | null {
+  const st = seg.incident_analysis;
+  if (st == null) return seg.has_incident ? "red" : null;
+  if (st === "ready") return "red";
+  if (st === "failed") return "gray";
+  return null;
+}
+
+/** Подпись серого значка и легенды (решение В-25.2) */
+const INCIDENT_NO_ANALYSIS = "акт без разбора совета";
+
+/** Почему разбора совета нет — текст в блоке акта (cg-analytics v5.1.25):
+ *  у акта без заказа «совет не ответил» было бы неправдой */
+const INCIDENT_FAILED_TEXT: Record<IncidentAnalysisReason, string> = {
+  not_ordered: "Разбор совета не заказывался",
+  no_answer: "Совет не ответил — разбор не получен",
+  removed: "Разбор совета снят на шлюзе",
+  save_failed: "Разбор совета получен, но не записан",
+};
 
 /** Штриховка «нет связи» — нейтральная к теме (полупрозрачный серый поверх bg) */
 const NO_DATA_HATCH: React.CSSProperties = {
@@ -462,6 +489,9 @@ export default memo(function AnalyticsCalendarDialog({
                                   : seg.gate_checked && !panelLoud
                                     ? "border-dashed border-l-yellow-400"
                                     : SEVERITY_META[severityKey(seg.severity)].border;
+                                // Значок акта — после разбора совета, а не сразу
+                                // с актом (16.10 он висел за час до ответа)
+                                const incBadge = incidentBadge(seg);
                                 return (
                                   <button
                                     key={seg.id}
@@ -476,8 +506,15 @@ export default memo(function AnalyticsCalendarDialog({
                                         {seg.is_open ? "сейчас" : timeHM(seg.t_end)}
                                       </span>
                                       <span className="flex shrink-0 items-center gap-1">
-                                        {seg.has_incident && (
-                                          <FileWarning className="h-3.5 w-3.5 text-red-600" />
+                                        {incBadge === "red" && (
+                                          <span title="разбор аварийного останова" className="inline-flex">
+                                            <FileWarning className="h-3.5 w-3.5 text-red-600" />
+                                          </span>
+                                        )}
+                                        {incBadge === "gray" && (
+                                          <span title={INCIDENT_NO_ANALYSIS} className="inline-flex">
+                                            <FileWarning className="h-3.5 w-3.5 text-muted-foreground" />
+                                          </span>
                                         )}
                                         {seg.gate_checked && !panelLoud && (
                                           <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
@@ -544,6 +581,9 @@ export default memo(function AnalyticsCalendarDialog({
                   </span>
                   <span className="flex items-center gap-1.5">
                     <FileWarning className="h-3.5 w-3.5 text-red-600" /> разбор аварийного останова
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <FileWarning className="h-3.5 w-3.5 text-muted-foreground" /> {INCIDENT_NO_ANALYSIS}
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Bot className="h-3.5 w-3.5" /> есть заключение ИИ
@@ -727,6 +767,8 @@ function SegmentDetailView({
               inc={seg.incident_json}
               analyses={seg.warning_analyses}
               fallbackMd={seg.warning_analysis_md}
+              analysisState={seg.incident_analysis}
+              analysisReason={seg.incident_analysis_reason}
             />
           )}
 
@@ -952,12 +994,18 @@ function StopIncidentSection({
   inc,
   analyses,
   fallbackMd,
+  analysisState,
+  analysisReason,
 }: {
   inc: StopIncident;
   /** Разбор от ИИ: у аварии его заказывает сам акт, поэтому он живёт здесь,
    *  а не в отдельном жёлтом блоке */
   analyses?: WarningAnalysis[] | null;
   fallbackMd?: string | null;
+  /** Готовность разбора совета и почему его нет (cg-analytics v5.1.25):
+   *  пока текста нет — «готовится» или причина; без поля — как раньше */
+  analysisState?: IncidentAnalysisState | null;
+  analysisReason?: IncidentAnalysisReason | null;
 }) {
   const [open, setOpen] = useState(false);
   const ch = inc.character;
@@ -967,9 +1015,23 @@ function StopIncidentSection({
   const summary = inc.summary ?? [];
 
   const items = (analyses ?? []).filter((a) => a?.md);
-  const texts = items.length
-    ? items.map((a) => a.md as string)
-    : fallbackMd
+  // Сервер говорит, готов ли разбор совета (incident_analysis, v5.1.25): тогда
+  // разбор совета в блоке — только записи fault_hash «incident:…» (ui_api_guide,
+  // «Что показывать»), прочие — разбор гейта (у актов до v5.1.11 — разбор аварии
+  // старым путём, #35492 20.09) — отдельно и с подписью, иначе серый значок
+  // «акт без разбора совета» спорит с блоком. Без поля (старый сервер) — как раньше
+  const byState = analysisState != null;
+  const isCouncil = (a: WarningAnalysis) => (a.fault_hash ?? "").startsWith("incident:");
+  const council = byState ? items.filter(isCouncil) : items;
+  const gateItems = byState ? items.filter((a) => !isCouncil(a)) : [];
+  const texts = council.length
+    ? council.map((a) => a.md as string)
+    : !byState && fallbackMd
+      ? [fallbackMd]
+      : [];
+  const gateTexts = gateItems.length
+    ? gateItems.map((a) => a.md as string)
+    : byState && !items.length && fallbackMd
       ? [fallbackMd]
       : [];
 
@@ -1009,6 +1071,37 @@ function StopIncidentSection({
             Анализ
           </p>
           {texts.map((md, i) => (
+            <MarkdownView key={i} colorizeSeverity>{md}</MarkdownView>
+          ))}
+        </div>
+      )}
+
+      {/* Разбора ещё нет: готовится или его не будет — с причиной. То же
+          говорит значок календаря (cg-analytics v5.1.25, решение В-25.2) */}
+      {texts.length === 0 && analysisState === "pending" && (
+        <p className="mt-3 flex items-center gap-2 border-t border-red-600/20 pt-3 text-[11px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Разбор совета готовится
+        </p>
+      )}
+      {texts.length === 0 && analysisState === "failed" && (
+        <p className="mt-3 flex items-center gap-2 border-t border-red-600/20 pt-3 text-[11px] text-muted-foreground">
+          <FileWarning className="h-3.5 w-3.5 shrink-0" />
+          {(analysisReason && INCIDENT_FAILED_TEXT[analysisReason]) || "Разбор совета не получен"}
+        </p>
+      )}
+
+      {/* Разбор гейта в момент события — не разбор совета: у старых актов
+          (до v5.1.11) аварию разбирал гейт, у новых — это разборы срабатываний */}
+      {gateTexts.length > 0 && (
+        <div className="mt-3 border-t border-red-600/20 pt-3">
+          <p className="mb-1 text-[11px] font-medium text-foreground/70">
+            Разбор гейта в момент события
+          </p>
+          <p className="mb-1 text-[11px] italic text-muted-foreground">
+            сформирован ИИ при срабатывании — не разбор совета по акту
+          </p>
+          {gateTexts.map((md, i) => (
             <MarkdownView key={i} colorizeSeverity>{md}</MarkdownView>
           ))}
         </div>
